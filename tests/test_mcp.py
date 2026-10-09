@@ -266,3 +266,36 @@ def test_flood_wait_is_reported_with_retry_after(client, tg):
     ]
     r = client.post("/api/send", json={"post": BLOCKS_POST})
     assert r.status_code == 502 and r.json()["retry_after"] == 300
+
+
+def test_agent_sends_the_post_json_once_and_then_works_by_draft_id(client, tg):
+    _, d, _ = call(client, "save_draft", post=BLOCKS_POST, title="Один раз")
+    assert d["validation"]["ok"] is True  # no separate validate_post needed
+    _, prev, _ = call(client, "preview_post", draft_id=d["id"])
+    assert prev["post"]["rich_message"] == BLOCKS_POST["rich_message"] and prev["validation"]["ok"]
+    _, dry, _ = call(client, "publish_post", draft_id=d["id"], chat_id="@x", dry_run=True)
+    assert dry["dry_run"] is True and not tg.calls
+    res, _, text = call(client, "publish_post", draft_id=d["id"], chat_id="@x")
+    assert res["isError"] and "version" in text and not tg.calls  # what the user saw must be pinned
+    res, _, _ = call(client, "publish_post", draft_id=d["id"], version=d["version"], chat_id="@x")
+    assert not res.get("isError"), res
+    [p] = store.list_posts()
+    assert p["draft_id"] == d["id"] and p["actor"] == "mcp"
+    assert tg.last("sendRichMessage")["body"]["rich_message"] == BLOCKS_POST["rich_message"]
+
+
+def test_publishing_a_draft_changed_after_the_preview_is_refused(client, tg):
+    _, d, _ = call(client, "save_draft", post=BLOCKS_POST)
+    store.save_draft(d["id"], "", {"rich_message": {"markdown": "правка в редакторе"}}, d["version"])
+    for tool, extra in (("publish_post", {}), ("schedule_post", {"at": "2030-01-01T09:00:00+03:00"})):
+        res, _, text = call(client, tool, draft_id=d["id"], version=d["version"], **extra)
+        assert res["isError"] and "изменили" in text
+    res, _, text = call(client, "publish_post", post=BLOCKS_POST, draft_id=d["id"], version=d["version"])
+    assert res["isError"] and "одно из двух" in text
+    assert not tg.calls and not store.list_posts()
+
+
+def test_save_draft_reports_validation_errors(client):
+    bad = {"rich_message": {"blocks": [{"type": "table", "rows": []}]}}
+    _, d, _ = call(client, "save_draft", post=bad)
+    assert d["validation"]["ok"] is False and "cells" in d["validation"]["errors"][0]

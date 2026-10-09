@@ -526,12 +526,17 @@ def test_session_hook_says_one_line_when_the_studio_is_not_ok(tmp_path):
     assert "from-dotenv" not in out.stdout
 
 
-def test_session_hook_is_silent_when_ok_down_or_locked(tmp_path):
+def test_session_hook_is_silent_when_ok(tmp_path):
     out, seen = _run_hook(tmp_path, 200, {"status": "ok", "problems": []}, key_in_env="env-key")
     assert (out.returncode, out.stdout) == (0, "")
     assert seen["key"] == "env-key"  # the environment wins over .env
+
+
+def test_session_hook_tells_only_the_agent_when_the_studio_is_down_or_locked(tmp_path):
     out, _ = _run_hook(tmp_path, 401, {"detail": "нужен ключ"})
-    assert (out.returncode, out.stdout) == (0, "")
+    msg = json.loads(out.stdout)
+    assert "systemMessage" not in msg  # the person is not bothered at every session start
+    assert "401" in msg["hookSpecificOutput"]["additionalContext"] and "from-dotenv" not in out.stdout
     env = dict(os.environ, STUDIO_URL="http://127.0.0.1:9", CLAUDE_PROJECT_DIR=str(tmp_path))  # nothing listens there
     down = subprocess.run(  # noqa: S603
         [sys.executable, str(ROOT / ".claude/hooks/studio_health.py")],
@@ -541,7 +546,13 @@ def test_session_hook_is_silent_when_ok_down_or_locked(tmp_path):
         timeout=10,
         check=False,
     )
-    assert (down.returncode, down.stdout) == (0, "")
+    assert down.returncode == 0, down.stderr
+    msg = json.loads(down.stdout)
+    assert "systemMessage" not in msg
+    assert "не запущена" in msg["hookSpecificOutput"]["additionalContext"]
+    assert "docker compose up -d" in msg["hookSpecificOutput"]["additionalContext"]
+    out, _ = _run_hook(tmp_path, 500, {})  # anything odd stays silent
+    assert (out.returncode, out.stdout) == (0, "")
 
 
 def test_session_hook_is_registered_next_to_the_format_hook():

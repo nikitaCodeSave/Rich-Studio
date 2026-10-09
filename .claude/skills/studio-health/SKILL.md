@@ -9,7 +9,7 @@ Use this skill when the user asks whether Rich Studio works, why a post failed o
 
 The studio watches itself: every request, every Bot API call and every background loop round is counted, a health report is computed on demand, and every change of a check (ok → warn → fail and back) is written to the log as event `health.change`. Your job is to read that, explain it to the user in their language and propose the fix. Design: `docs/OBSERVABILITY.md`.
 
-A session opened in the studio folder may start with a line like `Rich Studio требует внимания: …` or `Rich Studio есть сбой: …`: that is the `SessionStart` hook (`.claude/hooks/studio_health.py`), which speaks only when the report is not ok. Mention it to the user and offer to look; the editor header shows the same verdict as a coloured dot.
+A session opened in the studio folder may start with a line like `Rich Studio требует внимания: …` or `Rich Studio есть сбой: …`: that is the `SessionStart` hook (`.claude/hooks/studio_health.py`), which speaks only when the report is not ok. If the studio is not running or refused the key, only you get a line (`не запущена` or `401`): say so when a `rich-studio` tool fails, and suggest `docker compose up -d` or checking the key; never print the key. Mention it to the user and offer to look; the editor header shows the same verdict as a coloured dot.
 
 ## 1. Read the state
 
