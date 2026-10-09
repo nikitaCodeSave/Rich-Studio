@@ -9,6 +9,7 @@ import logging
 import time
 from typing import Any
 
+import logs
 import metrics
 import settings
 import store
@@ -58,13 +59,14 @@ async def loop() -> None:
     last_cleanup = 0.0
     while True:
         error = None
-        try:
-            await asyncio.to_thread(watch)
-            if time.time() - last_cleanup >= CLEANUP_EVERY:
-                await asyncio.to_thread(cleanup)
-                last_cleanup = time.time()
-        except Exception as e:
-            log.exception("housekeeping failed")
-            error = f"{type(e).__name__}: {e}"
+        with logs.bind(logs.new_id("housekeeping-")):  # to_thread copies the context: the id goes along
+            try:
+                await asyncio.to_thread(watch)
+                if time.time() - last_cleanup >= CLEANUP_EVERY:
+                    await asyncio.to_thread(cleanup)
+                    last_cleanup = time.time()
+            except Exception as e:
+                log.exception("housekeeping failed")
+                error = f"{type(e).__name__}: {e}"
         metrics.beat("housekeeping", INTERVAL, error)
         await _sleep(INTERVAL)

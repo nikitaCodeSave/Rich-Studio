@@ -6,6 +6,7 @@ import logging
 import time
 from dataclasses import asdict, dataclass
 
+import logs
 import metrics
 import settings
 import store
@@ -156,12 +157,13 @@ async def loop() -> None:
             for u in ups:
                 offset = u["update_id"] + 1
                 store.set_meta(OFFSET_KEY, str(offset))
-                try:
-                    if await handle_update(u):
-                        STATUS.handled += 1
-                        STATUS.last_at = int(time.time())
-                except Exception:
-                    log.exception("update %s failed", u.get("update_id"))
+                with logs.bind(f"update-{u['update_id']}"):  # Telegram's own id: easy to find again
+                    try:
+                        if await handle_update(u):
+                            STATUS.handled += 1
+                            STATUS.last_at = int(time.time())
+                    except Exception:
+                        log.exception("update %s failed", u.get("update_id"))
         except tg.TelegramError as e:
             # 409: a webhook is set or another process polls the same bot
             STATUS.state = "conflict" if e.code == 409 else "error"

@@ -20,7 +20,7 @@ CSP = (
     "base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
 )
 # reachable without the API key
-PUBLIC_PATHS = {"/", "/favicon.ico", "/healthz"}
+PUBLIC_PATHS = {"/", "/favicon.ico", "/healthz", "/readyz"}
 SAFE_METHODS = ("GET", "HEAD", "OPTIONS")
 
 
