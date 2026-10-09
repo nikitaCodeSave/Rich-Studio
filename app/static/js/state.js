@@ -8,6 +8,10 @@ export const saveState = signal(''); // text next to the Save button
 export const dark = signal(matchMedia('(prefers-color-scheme: dark)').matches);
 /** the published or scheduled post the open draft is a working copy of (<rs-edit-bar> shows it) */
 export const editing = signal(/** @type {PostRow | null} */ (null));
+/** the blocks Telegram made of the post at the last «Мне в личку» (<rs-parse-check> compares the preview with them) */
+export const parsed = signal(/** @type {ParsedPost | null} */ (null));
+/** the preview shows Telegram's blocks instead of the editor's post */
+export const showParsed = signal(false);
 
 // ---------- state ----------
 /** @type {EditorState} */

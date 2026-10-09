@@ -35,8 +35,8 @@ Edit a published post: `editMessageText(chat_id, message_id, rich_message)`.
 
 Which format:
 - **blocks** (JSON): strict, fully described by the spec, validated field by field. Best when you generate the post.
-- **html**: covers everything, easiest to hand-edit; tag syntax partly unverified (⚠️).
-- **markdown**: GFM plus allowed HTML tags; good for text, tables, lists.
+- **html**: covers everything, easiest to hand-edit.
+- **markdown**: GFM plus `||spoiler||`, `==marker==`, `$formula$` (Pandoc rules: `$5 и $10` is NOT a formula only because of the space and digit rules, check it), `$$block$$` on its own line, `[^1]` footnotes, and allowed HTML tags. Tables are always bordered and striped; `__x__` is bold, not underline; `~sub~` and `^sup^` do not exist (use `<sub>`, `<sup>`). A single line break inside a paragraph becomes a space: end the line with two spaces or `\` for a real break.
 
 ## 3. Cheat sheet (10.3)
 
@@ -48,7 +48,9 @@ List item = blocks, not text: `{"type":"list","items":[{"blocks":[{"type":"parag
 Inline RichText: a string, an array, or `{type, text, ...}` with type `bold, italic, underline, strikethrough, spoiler, marked, code, subscript, superscript, url{url}, text_mention{user}, email_address, phone_number, bank_card_number, mention{username}, hashtag, cashtag, bot_command, date_time{unix_time,date_time_format}, custom_emoji{custom_emoji_id,alternative_text}, mathematical_expression{expression}, anchor{name}, anchor_link{anchor_name}, reference{name}, reference_link{reference_name}, button{button}`.
 
 HTML tags: `p h1-h6 b i u s sub sup mark code pre>code.language-x a[href] hr footer blockquote>cite aside(pullquote) ul ol li input[type=checkbox] details>summary table[bordered striped compact] caption tr th td[colspan rowspan align valign] figure figcaption img video audio`, plus `tg-spoiler, tg-emoji[emoji-id], tg-math, tg-math-block, tg-collage, tg-slideshow, tg-document, tg-thinking, tg-button-row`.
-⚠️ unverified attribute syntax: `<blockquote collapsed>` (maybe `expandable`), `<tg-time unix format>`, `<tg-map lat long zoom>`, `<tg-button type=url|copy_text|callback_data ...>`, `<tg-reference name>`. Prefer blocks for these.
+Checked on the real Bot API (tests/telegram_parse/captured.json): `<blockquote expandable>` (`collapsed` gives a plain quote), `<tg-time unix format>text</tg-time>` (without text it is dropped), `<tg-map lat long zoom>`, `<tg-button-row align>` with `<tg-button type=url|copy_text|callback_data ...>`, footnote `<a href="#n1">` + `<tg-reference name="n1">` (without the reference it is a plain link), `<a href="#name">` to `<a name="name">`, `<a href="#">` = top of the post. `<span class="tg-spoiler">` is NOT a spoiler. A `<table>` without attributes has no borders; headers are centred by default.
+
+The studio preview follows these rules. `preview-send` (`send_preview_to_me`) answers with `parsed.blocks`, the blocks Telegram made of the post: read them to confirm a formula, spoiler or table came out as meant. `parsed.input_blocks` is the same post as `rich_message.blocks`, ready to send or to save as a visual draft; the editor shows the same check above its preview.
 
 Media: put `tg://photo?id=X` (video/audio/document/animation/voice_note) in html/markdown and add `{"id":"X","media":{"type":"photo","media":"<URL|file_id|attach://name>"}}` to `media`. In blocks the media object sits in the block itself. Captions on InputMedia are ignored.
 

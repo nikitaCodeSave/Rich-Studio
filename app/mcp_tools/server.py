@@ -296,7 +296,8 @@ def build() -> MCPServer:
 
     @tool(TO_ME)
     async def send_preview_to_me(post: PostArg) -> dict:
-        """Отправить пост пользователю в личку (TG_PREVIEW_CHAT), чтобы он увидел его в Telegram. В канал не уходит."""
+        """Отправить пост пользователю в личку (TG_PREVIEW_CHAT), чтобы он увидел его в Telegram. В канал не уходит.
+        В ответе parsed.blocks: как Telegram разобрал HTML/Markdown; parsed.input_blocks можно отправить как rich_message.blocks."""
         return await posts.preview(_post(post))
 
     @tool(TELEGRAM_READ)

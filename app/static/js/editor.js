@@ -6,7 +6,7 @@ import { renderBlocksPane } from './forms.js';
 import { recordHistory } from './history.js';
 import { renderKeyboard } from './keyboard.js';
 import { renderMedia } from './media.js';
-import { chats, dark, dirty, S, saveState } from './state.js';
+import { chats, dark, dirty, parsed, S, saveState, showParsed } from './state.js';
 
 // ---------- change tracking ----------
 export const refreshPreview = debounce(() => { renderPreview(); validate(); }, 250);
@@ -147,9 +147,55 @@ export function renderOptions() {
 // ---------- preview & validation ----------
 export function renderPreview() {
   const p = /** @type {import('./components/rs-preview.js').RsPreview} */ ($('#preview'));
+  const post = buildPost();
+  const fresh = checkParse(post);
   p.dark = dark.value;
   p.channelTitle = chats()[0] || S.config.default_chat || 'Канал';
-  p.post = buildPost();
+  p.post = fresh && showParsed.value ? { ...post, rich_message: { blocks: fresh.blocks } } : post;
+}
+
+// ---------- check against Telegram's parser ----------
+export const parseKey = (post) => JSON.stringify(post.rich_message);
+
+/** Tell <rs-parse-check> whether the preview agrees with the blocks Telegram made of this post; returns them while the post is unchanged. */
+function checkParse(post) {
+  const bar = /** @type {import('./components/rs-parse-check.js').RsParseCheck} */ ($('#parse-check'));
+  const got = parsed.value;
+  const fresh = got && got.key === parseKey(post) ? got : null;
+  bar.showing = !!fresh && showParsed.value;
+  bar.convertible = !!fresh && S.format !== 'blocks' && fresh.input_blocks.length > 0;
+  if (!got) bar.check = null;
+  else if (!fresh) bar.check = { status: 'stale' };
+  else {
+    const mine = RichRender.outline(post);
+    const theirs = RichRender.outline({ rich_message: { blocks: fresh.blocks } });
+    bar.check = mine === theirs ? { status: 'same' } : { status: 'diff', ...firstDifference(mine, theirs) };
+  }
+  return fresh;
+}
+
+// both outlines cut around the first place they differ, so the author sees what Telegram did otherwise
+function firstDifference(a, b) {
+  let i = 0;
+  while (i < a.length && a[i] === b[i]) i++;
+  const from = Math.max(0, i - 30);
+  const cut = (s) => (from ? '…' : '') + s.slice(from, i + 50) + (s.length > i + 50 ? '…' : '');
+  return { mine: cut(a), theirs: cut(b) };
+}
+
+/** HTML or Markdown becomes visual blocks exactly as Telegram parsed it; the source stays in its own tab. */
+export function parsedToBlocks() {
+  const got = parsed.value;
+  if (!got) return;
+  S.buf.blocks = clone(got.input_blocks);
+  showParsed.value = false;
+  setMode('blocks', true);
+  renderBlocksPane();
+  // the new post is Telegram's own blocks, so the check stays valid for it
+  parsed.value = { ...got, key: parseKey(buildPost()) };
+  changed();
+  toast('Пост переведён в визуальный режим так, как его разобрал Telegram. Исходный текст остался в своей вкладке.' +
+    (JSON.stringify(got.input_blocks).includes('"media"') ? ' Медиа ссылаются на файлы, уже загруженные в Telegram.' : ''), 'ok');
 }
 
 export const validate = debounce(async () => {

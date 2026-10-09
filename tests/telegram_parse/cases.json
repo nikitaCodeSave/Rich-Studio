@@ -1,0 +1,148 @@
+[
+ {
+  "name": "md-inline",
+  "format": "markdown",
+  "source": "**жирный** *курсив* _курсив2_ __подчёркнутый?__ ~~зачёркнутый~~ `код` ==маркер?== ||спойлер|| и **вложенный ||спойлер||**"
+ },
+ {
+  "name": "md-sub-sup",
+  "format": "markdown",
+  "source": "H~2~O и x^2^ и <sub>низ</sub> <sup>верх</sup>"
+ },
+ {
+  "name": "md-math",
+  "format": "markdown",
+  "source": "Блок:\n\n$$E=mc^2$$\n\nВ строке $a^2+b^2$ и цены $5 и $10, экранированный \\$ знак.\n\n$$\n\\int_0^1 x\\,dx\n$$"
+ },
+ {
+  "name": "md-breaks",
+  "format": "markdown",
+  "source": "строка один\nстрока два\n\nабзац с двумя пробелами  \nперенос\nи обратный слэш\\\nперенос"
+ },
+ {
+  "name": "md-table",
+  "format": "markdown",
+  "source": "| Слева | Центр | Справа |\n|:---|:---:|---:|\n| 1 | 2 | 3 |\n| **ж** | ||с|| | `к` |"
+ },
+ {
+  "name": "md-table-plain",
+  "format": "markdown",
+  "source": "| a | b |\n|---|---|\n| 1 | 2 |"
+ },
+ {
+  "name": "md-lists",
+  "format": "markdown",
+  "source": "- один\n- два\n  - вложенный\n\n3. три\n4. четыре\n\n- [x] сделано\n- [ ] нет\n\n* звёздочка"
+ },
+ {
+  "name": "md-quote",
+  "format": "markdown",
+  "source": "> цитата\n> вторая строка\n>\n> второй абзац\n\n> > вложенная"
+ },
+ {
+  "name": "md-code",
+  "format": "markdown",
+  "source": "```python\nprint('hi')\n```\n\n    отступ код\n\n```\nбез языка\n```"
+ },
+ {
+  "name": "md-headings",
+  "format": "markdown",
+  "source": "# H1\n## H2\n### H3\n#### H4\n##### H5\n###### H6\n\nSetext\n======"
+ },
+ {
+  "name": "md-links",
+  "format": "markdown",
+  "source": "[ссылка](https://example.com) и https://t.me/telegram и <https://core.telegram.org> и @durov и #тег и /start и test@example.com"
+ },
+ {
+  "name": "md-hr",
+  "format": "markdown",
+  "source": "до\n\n---\n\nпосле\n\n***\n\nконец"
+ },
+ {
+  "name": "md-html",
+  "format": "markdown",
+  "source": "Текст <tg-spoiler>спойлер</tg-spoiler>\n\n<details><summary>Заголовок</summary>\n\nвнутри **жирный**\n\n</details>\n\n<footer>подвал</footer>\n\n<tg-math>x^2</tg-math>"
+ },
+ {
+  "name": "md-footnote",
+  "format": "markdown",
+  "source": "Текст со сноской[^1].\n\n[^1]: Текст сноски."
+ },
+ {
+  "name": "md-escape",
+  "format": "markdown",
+  "source": "\\*не курсив\\* и \\|\\|не спойлер\\|\\| и 2*3*4"
+ },
+ {
+  "name": "html-inline",
+  "format": "html",
+  "source": "<p><b>b</b> <strong>strong</strong> <i>i</i> <em>em</em> <u>u</u> <ins>ins</ins> <s>s</s> <del>del</del> <strike>strike</strike> <mark>mark</mark> <sub>sub</sub> <sup>sup</sup> <code>code</code> <span class=\"tg-spoiler\">span</span> <tg-spoiler>tg</tg-spoiler></p>"
+ },
+ {
+  "name": "html-text-outside-p",
+  "format": "html",
+  "source": "Текст без абзаца\nвторая строка<br>после br<p>абзац</p>хвост"
+ },
+ {
+  "name": "html-table-plain",
+  "format": "html",
+  "source": "<table><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr></table>"
+ },
+ {
+  "name": "html-table-attrs",
+  "format": "html",
+  "source": "<table bordered striped compact><caption>Подпись</caption><tr><th align=\"right\">A</th><th>B</th></tr><tr><td colspan=\"2\" align=\"center\" valign=\"bottom\">12</td></tr></table>"
+ },
+ {
+  "name": "html-quotes",
+  "format": "html",
+  "source": "<blockquote>обычная<cite>Автор</cite></blockquote><blockquote expandable>expandable</blockquote><blockquote collapsed>collapsed</blockquote><aside>акцент<cite>Кто</cite></aside>"
+ },
+ {
+  "name": "html-blocks",
+  "format": "html",
+  "source": "<h3>H3</h3><footer>подвал</footer><hr/><details open><summary>Открыто</summary><p>внутри</p></details><pre><code class=\"language-js\">let a = 1;</code></pre><pre>без языка</pre>"
+ },
+ {
+  "name": "html-lists",
+  "format": "html",
+  "source": "<ol start=\"5\"><li>пять</li><li>шесть</li></ol><ul><li><input type=\"checkbox\" checked> да</li><li><input type=\"checkbox\"> нет</li></ul>"
+ },
+ {
+  "name": "html-refs",
+  "format": "html",
+  "source": "<p>Сноска<a href=\"#n1\"><sup>1</sup></a> и якорь <a href=\"#part\">к якорю</a></p><a name=\"part\"></a><p><tg-reference name=\"n1\">Текст сноски</tg-reference></p>"
+ },
+ {
+  "name": "html-math-time",
+  "format": "html",
+  "source": "<p>Формула <tg-math>a^2</tg-math></p><tg-math-block>\\sum_i i</tg-math-block><p><tg-time unix=\"1798761600\" format=\"wDT\">дата</tg-time> и <tg-time unix=\"1798761600\" format=\"r\"></tg-time></p>"
+ },
+ {
+  "name": "md-table-pipes",
+  "format": "markdown",
+  "source": "| a | b | c |\n|---|---|---|\n| 1 || 3 |\n| x | ||s|| | y |\n| p | q |"
+ },
+ {
+  "name": "md-math-edge",
+  "format": "markdown",
+  "source": "Текст $$x^2$$ в строке, пробелы $ a $ и $b$, деньги 5$ и 10$.\n\n$$a$$ и $$b$$"
+ },
+ {
+  "name": "md-nested",
+  "format": "markdown",
+  "source": "**жирный _курсив ||спойлер `код`||_** и ~~**зачёркнутый жирный**~~ и [**ссылка**](https://t.me)",
+  "known_gap": "Telegram выносит `код` из спойлера за пределы всего выделения и меняет порядок ~~**…**~~ (на вид то же)"
+ },
+ {
+  "name": "example-post-showcase",
+  "format": "html",
+  "source": "<h1>Rich-пост: витрина возможностей</h1>\n<p>Этот пост отправлен ботом через <code>sendRichMessage</code>. В обычном посте есть только <b>жирный</b>, <i>курсив</i>, <u>подчёркивание</u>, <s>зачёркивание</s> и <tg-spoiler>спойлер</tg-spoiler>. Здесь к ним добавляются <mark>выделение маркером</mark>, H<sub>2</sub>O и x<sup>2</sup>, формулы вроде <tg-math>e^{i\\pi} + 1 = 0</tg-math> и <a href=\"https://core.telegram.org/bots/api\">обычные ссылки</a>.</p>\n\n<h2>Содержание</h2>\n<ol>\n  <li><a href=\"#table\">Таблица</a></li>\n  <li><a href=\"#lists\">Списки и чек-лист</a></li>\n  <li><a href=\"#quotes\">Цитаты</a></li>\n  <li><a href=\"#more\">Раскрывающийся блок и код</a></li>\n</ol>\n\n<hr/>\n\n<a name=\"table\"></a>\n<h2>Таблица</h2>\n<table bordered striped>\n  <caption>Тарифы канала</caption>\n  <tr><th>Тариф</th><th align=\"right\">Цена</th><th align=\"center\">Доступ</th></tr>\n  <tr><td>Базовый</td><td align=\"right\">0 ₽</td><td align=\"center\">посты</td></tr>\n  <tr><td>Клуб</td><td align=\"right\">490 ₽</td><td align=\"center\">посты + чат</td></tr>\n  <tr><td colspan=\"2\">Годовая подписка со скидкой</td><td align=\"center\"><b>−20%</b></td></tr>\n</table>\n\n<a name=\"lists\"></a>\n<h2>Списки и чек-лист</h2>\n<ul>\n  <li>Обычный пункт</li>\n  <li>Пункт со <b>вложенным</b> списком\n    <ul><li>второй уровень</li></ul>\n  </li>\n</ul>\n<ul>\n  <li><input type=\"checkbox\" checked>Написать пост</li>\n  <li><input type=\"checkbox\" checked>Сверстать таблицу</li>\n  <li><input type=\"checkbox\">Опубликовать</li>\n</ul>\n\n<a name=\"quotes\"></a>\n<h2>Цитаты</h2>\n<blockquote>\n  <p>Хорошее оформление экономит читателю время.</p>\n  <cite>Редакция канала</cite>\n</blockquote>\n<aside>Крупная центрированная цитата для акцента<cite>pull quote</cite></aside>\n\n<a name=\"more\"></a>\n<h2>Раскрывающийся блок и код</h2>\n<details>\n  <summary>Нажмите, чтобы раскрыть подробности</summary>\n  <p>Внутри может быть что угодно: абзацы, списки, таблицы, медиа.</p>\n  <tg-math-block>\\int_0^1 x^2\\,dx = \\frac{1}{3}</tg-math-block>\n</details>\n<pre><code class=\"language-python\">print(\"Привет из rich-поста\")</code></pre>\n\n<p><a href=\"#\">Наверх ↑</a></p>\n<footer>Подпишитесь, чтобы не пропустить следующие посты</footer>\n"
+ },
+ {
+  "name": "example-post-extras",
+  "format": "html",
+  "source": "<h2>Экспериментальные элементы</h2>\n<p>Синтаксис этих тегов взят из сторонней библиотеки, а не из официального описания. Проверьте на тестовом канале.</p>\n\n<blockquote collapsed>\n  Длинная цитата, которая показывается свёрнутой. Читатель раскрывает её нажатием.\n  Удобно для расшифровок, логов и длинных выдержек.\n</blockquote>\n\n<p>Эфир начнётся <tg-time unix=\"1798761600\" format=\"wDT\">1 января 2027 в 03:00 МСК</tg-time>: у каждого читателя время покажется в его часовом поясе.</p>\n\n<p>Утверждение со сноской<a href=\"#src1\"><sup>1</sup></a>.</p>\n\n<tg-button-row align=\"center\">\n  <tg-button type=\"url\" url=\"https://t.me/telegram\" style=\"primary\">Открыть канал</tg-button>\n  <tg-button type=\"copy_text\" text=\"PROMO2026\">Скопировать промокод</tg-button>\n</tg-button-row>\n\n<footer><tg-reference name=\"src1\">1. Источник: core.telegram.org/bots/api</tg-reference></footer>\n"
+ }
+]

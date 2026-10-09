@@ -274,7 +274,7 @@
     'form', 'textarea', 'select', 'option', 'button', 'svg', 'math', 'template', 'noscript', 'canvas', 'applet', 'portal',
     'dialog', 'slot', 'title', 'head']);
   const ALLOWED_ATTRS = new Set(['href', 'src', 'name', 'title', 'alt', 'colspan', 'rowspan', 'align', 'valign', 'start',
-    'type', 'value', 'checked', 'open', 'bordered', 'striped', 'compact', 'collapsed', 'expandable', 'tg-spoiler', 'lang',
+    'type', 'value', 'checked', 'open', 'bordered', 'striped', 'compact', 'expandable', 'tg-spoiler', 'lang',
     'dir', 'width', 'height', 'poster']);
   const URL_ATTRS = new Set(['href', 'src', 'url', 'poster']);
   const SAFE_PROTOCOLS = new Set(['http:', 'https:', 'tg:', 'mailto:', 'tel:']);
@@ -302,7 +302,7 @@
       [...n.attributes].forEach((a) => {
         const name = a.name.toLowerCase();
         const keep = name !== 'style' && !name.startsWith('on') && !name.includes(':') &&
-          (isTg ? true : ALLOWED_ATTRS.has(name) || (name === 'class' && a.value === 'tg-spoiler'));
+          (isTg ? true : ALLOWED_ATTRS.has(name) || (name === 'class' && tag === 'code' && /^language-[\w+#-]+$/.test(a.value)));
         if (!keep) { n.removeAttribute(a.name); return; }
         if (URL_ATTRS.has(name) && !(name === 'src' && /^tg:/.test(a.value)) && safeUrl(a.value) === null) n.removeAttribute(a.name);
       });
@@ -327,11 +327,16 @@
       let rep = null;
       const attr = (n) => node.getAttribute(n);
       const kids = () => [...node.childNodes];
-      if (tag === 'tg-spoiler' || (tag === 'span' && node.classList.contains('tg-spoiler'))) rep = spoilerEl(kids());
+      if (tag === 'tg-spoiler') rep = spoilerEl(kids());
       else if (tag === 'tg-emoji') rep = el('span', { class: 'tg-emoji', title: 'custom emoji ' + attr('emoji-id') }, kids());
       else if (tag === 'tg-math') rep = math(node.textContent, false);
       else if (tag === 'tg-math-block') rep = math(node.textContent, true);
-      else if (tag === 'tg-time') { const u = parseInt(attr('unix'), 10); rep = el('span', { class: 'tg-time', title: formatTime(u, 'wDT') }, node.textContent.trim() ? kids() : formatTime(u, attr('format'))); }
+      else if (tag === 'tg-time') {
+        // Telegram drops a <tg-time> without text, so the reader sees nothing there
+        const u = parseInt(attr('unix'), 10);
+        if (!node.textContent.trim()) { node.remove(); return; }
+        rep = el('span', { class: 'tg-time', title: formatTime(u, 'wDT') + ' (у читателя: его часовой пояс)' }, kids());
+      }
       else if (tag === 'tg-collage') {
         const caps = kids().filter((k) => k.nodeType === 1 && k.tagName.toLowerCase() === 'figcaption');
         rep = el('figure', { class: 'tg-collage' }, el('div', { class: 'tg-collage-grid' }, kids().filter((k) => !caps.includes(k))), caps);
@@ -340,7 +345,7 @@
       else if (tag === 'tg-map') rep = mapEl(attr('lat') ?? attr('latitude'), attr('long') ?? attr('lon') ?? attr('longitude'), attr('zoom'), attr('width'), attr('height'));
       else if (tag === 'tg-thinking') rep = el('div', { class: 'tg-thinking' }, kids());
       else if (tag === 'tg-reference') rep = el('span', { class: 'tg-ref', id: 'ref-' + attr('name') }, kids());
-      else if (tag === 'tg-button-row') rep = el('div', { class: 'tg-btn-row tg-align-' + (attr('align') || 'center') }, kids());
+      else if (tag === 'tg-button-row') rep = el('div', { class: 'tg-btn-row tg-align-' + (attr('align') || 'center') }, kids().filter((k) => k.nodeType !== 3));
       else if (tag === 'tg-button') {
         const b = { text: node.textContent, style: attr('style') || undefined };
         const type = attr('type') || (attr('url') ? 'url' : 'callback_data');
@@ -352,26 +357,71 @@
         const kind = tag === 'tg-document' ? 'document' : info.kind;
         rep = mediaEl(kind, info.media || (info.id ? 'нет в media: ' + info.id : null), ctx);
         if (node.hasAttribute('tg-spoiler')) rep.classList.add('tg-media-spoiler');
-      } else if (tag === 'blockquote' && (node.hasAttribute('collapsed') || node.hasAttribute('expandable'))) {
+      } else if (tag === 'blockquote' && node.hasAttribute('expandable')) {
         rep = expandable(el('div', {}, kids()), null);
       } else if (tag === 'aside') { node.classList.add('tg-pullquote'); }
       else if (tag === 'table') {
         ['bordered', 'striped', 'compact'].forEach((k) => node.hasAttribute(k) && node.classList.add(k));
         node.classList.add('tg-table');
+        // Telegram's defaults: headers centred, other cells left, everything vertically centred
+        node.querySelectorAll('th, td').forEach((c) => {
+          c.style.textAlign = c.getAttribute('align') || (c.tagName === 'TH' ? 'center' : 'left');
+          c.style.verticalAlign = c.getAttribute('valign') || 'middle';
+        });
         const wrap = el('div', { class: 'tg-table-wrap' });
         node.replaceWith(wrap); wrap.append(node); return;
       } else if (tag === 'li' && node.firstElementChild && node.firstElementChild.matches('input[type=checkbox]')) {
         node.classList.add('tg-task'); node.firstElementChild.disabled = true;
+      } else if (tag === 'a' && attr('name') && !attr('href')) {
+        rep = el('a', { name: attr('name'), id: 'anchor-' + attr('name'), class: 'tg-anchor' });
       } else if (tag === 'a' && attr('href')) {
-        const h = attr('href');
-        if (h.startsWith('#')) node.setAttribute('href', '#ref-' + h.slice(1));
-        else { node.setAttribute('target', '_blank'); node.setAttribute('rel', 'noopener'); }
+        // #name links are resolved after the walk, when all anchors and references are known
+        if (!attr('href').startsWith('#')) { node.setAttribute('target', '_blank'); node.setAttribute('rel', 'noopener'); }
+      } else if (tag === 'pre') {
+        const lang = node.querySelector('code[class*="language-"]');
+        const m = lang && /language-([\w+#-]+)/.exec(lang.className);
+        if (m) node.dataset.lang = m[1];
       } else if (tag.startsWith('tg-')) {
         rep = unknown('тег <' + tag + '>', kids());
       }
       if (rep) node.replaceWith(rep);
     };
     walk(root);
+    // <a href="#x"> is a footnote link when a <tg-reference name="x"> exists, an anchor link when
+    // an <a name="x"> exists, and an ordinary link otherwise
+    const refs = new Set([...root.querySelectorAll('.tg-ref')].map((n) => n.id.slice(4)));
+    const anchors = new Set([...root.querySelectorAll('.tg-anchor')].map((n) => n.getAttribute('name')));
+    root.querySelectorAll('a[href^="#"]').forEach((a) => {
+      const name = decodeURIComponent((a.getAttribute('href') || '').slice(1));
+      if (refs.has(name)) { a.setAttribute('href', '#ref-' + name); a.classList.add('tg-reflink'); }
+      else if (anchors.has(name) || !name) { a.setAttribute('href', '#anchor-' + name); a.classList.add('tg-link'); } // bare # is the top of the post
+    });
+    wrapLoose(root);
+    root.querySelectorAll('blockquote').forEach(wrapLoose);
+  }
+
+  // Text and inline tags outside any block become a paragraph, as Telegram makes them
+  const INLINE_TAGS = new Set(['A', 'B', 'STRONG', 'I', 'EM', 'U', 'INS', 'S', 'STRIKE', 'DEL', 'SUB', 'SUP', 'MARK', 'CODE', 'SPAN', 'BR', 'SMALL', 'Q', 'ABBR', 'CITE', 'INPUT']);
+  function wrapLoose(root) {
+    /** @type {Node[]} */
+    let run = [];
+    const flush = (before) => {
+      if (run.some((n) => n.nodeType === 1 || (n.textContent || '').trim())) {
+        const p = el('p');
+        root.insertBefore(p, before);
+        run.forEach((n) => p.append(n));
+        // the line breaks and spaces at the edges of a loose run are not part of the text
+        while (p.firstChild && p.firstChild.nodeType === 3 && !(p.firstChild.textContent || '').trim()) p.firstChild.remove();
+      }
+      run = [];
+    };
+    [...root.childNodes].forEach((n) => {
+      const e = /** @type {Element} */ (n);
+      // a quote's <cite> is its credit line, not part of the text
+      const inline = n.nodeType === 3 || (n.nodeType === 1 && INLINE_TAGS.has(e.tagName) && !e.classList.contains('tg-anchor') && !(e.tagName === 'CITE' && root.tagName === 'BLOCKQUOTE'));
+      if (inline) run.push(n); else flush(n);
+    });
+    flush(null);
   }
 
   function renderHtml(src, ctx) {
@@ -385,13 +435,172 @@
     return frag;
   }
 
+  // Markdown the way Telegram parses it (checked against the real Bot API in tests/render_parity.mjs):
+  // GFM plus ||spoiler||, ==marker==, $inline$ and $$block$$ formulas, [^footnotes]; tables are always
+  // bordered and striped. Everything is turned into the same HTML the HTML mode understands.
+  /** @type {any} */
   /** @type {any} */
   let md = null;
+
+  // inline `<mark>text</mark>`-style pair: ||spoiler|| or ==marker==
+  function pairRule(name, ch, open, close) {
+    return (state, silent) => {
+      const s = state.src, start = state.pos;
+      if (s.charCodeAt(start) !== ch || s.charCodeAt(start + 1) !== ch) return false;
+      const end = s.indexOf(String.fromCharCode(ch, ch), start + 2);
+      if (end < 0 || end === start + 2 || end + 2 > state.posMax) return false;
+      if (!silent) {
+        const max = state.posMax;
+        state.push('html_inline', '', 0).content = open;
+        state.pos = start + 2; state.posMax = end;
+        state.md.inline.tokenize(state);
+        state.posMax = max;
+        state.push('html_inline', '', 0).content = close;
+      }
+      state.pos = end + 2;
+      return true;
+    };
+  }
+
+  // $formula$ as in Pandoc: no space after the opening $, none before the closing one, no digit right after it
+  function inlineMath(state, silent) {
+    const s = state.src, start = state.pos;
+    if (s[start] !== '$') return false;
+    // $$x$$ inside a line is an inline formula too; on its own line it is a block (blockMath)
+    if (s[start + 1] === '$') {
+      const close = s.indexOf('$$', start + 2);
+      if (close < 0 || close === start + 2 || close + 2 > state.posMax) return false;
+      if (!silent) state.push('html_inline', '', 0).content = '<tg-math>' + esc(s.slice(start + 2, close)) + '</tg-math>';
+      state.pos = close + 2;
+      return true;
+    }
+    if (/\s/.test(s[start + 1] || ' ')) return false;
+    let end = start + 1;
+    for (;;) {
+      end = s.indexOf('$', end + 1);
+      if (end < 0 || end >= state.posMax) return false;
+      if (!/\s/.test(s[end - 1]) && !/\d/.test(s[end + 1] || '')) break;
+    }
+    if (!silent) state.push('html_inline', '', 0).content = '<tg-math>' + esc(s.slice(start + 1, end)) + '</tg-math>';
+    state.pos = end + 1;
+    return true;
+  }
+
+  // $$formula$$ on its own line, or $$ … $$ over several lines
+  function blockMath(state, startLine, endLine, silent) {
+    const line = (n) => state.src.slice(state.bMarks[n] + state.tShift[n], state.eMarks[n]);
+    const first = line(startLine);
+    if (!first.startsWith('$$')) return false;
+    let body = first.slice(2), last = startLine;
+    if (body.trimEnd().endsWith('$$') && body.trim().length > 2) body = body.trimEnd().slice(0, -2);
+    else {
+      const parts = [body];
+      for (last = startLine + 1; last < endLine; last++) {
+        const l = line(last);
+        if (l.trimEnd().endsWith('$$')) { parts.push(l.trimEnd().slice(0, -2)); break; }
+        parts.push(l);
+      }
+      if (last >= endLine) return false;
+      body = parts.join('\n');
+    }
+    if (silent) return true;
+    state.line = last + 1;
+    const t = state.push('html_block', '', 0);
+    t.content = '<tg-math-block>' + esc(body.trim()) + '</tg-math-block>\n';
+    t.map = [startLine, state.line];
+    return true;
+  }
+
+  // [^label]: text definitions are collected and printed as a footer, [^label] becomes a numbered link
+  function footnoteDef(state, startLine, endLine, silent) {
+    const s = state.src.slice(state.bMarks[startLine] + state.tShift[startLine], state.eMarks[startLine]);
+    const m = /^\[\^([^\]\s]+)\]:\s*(.*)$/.exec(s);
+    if (!m) return false;
+    if (silent) return true;
+    const parts = [m[2]];
+    let n = startLine + 1;
+    for (; n < endLine && state.sCount[n] >= state.blkIndent + 4; n++) parts.push(state.src.slice(state.bMarks[n] + state.tShift[n], state.eMarks[n]));
+    const env = state.env;
+    (env.footnotes = env.footnotes || {})[m[1]] = parts.join(' ');
+    state.line = n;
+    return true;
+  }
+  function footnoteRef(state, silent) {
+    const m = /^\[\^([^\]\s]+)\]/.exec(state.src.slice(state.pos, state.posMax));
+    const notes = state.env.footnotes;
+    if (!m || !notes || !(m[1] in notes)) return false;
+    if (!silent) {
+      const order = state.env.footnoteOrder = state.env.footnoteOrder || [];
+      if (!order.includes(m[1])) order.push(m[1]);
+      const i = order.indexOf(m[1]) + 1;
+      state.push('html_inline', '', 0).content = `<sup><a name="fnref-${i}-1"></a><a href="#fn-${i}">${i}</a></sup>`;
+    }
+    state.pos += m[0].length;
+    return true;
+  }
+  function footnoteFooter(state) {
+    const order = state.env.footnoteOrder;
+    if (!order || !order.length) return;
+    const t = new state.Token('html_block', '', 0);
+    t.content = order.map((k, i) => `<footer>${i + 1}. <tg-reference name="fn-${i + 1}">${state.md.renderInline(state.env.footnotes[k], {})}</tg-reference> <a href="#fnref-${i + 1}-1">↩</a></footer>`).join('');
+    state.tokens.push(t);
+  }
+
+  // markdown-it's text rule with | added to the stop characters, so ||spoiler|| gets a chance to match
+  const STOP = new Set([0x0A, 0x21, 0x23, 0x24, 0x25, 0x26, 0x2A, 0x2B, 0x2D, 0x3A, 0x3C, 0x3D, 0x40, 0x5B, 0x5C, 0x5D, 0x5E, 0x5F, 0x60, 0x7B, 0x7C, 0x7D, 0x7E]);
+  function text(state, silent) {
+    let pos = state.pos;
+    while (pos < state.posMax && !STOP.has(state.src.charCodeAt(pos))) pos++;
+    if (pos === state.pos) return false;
+    if (!silent) state.pending += state.src.slice(state.pos, pos);
+    state.pos = pos;
+    return true;
+  }
+
+  function markdownParser() {
+    const m = /** @type {any} */ (global.markdownit)({ html: true, linkify: true, breaks: false });
+    m.inline.ruler.at('text', text);
+    m.inline.ruler.before('emphasis', 'tg_spoiler', pairRule('tg_spoiler', 0x7c, '<tg-spoiler>', '</tg-spoiler>'));
+    m.inline.ruler.before('emphasis', 'tg_mark', pairRule('tg_mark', 0x3d, '<mark>', '</mark>'));
+    m.inline.ruler.after('escape', 'tg_math', inlineMath);
+    m.inline.ruler.before('link', 'tg_footnote_ref', footnoteRef);
+    m.block.ruler.before('fence', 'tg_math_block', blockMath, { alt: ['paragraph'] });
+    m.block.ruler.before('reference', 'tg_footnote_def', footnoteDef);
+    m.core.ruler.after('inline', 'tg_footnote_footer', footnoteFooter);
+    m.renderer.rules.table_open = () => '<table bordered striped>\n';
+    // column alignment arrives as style="text-align:…", which the sanitizer drops; Telegram reads it
+    const cell = (tokens, idx, opts, env, self) => {
+      const style = tokens[idx].attrGet('style');
+      const a = style && /text-align:(\w+)/.exec(style);
+      if (a) { tokens[idx].attrs = tokens[idx].attrs.filter((x) => x[0] !== 'style'); tokens[idx].attrSet('align', a[1]); }
+      return self.renderToken(tokens, idx, opts);
+    };
+    m.renderer.rules.th_open = cell;
+    m.renderer.rules.td_open = cell;
+    return m;
+  }
+
+  // Telegram drops cells with nothing between the pipes: "| 1 || 3 |" is two cells, not three,
+  // and ||spoiler|| inside a table row falls apart the same way
+  const DELIM_ROW = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
+  function tableRows(src) {
+    const lines = src.split('\n');
+    /** @type {string | null} */
+    let fence = null;
+    for (let i = 0; i < lines.length; i++) {
+      const f = /^\s*(`{3,}|~{3,})/.exec(lines[i]);
+      if (f) { if (!fence) fence = f[1][0]; else if (f[1][0] === fence) fence = null; continue; }
+      if (fence || !/^\s*\|/.test(lines[i]) || !DELIM_ROW.test(lines[i + 1] || '')) continue;
+      for (let j = i; j < lines.length && /^\s*\|/.test(lines[j]); j++) if (j !== i + 1) lines[j] = lines[j].replace(/(?<!\\)\|(?:\|)+/g, '|');
+    }
+    return lines.join('\n');
+  }
+
   function renderMarkdown(src, ctx) {
-    if (!md && global.markdownit) md = global.markdownit({ html: true, linkify: true, breaks: false });
+    if (!md && global.markdownit) md = markdownParser();
     let html;
     if (md) {
-      html = md.render(src);
+      html = md.render(tableRows(src), {});
       html = html.replace(/<li>\s*\[([ xX])\]\s*/g, (m, c) => `<li><input type="checkbox"${c.trim() ? ' checked' : ''}> `)
         .replace(/<li><p>\s*\[([ xX])\]\s*/g, (m, c) => `<li><p><input type="checkbox"${c.trim() ? ' checked' : ''}> `);
     } else html = '<pre>' + esc(src) + '</pre>';
@@ -422,5 +631,61 @@
     return wrap;
   }
 
-  global.RichRender = { render, renderRT, renderBlocks, formatTime, mediaSrc, safeUrl };
+  // ---------- outline ----------
+  // A rendered post reduced to what the reader sees: block and inline structure plus text. Two ways of
+  // drawing the same post (its HTML and the blocks Telegram made of it) give the same outline; the
+  // editor and tests/render_parity.mjs use it to tell where the preview and Telegram differ.
+  function outline(post) {
+    const root = render(post, {}).querySelector('.tg-body');
+    if (!root) return '';
+    const INLINE = { B: 'b', STRONG: 'b', I: 'i', EM: 'i', U: 'u', INS: 'u', S: 's', DEL: 's', STRIKE: 's', MARK: 'mark', SUB: 'sub', SUP: 'sup', CODE: 'code', CITE: 'cite', CAPTION: 'caption', SUMMARY: 'summary', FOOTER: 'footer', HR: 'hr', BR: 'br' };
+    const BLOCK = { P: 'p', H1: 'h1', H2: 'h2', H3: 'h3', H4: 'h4', H5: 'h5', H6: 'h6', UL: 'ul', OL: 'ol', TR: 'tr' };
+    const out = [];
+    const text = (s) => { s = s.replace(/\s+/g, ' '); if (s) out.push(s); };
+    const walk = (n) => {
+      if (n.nodeType === 3) { text(n.textContent); return; }
+      if (n.nodeType !== 1) return;
+      const c = n.classList;
+      let tag;
+      if (c.contains('katex') || c.contains('tg-math') || c.contains('tg-math-block')) {
+        const tex = n.querySelector('annotation');
+        out.push(`<${c.contains('tg-math-block') ? 'math-block' : 'math'}:${(tex ? tex.textContent : n.textContent).trim()}>`);
+        return;
+      }
+      if (c.contains('tg-spoiler')) tag = 'spoiler';
+      else if (c.contains('tg-expandable')) tag = 'expandable';
+      else if (c.contains('tg-pullquote')) tag = 'pullquote';
+      else if (c.contains('tg-time')) tag = 'time';
+      else if (c.contains('tg-ref')) tag = 'ref';
+      else if (c.contains('tg-anchor')) { out.push('<anchor>'); return; }
+      else if (n.tagName === 'A') {
+        const href = n.getAttribute('href') || '';
+        tag = c.contains('tg-reflink') || href.startsWith('#ref-') ? 'reflink' : href.startsWith('#anchor-') ? 'anchorlink' : 'a';
+      } else if (n.tagName === 'TABLE') tag = 'table' + ['bordered', 'striped', 'compact'].filter((k) => c.contains(k)).map((k) => '.' + k).join('');
+      else if (n.tagName === 'TH' || n.tagName === 'TD') {
+        const align = n.style.textAlign || n.getAttribute('align') || 'left';
+        const span = n.getAttribute('colspan') ? ' colspan=' + n.getAttribute('colspan') : '';
+        tag = `${n.tagName.toLowerCase()} ${align}${span}`;
+      } else if (n.tagName === 'BLOCKQUOTE') tag = 'blockquote';
+      else if (n.tagName === 'DETAILS') tag = 'details' + (n.open ? ' open' : '');
+      else if (n.tagName === 'PRE') tag = 'pre' + (n.dataset.lang ? ':' + n.dataset.lang : ''); // the language label the reader sees
+      else if (n.tagName === 'LI') {
+        const box = n.querySelector(':scope > input[type=checkbox]');
+        const list = n.parentElement;
+        const num = list.tagName === 'OL' ? ' ' + (n.getAttribute('value') || (parseInt(list.getAttribute('start') || '1', 10) + [...list.children].indexOf(n))) : '';
+        tag = 'li' + (box ? (box.checked ? ' [x]' : ' [ ]') : '') + num;
+      } else if (n.tagName === 'INPUT') return;
+      else if (n.tagName === 'P' && n.parentElement.tagName === 'LI') tag = null; // same look with or without the paragraph
+      else if (n.tagName === 'CODE' && n.parentElement.tagName === 'PRE') tag = null;
+      else tag = INLINE[n.tagName] || BLOCK[n.tagName] || null;
+      if (tag) out.push(`<${tag}>`);
+      n.childNodes.forEach(walk);
+      if (tag && !['hr', 'br'].includes(tag)) out.push(`</${tag.split(/[ .:]/)[0]}>`);
+    };
+    root.childNodes.forEach(walk);
+    // inline wrappers that hold only spaces and runs of spaces mean nothing to the reader
+    return out.join('').replace(/ +/g, ' ').replace(/<br> /g, '<br>').replace(/ <\/pre>/g, '</pre>').replace(/ ?(<math-block:[^>]*>|<hr>|<anchor>) ?/g, '$1').trim().replace(/ ?(<\/?(?:p|h\d|li[^>]*|ul|ol|blockquote|tr|t[hd][^>]*|table[^>]*|footer|summary|details[^>]*|pre[^>]*|caption|cite|pullquote|expandable)>) ?/g, '$1');
+  }
+
+  global.RichRender = { render, renderRT, renderBlocks, formatTime, mediaSrc, safeUrl, outline };
 })(window);
