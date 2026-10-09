@@ -2,7 +2,8 @@
 
 Run standalone: uvicorn mock_telegram:app --port 8081 (from tests/), then start the studio with
 TG_BOT_TOKEN=1:x TG_API_BASE=http://127.0.0.1:8081. GET /log shows every call;
-POST /push queues an update that the studio will receive through getUpdates.
+POST /push queues an update that the studio will receive through getUpdates;
+POST /fail makes a method answer 400 (for checks of refused sends).
 """
 
 import asyncio
@@ -186,6 +187,15 @@ class FakeTelegram:
         @app.post("/push")
         async def push(update: dict):
             return self.push(update)
+
+        @app.post("/fail")
+        def set_fail(req: dict):
+            """{"method": ..., "description": ...} makes that method answer 400; description null clears it."""
+            if req.get("description"):
+                self.fail[req["method"]] = req["description"]
+            else:
+                self.fail.pop(req["method"], None)
+            return {"ok": True}
 
         @app.get("/log")
         def get_log():

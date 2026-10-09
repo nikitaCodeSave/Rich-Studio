@@ -434,6 +434,7 @@ def test_log_files_zero_still_rotates_and_stray_files_are_ignored(fresh_data, mo
 def test_copy_rotated_away_while_reading_is_skipped(log_file, monkeypatch):
     # the writer thread rotates while /api/health or /api/logs walks the list: a listed copy can vanish
     logging.getLogger("rich-studio.test").info("kept")
+    logs.flush()  # the writer thread may not have written it yet
     gone = log_file.with_name(log_file.name + ".1")
     monkeypatch.setattr(logs, "files", lambda: [gone, log_file])
     assert logs.disk_bytes() == log_file.stat().st_size
