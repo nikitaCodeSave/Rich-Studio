@@ -24,7 +24,7 @@ import telegram as tg
 from errors import Conflict, NotFound, StudioError
 from mcp_tools import preview_app
 from models import Post
-from services import health, idempotency, media, posts, publisher, updates
+from services import health, idempotency, listing, media, posts, publisher, updates
 
 ACTOR = "mcp"
 
@@ -447,8 +447,15 @@ def build() -> MCPServer:
         return posts.versions(post_id)
 
     @tool(READ)
-    async def list_posts(limit: Annotated[int, Field(ge=1, le=100)] = 20) -> list:
-        """Опубликованные и отложенные посты: статус, реакции, нажатия кнопок, итоги опросов, кто отправил."""
-        return store.list_posts(limit)
+    async def list_posts(
+        limit: Annotated[int, Field(ge=1, le=100)] = 20,
+        status: Annotated[
+            str | None, Field(description="sent | scheduled | failed | missed | cancelled | deleted")
+        ] = None,
+        chat_id: Annotated[str | None, Field(description="только посты этого канала")] = None,
+    ) -> list:
+        """Посты студии, новые сверху: первая строка текста (title), ссылка t.me (link), статус и ошибка
+        (failed — Telegram отказал, пост не вышел), реакции, нажатия кнопок, итоги опросов, кто отправил."""
+        return listing.list_posts(limit, status=status, chat=chat_id)
 
     return server

@@ -1,12 +1,12 @@
 """Publishing and managing posts in channels."""
 
-from fastapi import APIRouter, Body, Depends
+from fastapi import APIRouter, Body, Depends, Query
 
 import store
 import telegram as tg
 from errors import NotFound
 from models import ButtonsReq, EditReq, PinReq, PollReq, Post, PublishReq, RescheduleReq, ScheduleReq, SendReq
-from services import idempotency, posts, publisher
+from services import idempotency, listing, posts, publisher
 
 from .deps import actor, idempotency_key
 
@@ -88,9 +88,9 @@ async def set_buttons(pid: str, req: ButtonsReq):
     return await posts.set_buttons(pid, req.reply_markup, req.callbacks)
 
 
-@router.get("/api/posts", summary="Опубликованные и отложенные посты")
-def list_posts():
-    return store.list_posts()
+@router.get("/api/posts", summary="Опубликованные, отложенные и неудачные посты: первая строка, миниатюра, ссылка")
+def list_posts(status: str | None = None, chat: str | None = None, limit: int = Query(100, ge=1, le=500)):
+    return listing.list_posts(limit, status=status, chat=chat)
 
 
 @router.get("/api/posts/{pid}")

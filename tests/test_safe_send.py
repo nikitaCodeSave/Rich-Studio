@@ -41,7 +41,7 @@ def test_same_key_with_different_body_is_refused(client, tg):
 def test_key_is_freed_when_nothing_was_sent(client, tg):
     h = {"Idempotency-Key": "post-3"}
     tg.fail["sendRichMessage"] = "Bad Request: chat not found"
-    assert client.post("/api/send", json={"post": BLOCKS_POST}, headers=h).status_code == 502
+    assert client.post("/api/send", json={"post": BLOCKS_POST}, headers=h).status_code == 422
     tg.fail.clear()
     r = client.post("/api/send", json={"post": BLOCKS_POST}, headers=h)
     assert r.status_code == 200 and sends(tg) == 2  # the failed attempt reached Telegram too

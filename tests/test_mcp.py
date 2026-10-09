@@ -192,6 +192,21 @@ def test_links_to_the_editor(client, tg):
     assert post["editor_url"] == f"http://localhost:8080/?post={sent['post']['id']}"
 
 
+def test_list_posts_says_what_each_post_is_and_keeps_failures(client, tg):
+    call(client, "publish_post", post=BLOCKS_POST, chat_id="@ok")
+    tg.fail["sendRichMessage"] = "Bad Request: inline keyboard button URL 'https://x' is invalid"
+    res, _, text = call(client, "publish_post", post=BLOCKS_POST, chat_id="@bad")
+    assert res["isError"] and "invalid" in text
+    rows = call_list(client, "list_posts")
+    assert [(p["status"], p["title"], p["pinned"]) for p in rows] == [
+        ("failed", "Тест", False),
+        ("sent", "Тест", False),
+    ]
+    assert rows[1]["link"] == f"https://t.me/ok/{rows[1]['message_id']}"
+    rows = call_list(client, "list_posts", status="failed")
+    assert [p["chat_id"] for p in rows] == ["@bad"] and "invalid" in rows[0]["error"]
+
+
 def test_publish_dry_run_and_validation_errors(client, tg):
     res, data, _ = call(client, "publish_post", post=BLOCKS_POST, chat_id="@x", dry_run=True)
     assert data["dry_run"] is True and data["requests"][0]["params"]["chat_id"] == "@x"
