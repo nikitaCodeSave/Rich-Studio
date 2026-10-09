@@ -3,9 +3,11 @@
 Error policy (see docs/REVIEW_CHECKLIST.md, section 2):
 - once a send succeeded, the post is recorded as sent; later steps only add warnings;
 - a network error during a send means "may have gone out": never retried automatically;
-- one failing channel never stops the others.
+- one failing channel never stops the others;
+- a send Telegram refused, or that may have gone, is recorded as failed with the error.
 """
 
+import logging
 import re
 import time
 from datetime import datetime
@@ -17,6 +19,7 @@ import store
 import telegram as tg
 from errors import Invalid, MayHaveGone, StudioError
 
+log = logging.getLogger("rich-studio.publisher")
 RESERVED_PARAMS = {"chat_id", "rich_message", "reply_markup", "message_id"}
 MAY_HAVE_GONE = "Пост мог уйти в канал, проверьте перед повтором"
 
@@ -157,6 +160,14 @@ async def after_send(pid: str, post: dict, res: dict) -> list[str]:
     return warnings
 
 
+def _record_failure(chat, post: dict, draft_id: str | None, error: str, kind: str, actor: str) -> None:
+    """A failed send as a row in the list of posts; never hides Telegram's own error behind a database one."""
+    try:
+        store.add_post(chat, post, draft_id, "failed", error=error, kind=kind, actor=actor)
+    except Exception:
+        log.exception("could not record the failed send to %s", chat)
+
+
 async def publish(chats: list, post: dict, draft_id: str | None = None, kind: str = "rich", actor: str = "api"):
     """Send to every chat; one failing channel does not stop the others. Returns (results, warnings)."""
     out: list[dict] = []
@@ -165,6 +176,8 @@ async def publish(chats: list, post: dict, draft_id: str | None = None, kind: st
         try:
             res = await send(chat, post)
         except tg.TelegramError as e:
+            # kept in the list of posts, so a refusal is not lost with the toast that showed it
+            _record_failure(chat, post, draft_id, e.description, kind, actor)
             if len(chats) == 1:
                 raise
             out.append({"chat_id": chat, "ok": False, "error": e.description})
@@ -173,11 +186,14 @@ async def publish(chats: list, post: dict, draft_id: str | None = None, kind: st
             raise
         except Exception as e:
             err = f"{type(e).__name__}: {e}. {MAY_HAVE_GONE}"
+            _record_failure(chat, post, draft_id, err, kind, actor)
             if len(chats) == 1:
                 raise MayHaveGone(err) from e
             out.append({"chat_id": chat, "ok": False, "error": err})
             continue
         rec = store.add_post(chat, post, draft_id, "sent", res["message_id"], kind=kind, actor=actor)
+        if draft_id:
+            store.drop_refused(chat, draft_id, MAY_HAVE_GONE)
         w = await after_send(rec["id"], post, res)
         warnings += [f"{chat}: {x}" for x in w] if len(chats) > 1 else w
         out.append({"chat_id": chat, "ok": True, "post": store.get_post(rec["id"]), "message": res})

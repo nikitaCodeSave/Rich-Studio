@@ -141,7 +141,9 @@ async def _telegram_error(request: Request, e: Exception):
     body = {"detail": f"Telegram: {e.description}", "error_code": e.code}
     if e.retry_after:  # flood wait longer than the studio waits itself: the caller decides when to try again
         body["retry_after"] = e.retry_after
-    return JSONResponse(body, status_code=502)
+    # 400: Telegram refused this request (a bad button link, no rights in the topic...), nothing went out and
+    # the same request will fail again; anything else is Telegram or the way to it failing
+    return JSONResponse(body, status_code=422 if e.code == 400 else 502)
 
 
 async def _no_answer(request: Request, e: Exception):

@@ -63,16 +63,41 @@ def get_post(pid: str) -> dict | None:
         return row(c.execute("select * from posts where id=?", (pid,)).fetchone())
 
 
-def list_posts(limit: int = 100) -> list[dict]:
+def list_posts(limit: int = 100, status: str | None = None, chat: str | None = None) -> list[dict]:
+    """Newest first; payload is included for the list's title and thumbnail. status and chat filter."""
+    where, args = [], []
+    if status:
+        where.append("status=?")
+        args.append(status)
+    if chat:
+        where.append("(chat_id=? or chat_num=?)")
+        args += [chat, chat]
+    cond = ("where " + " and ".join(where)) if where else ""
     with conn() as c:
         rows = c.execute(
-            """select id, draft_id, chat_id, message_id, status, scheduled_at, sent_at, error, created_at,
-                                   kind, actor, pinned, comment_status, reactions, clicks, poll_results,
+            f"""select id, draft_id, chat_id, message_id, status, scheduled_at, sent_at, error, created_at,
+                                   kind, actor, pinned, comment_status, reactions, clicks, poll_results, payload,
                                    json_extract(payload, '$.poll.question') as poll_question
-                            from posts order by coalesce(scheduled_at, sent_at, created_at) desc limit ?""",
-            (limit,),
+                            from posts {cond} order by coalesce(scheduled_at, sent_at, created_at) desc, rowid desc limit ?""",  # noqa: S608 - fixed fragments
+            (*args, limit),
         )
         return [row(r) for r in rows]  # type: ignore[misc]
+
+
+def drop_refused(chat_id, draft_id: str, keep_with: str) -> int:
+    """After a successful send: earlier refusals of the same draft to the same chat are history, not a problem.
+    Rows whose error contains `keep_with` (the post may have gone) stay: the channel may hold a duplicate."""
+    with conn() as c:
+        return c.execute(
+            "delete from posts where status='failed' and draft_id=? and chat_id=? and instr(coalesce(error, ''), ?)=0",
+            (draft_id, str(chat_id), keep_with),
+        ).rowcount
+
+
+def delete_post(pid: str) -> None:
+    with conn() as c:
+        c.execute("delete from post_versions where post_id=?", (pid,))
+        c.execute("delete from posts where id=?", (pid,))
 
 
 def find_post(chat_num, message_id) -> dict | None:
