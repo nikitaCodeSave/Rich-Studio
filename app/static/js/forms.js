@@ -53,7 +53,11 @@ export function blockCard(arr, i, depth, redraw) {
   // a picture pasted into a text field becomes a block right after this one
   const insertFiles = async (files) => {
     const added = await uploadBlocks(files);
-    if (added.length) { arr.splice(i + 1, 0, ...added); redraw(); changed(); }
+    if (!added.length) return;
+    // the upload takes a while: the block may have moved, or the draft reloaded under it
+    const at = arr.indexOf(b);
+    if (at < 0) { toast('Файлы загружены, но пост успел измениться: добавьте их из вкладки «Файлы»', 'err'); return; }
+    arr.splice(at + 1, 0, ...added); redraw(); changed();
   };
   card.addEventListener('rs-paste-files', (e) => { e.stopPropagation(); insertFiles(/** @type {CustomEvent} */ (e).detail); });
   // files dragged from the desktop onto a block land right after it
@@ -204,6 +208,7 @@ export function objectArray(obj, key, itemType, depth) {
 
 // ---------- table ----------
 const ALIGN = { left: 'По левому краю', center: 'По центру', right: 'По правому краю' };
+const MAX_PASTE_ROWS = 100, MAX_PASTE_COLS = 20;
 const VALIGN = { top: 'Сверху', middle: 'По середине', bottom: 'Снизу' };
 
 // cells are plain text fields; what a cell is (header, alignment, merge) is set in the bar under the table for the cell in focus
@@ -240,8 +245,11 @@ export function tableEditor(cells, focus) {
   };
   // rows from a spreadsheet land from this cell to the right and down, growing the table
   const pasteTable = (ri, ci) => (e) => {
-    const rows = clipboardTable(e.clipboardData.getData('text/plain'), e.clipboardData.getData('text/html'));
-    if (!rows) return false;
+    const all = clipboardTable(e.clipboardData.getData('text/plain'), e.clipboardData.getData('text/html'));
+    if (!all) return false;
+    // a whole spreadsheet would become thousands of fields; a post table is far smaller
+    const rows = all.slice(0, MAX_PASTE_ROWS).map((r) => r.slice(0, MAX_PASTE_COLS));
+    if (rows.length < all.length || all.some((r) => r.length > MAX_PASTE_COLS)) toast(`Вставлено только ${MAX_PASTE_ROWS} строк × ${MAX_PASTE_COLS} колонок: таблица в посте больше не нужна`, 'err');
     rows.forEach((vals, dr) => {
       while (cells.length <= ri + dr) cells.push(Array.from({ length: cols() }, () => cell('')));
       const row = cells[ri + dr];

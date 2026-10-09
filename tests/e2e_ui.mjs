@@ -622,8 +622,8 @@ check('Header fits one row at 1440px', Math.abs(header.pub - header.brand) < 12 
     ed.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
   }, [sel, data, file]);
   const para = '#pane-blocks > .blocks > .block:nth-child(1) .rte';
-  // Google Docs wraps everything in <b style="font-weight:normal">; pictures, scripts and javascript: links are dropped
-  await paste(para, { 'text/plain': 'Жирный и курсив\nссылка', 'text/html': '<meta charset="utf-8"><b style="font-weight:normal" id="docs-internal-guid-1"><p><span style="font-weight:700">Жирный</span><span> и </span><span style="font-style:italic">курсив</span><a href="javascript:alert(2)">!</a></p><p><a href="https://t.me/x"><span>ссылка</span></a><img src="https://example.com/a.png"><script>alert(1)</script></p></b>' });
+  // Google Docs wraps everything in <b style="font-weight:normal">; pictures, scripts, javascript: and host-less links are dropped
+  await paste(para, { 'text/plain': 'Жирный и курсив\nссылка', 'text/html': '<meta charset="utf-8"><b style="font-weight:normal" id="docs-internal-guid-1"><p><span style="font-weight:700">Жирный</span><span> и </span><span style="font-style:italic">курсив</span><a href="javascript:alert(2)">!</a><a href="https://">?</a></p><p><a href="https://t.me/x"><span>ссылка</span></a><img src="https://example.com/a.png"><script>alert(1)</script></p></b>' });
   await page.waitForTimeout(400);
   await showJson();
   const pasted = (await state()).rich_message.blocks[0].text;
@@ -685,7 +685,7 @@ check('Header fits one row at 1440px', Math.abs(header.pub - header.brand) < 12 
   await page.screenshot({ path: 'test-results/ui/typing-1400.png', fullPage: true }).catch(() => {});
   const json = (x) => JSON.stringify(x);
   check('Paste keeps formatting, Ctrl+K edits links, table grid with spreadsheet paste, checks point at the block',
-    json(pasted) === json([{ type: 'bold', text: 'Жирный' }, ' и ', { type: 'italic', text: 'курсив' }, '!\n', { type: 'url', text: 'ссылка', url: 'https://t.me/x' }])
+    json(pasted) === json([{ type: 'bold', text: 'Жирный' }, ' и ', { type: 'italic', text: 'курсив' }, '!?\n', { type: 'url', text: 'ссылка', url: 'https://t.me/x' }])
       && oldUrl === 'https://t.me/x' && canRemove && /нет сайта|не похоже/.test(refused || '')
       && json(linked.slice(-2)) === json([{ type: 'url', text: 'ссылка', url: 'https://t.me/y' }, { type: 'url', text: ' тут', url: 'https://t.me/z' }])
       && perCellControls === 0 && cells[0][0].is_header === true && cells.length === 2 && cells[0].length === 3 && cells[0][1].text === 'Тема' && cells[1][2].text === 'Никита'

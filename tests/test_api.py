@@ -1011,3 +1011,12 @@ def test_spec_refresh_on_demand_reports_gaps_and_failures(client, monkeypatch):
     assert r["updated"] is False and "offline" in r["error"]
     check = client.get("/api/spec").json()["last_check"]
     assert check["at"] > 0 and "offline" in check["error"]
+
+
+def test_button_without_an_action_is_an_error(client):
+    post = {**BLOCKS_POST, "reply_markup": {"inline_keyboard": [[{"text": "Пусто", "style": "primary"}]]}}
+    r = post_json(client, "/api/validate", post).json()
+    assert not r["ok"] and any("не задано, что она делает" in e for e in r["errors"])
+    # a field the studio does not know yet counts as the action: new Bot API buttons pass
+    post["reply_markup"]["inline_keyboard"][0][0]["future_action"] = {"x": 1}
+    assert not any("что она делает" in e for e in post_json(client, "/api/validate", post).json()["errors"])
