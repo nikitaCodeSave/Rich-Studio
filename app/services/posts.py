@@ -91,7 +91,15 @@ def dry_run_report(chats: list, post: dict, warnings: list[str]) -> dict:
         except MissingUpload as e:
             raise StudioError(str(e)) from None
         requests.append({"method": method, "params": params, "chat_title": channels.title_of(chat)})
-    steps = [s for s, on in (("pinChatMessage", post.get("pin")), ("first comment", post.get("comment"))) if on]
+    steps = [
+        s
+        for s, on in (
+            ("pinChatMessage", post.get("pin")),
+            ("first comment", post.get("comment")),
+            ("sendPoll (poll_after)", post.get("poll_after") and "poll" not in post),
+        )
+        if on
+    ]
     return {"dry_run": True, "requests": requests, "after_send": steps, "warnings": warnings}
 
 

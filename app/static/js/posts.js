@@ -11,6 +11,7 @@ import { chatLabel, dirty, editing, S, saveState } from './state.js';
 export async function loadPosts() {
   const only = /** @type {HTMLSelectElement} */ ($('#posts-filter')).value;
   S.posts = await api('GET', '/api/posts');
+  document.dispatchEvent(new CustomEvent('rs-posts-changed'));
   S.updates = await api('GET', '/api/updates').catch(() => S.updates);
   const ul = $('#posts');
   const u = S.updates;

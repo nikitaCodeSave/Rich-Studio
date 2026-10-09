@@ -18,7 +18,7 @@ import './components/rs-edit-bar.js';
 import './components/rs-health.js';
 import './components/rs-parse-check.js';
 import { leaveEditing, reschedulePost, showHistory, updatePost } from './editing.js';
-import { loadDrafts, newDraft, openDraft, saveDraft } from './drafts.js';
+import { loadDrafts, newDraft, openDraft, renderDrafts, saveDraft } from './drafts.js';
 import { autosave, buildPost, changed, loadPost, parsedToBlocks, parseKey, renderPreview, setMode } from './editor.js';
 import { watchHealth } from './health.js';
 import { canRedo, canUndo, redo, undo } from './history.js';
@@ -28,6 +28,7 @@ import { showPoll } from './poll.js';
 import { loadPosts, replacePost } from './posts.js';
 import { refreshSpec, showSpec, updateBadge } from './spec-dialog.js';
 import { chat, dark, dirty, editing, parsed, S, saveState, showParsed, target, targetLabel } from './state.js';
+import { whenPicker } from './when.js';
 
 const isTextField = (el) => el instanceof HTMLElement && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName));
 
@@ -120,14 +121,16 @@ function bindActions() {
     loadPosts();
   };
   $('#btn-schedule').onclick = () => {
-    const d = new Date(Date.now() + 3600e3 - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-    const inp = h('input', { type: 'datetime-local', value: d });
+    const pick = whenPicker(Date.now() + 3600e3);
     const e = editing.value;
     openDialog([h('h3', { text: 'Отложить публикацию' }),
+      h('p', { class: 'small' }, 'Куда: ', h('b', { text: targetLabel() || 'канал не указан' })),
       ...(e ? [h('p', { class: 'err small', text: `Это отложит НОВЫЙ пост. Чтобы изменить пост ${e.message_id ? '#' + e.message_id : ''} в ${e.chat_id}, нажмите «Обновить пост» над редактором.` })] : []),
-      h('p', { class: 'muted small', text: 'Пост отправит сервис в указанное время, поэтому контейнер должен работать в этот момент.' }), inp],
-      [h('button', { class: 'ghost', value: 'cancel', text: 'Отмена' }), h('button', { type: 'button', text: 'Запланировать', onclick: async () => {
-        const at = Math.floor(new Date(inp.value).getTime() / 1000);
+      pick.el,
+      h('p', { class: 'muted small', text: 'Пост отправит сервис в указанное время, поэтому контейнер должен работать в этот момент.' })],
+      [h('button', { class: 'ghost', value: 'cancel', text: 'Отмена' }), h('button', { type: 'button', class: 'primary', text: 'Запланировать', onclick: async () => {
+        const at = pick.value();
+        if (!at || at * 1000 < Date.now()) { toast('Выберите время в будущем', 'err'); return; }
         closeDialog();
         await act(async () => { if (dirty.value || !S.draftId) await saveDraft(true); return api('POST', '/api/schedule', { post: buildPost(), ...target(), draft_id: S.draftId, at, as_new: true }); }, 'Запланировано на ' + new Date(at * 1000).toLocaleString('ru-RU'));
         loadPosts();
@@ -199,6 +202,7 @@ async function boot() {
   bindEffects();
   bindActions();
   document.addEventListener('rs-uploads-changed', () => loadUploads().catch(() => {}));
+  document.addEventListener('rs-posts-changed', () => renderDrafts());
   watchHealth();
   await loadChannels().catch(() => {}); // the lists below name channels by title
   await Promise.all([loadUploads().catch(() => {}), loadPosts().catch(() => {})]);

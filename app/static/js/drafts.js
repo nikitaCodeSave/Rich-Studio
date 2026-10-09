@@ -18,11 +18,25 @@ function setChannels(ids) {
 }
 
 // ---------- drafts ----------
+/** Whether the draft already went out: «правка» for a post's working copy, else what its posts are now. */
+function draftBadge(d) {
+  if (d.post_id) return h('span', { class: 'badge', text: 'правка', title: 'Рабочая копия опубликованного поста' });
+  const own = S.posts.filter((p) => p.draft_id === d.id && p.kind !== 'poll');
+  if (own.some((p) => p.status === 'sent')) return h('span', { class: 'badge ok', text: 'опубликован', title: 'Пост из этого черновика уже вышел' });
+  if (own.some((p) => p.status === 'scheduled')) return h('span', { class: 'badge w', text: 'отложен', title: 'Пост из этого черновика ждёт своего времени' });
+  return null;
+}
+
 export async function loadDrafts() {
   S.drafts = await api('GET', '/api/drafts');
+  renderDrafts();
+}
+
+/** The list from S.drafts as it is; posts changing redraw it so «опубликован» follows them. */
+export function renderDrafts() {
   const ul = $('#drafts');
   ul.replaceChildren(...S.drafts.map((d) => h('li', { class: d.id === S.draftId ? 'on' : '', onclick: () => openDraft(d.id) },
-    h('span', { text: d.title || 'Без названия' }),
+    h('span', {}, d.title || 'Без названия', draftBadge(d)),
     // where it goes, so drafts for different channels never mix up
     h('span', { class: 'meta chan', text: '→ ' + (d.chat_ids && d.chat_ids.length ? d.chat_ids.map(chatLabel).join(', ') : (S.config.default_chat ? chatLabel(S.config.default_chat) + ' (по умолчанию)' : 'канал не выбран')) }),
     h('span', { class: 'meta' }, new Date(d.updated_at * 1000).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' }),

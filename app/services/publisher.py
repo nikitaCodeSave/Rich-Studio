@@ -111,7 +111,35 @@ def validate(post: dict) -> dict:
                 }
             )
         r = {**r, "warnings": r["warnings"] + ["комментарий: " + w for w in c["warnings"]]}
+    if post.get("poll_after") is not None and (bad := poll_error(post["poll_after"])):
+        raise Invalid({"message": "опрос после поста не прошёл проверку", **r, "ok": False, "errors": [bad]})
     return r
+
+
+def poll_error(poll) -> str | None:
+    """What sendPoll would refuse before it is asked: the poll after a post goes out only once the post is sent."""
+    if not isinstance(poll, dict):
+        return "poll_after: ожидался объект sendPoll"
+    if "chat_id" in poll:
+        return "poll_after: chat_id задаётся не в опросе"
+    if not str(poll.get("question") or "").strip():
+        return "опрос после поста: пустой вопрос"
+    opts = poll.get("options")
+    texts = [o.get("text") if isinstance(o, dict) else o for o in opts] if isinstance(opts, list) else []
+    if len([t for t in texts if str(t or "").strip()]) < 2:
+        return "опрос после поста: нужно минимум два варианта"
+    return None
+
+
+def poll_after(post: dict) -> dict:
+    """sendPoll parameters of the poll that follows a post: the post's topic and silence unless the poll sets its own."""
+    poll = dict(post["poll_after"])
+    poll["options"] = [o if isinstance(o, dict) else {"text": str(o)} for o in poll["options"]]
+    opts = post.get("options") or {}
+    for key in ("message_thread_id", "disable_notification"):
+        if key in opts and key not in poll:
+            poll[key] = opts[key]
+    return poll
 
 
 def parse_at(at: int | str) -> int:
@@ -148,8 +176,8 @@ def request(chat_id, post: dict) -> tuple[str, dict]:
     return "sendRichMessage", params
 
 
-async def after_send(pid: str, post: dict, res: dict) -> list[str]:
-    """Remember the numeric chat id, then pin and queue the first comment. Returns warnings."""
+async def after_send(pid: str, post: dict, res: dict, actor: str = "api") -> list[str]:
+    """Remember the numeric chat id, then pin, queue the first comment and send the poll after it. Returns warnings."""
     warnings = []
     fields: dict[str, Any] = {"chat_num": (res.get("chat") or {}).get("id")}
     if res.get("poll"):
@@ -176,7 +204,28 @@ async def after_send(pid: str, post: dict, res: dict) -> list[str]:
             warnings.append(f"не удалось закрепить: {e.description}")
         except Exception as e:  # noqa: BLE001 - network: the post itself is already sent
             warnings.append(f"не удалось закрепить: {type(e).__name__}: {e}")
+    if post.get("poll_after") and "poll" not in post:
+        warnings += await _send_poll_after(pid, post, res, actor)
     return warnings
+
+
+async def _send_poll_after(pid: str, post: dict, res: dict, actor: str) -> list[str]:
+    """The poll that goes right after the post, as its own row in the list of posts; a failure is only a warning."""
+    rec = store.get_post(pid) or {}
+    chat = rec.get("chat_id") or res["chat"]["id"]
+    sent = {"poll": poll_after(post)}
+    try:
+        r = await tg.call("sendPoll", {**sent["poll"], "chat_id": res["chat"]["id"]})
+    except tg.TelegramError as e:
+        _record_failure(chat, sent, rec.get("draft_id"), e.description, "poll", actor)
+        return [f"опрос после поста не отправлен: {e.description}"]
+    except Exception as e:  # noqa: BLE001 - never resent on its own, like any send that may have gone
+        err = f"{type(e).__name__}: {e}. Опрос мог уйти в канал, проверьте перед повтором"
+        _record_failure(chat, sent, rec.get("draft_id"), err, "poll", actor)
+        return [f"опрос после поста: {err}"]
+    poll_rec = store.add_post(chat, sent, rec.get("draft_id"), "sent", r["message_id"], kind="poll", actor=actor)
+    store.update_post(poll_rec["id"], chat_num=(r.get("chat") or {}).get("id"), poll_id=(r.get("poll") or {}).get("id"))
+    return []
 
 
 def _record_failure(chat, post: dict, draft_id: str | None, error: str, kind: str, actor: str) -> None:
@@ -213,7 +262,7 @@ async def publish(chats: list, post: dict, draft_id: str | None = None, kind: st
         rec = store.add_post(chat, post, draft_id, "sent", res["message_id"], kind=kind, actor=actor)
         if draft_id:
             store.drop_refused(chat, draft_id, MAY_HAVE_GONE)
-        w = await after_send(rec["id"], post, res)
+        w = await after_send(rec["id"], post, res, actor)
         warnings += [f"{chat}: {x}" for x in w] if len(chats) > 1 else w
         out.append({"chat_id": chat, "ok": True, "post": store.get_post(rec["id"]), "message": res})
     return out, warnings

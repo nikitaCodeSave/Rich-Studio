@@ -20,6 +20,11 @@ class Post(BaseModel):
     callbacks: dict[str, Any] = Field(
         default_factory=dict, description="Ответы на callback-кнопки: {callback_data: текст или {text, show_alert}}"
     )
+    poll_after: dict | None = Field(
+        None,
+        description="Параметры sendPoll (question, options…): опрос уйдёт в тот же чат сразу после поста; "
+        "тема форума и disable_notification берутся из options поста, если в опросе их нет",
+    )
 
 
 class SendReq(BaseModel):

@@ -31,6 +31,7 @@ export function buildPost() {
   if (S.extra.pin) post.pin = true;
   if (S.extra.comment.trim()) post.comment = { html: S.extra.comment };
   else if (S.extra.commentObj) post.comment = S.extra.commentObj;
+  if (S.extra.poll) post.poll_after = S.extra.poll;
   const cbs = callbacksFor(kb);
   if (Object.keys(cbs).length) post.callbacks = cbs;
   return post;
@@ -68,7 +69,7 @@ export function loadPost(post) {
   S.keyboard = (post.reply_markup && post.reply_markup.inline_keyboard) || [];
   S.options = post.options || {};
   const c = post.comment;
-  S.extra = { pin: !!post.pin, comment: c && typeof c.html === 'string' ? c.html : '', commentObj: c && typeof c.html !== 'string' ? c : null, callbacks: post.callbacks || {} };
+  S.extra = { pin: !!post.pin, comment: c && typeof c.html === 'string' ? c.html : '', commentObj: c && typeof c.html !== 'string' ? c : null, callbacks: post.callbacks || {}, poll: post.poll_after || null };
   if (studio && studio.buffers) {
     const b = studio.buffers;
     if (Array.isArray(b.blocks) && !rm.blocks) S.buf.blocks = b.blocks;
@@ -104,14 +105,14 @@ export function setMode(mode, silent) {
   if (!silent) changed();
 }
 
-// ---------- after publishing: pin, first comment ----------
+// ---------- after publishing: pin, first comment, poll ----------
 export function renderAfter() {
   const box = $('#after');
   box.replaceChildren(...[
     h('label', { class: 'row', style: 'margin:2px 0' }, h('input', { type: 'checkbox', checked: S.extra.pin, onchange: (e) => { S.extra.pin = e.target.checked; changed(); } }), 'Закрепить пост после публикации (без уведомления)'),
     h('p', { class: 'muted small' }, 'Первый комментарий (HTML, как в посте). Студия ответит им на копию поста в группе обсуждения, когда Telegram её туда перешлёт. Бот должен быть админом группы обсуждения.'),
     S.extra.commentObj ? h('p', { class: 'w small', text: 'Комментарий задан в JSON не как HTML; он сохранится как есть, пока это поле пустое.' }) : null,
-    h('textarea', { class: 'code', id: 'comment-src', style: 'min-height:70px', value: S.extra.comment, placeholder: '<p>Ссылки из поста и обсуждение здесь 👇</p>', oninput: (e) => { S.extra.comment = e.target.value; changed(); } })].filter(Boolean));
+    h('textarea', { class: 'code', id: 'comment-src', style: 'min-height:70px', value: S.extra.comment, placeholder: '<p>Ссылки из поста и обсуждение здесь 👇</p>', oninput: (e) => { S.extra.comment = e.target.value; changed(); } }), pollAfterForm()].filter(Boolean));
 }
 
 export function updatesLabel() {
@@ -227,3 +228,38 @@ export const validate = debounce(async () => {
     pill.hidden = false;
   } catch (e) { box.replaceChildren(h('span', { class: 'e', text: 'Проверка недоступна: ' + e.message })); pill.hidden = true; }
 }, 500);
+
+/** The poll that goes to the same chat right after the post (post.poll_after, sendPoll fields as they are). */
+function pollAfterForm() {
+  const box = h('div', { class: 'poll-after' });
+  const draw = () => {
+    const P = S.extra.poll;
+    const on = h('label', { class: 'row', style: 'margin:2px 0' }, h('input', { type: 'checkbox', id: 'poll-after-on', checked: !!P, onchange: (e) => {
+      S.extra.poll = e.target.checked ? { question: '', options: [{ text: '' }, { text: '' }] } : null;
+      draw(); changed();
+    } }), 'Сразу после поста отправить опрос');
+    if (!P) { box.replaceChildren(on); return; }
+    if (!Array.isArray(P.options)) P.options = [];
+    const opts = P.options.map((o, i) => {
+      if (typeof o !== 'object' || o === null) P.options[i] = o = { text: String(o ?? '') };
+      return h('div', { class: 'row', style: 'margin:2px 0' },
+        P.type === 'quiz' ? h('input', { type: 'radio', name: 'poll-after-correct', title: 'Правильный ответ', checked: (P.correct_option_ids || [])[0] === i, onchange: () => { P.correct_option_ids = [i]; changed(); } }) : null,
+        h('input', { type: 'text', value: o.text || '', placeholder: 'Вариант ' + (i + 1), 'aria-label': 'Вариант ' + (i + 1), oninput: (e) => { o.text = e.target.value; changed(); } }),
+        P.options.length > 2 ? h('button', { type: 'button', class: 'ghost small-btn', text: '✕', title: 'Убрать вариант', onclick: () => { P.options.splice(i, 1); if (P.correct_option_ids) P.correct_option_ids = [0]; draw(); changed(); } }) : null);
+    });
+    const flag = (key, label, value) => h('label', { class: 'row', style: 'margin:2px 0' }, h('input', { type: 'checkbox', checked: value === undefined ? !!P[key] : P[key] === value, onchange: (e) => {
+      if (value !== undefined) { if (e.target.checked) { P[key] = value; P.correct_option_ids = [0]; delete P.allows_multiple_answers; } else { delete P[key]; delete P.correct_option_ids; delete P.explanation; } }
+      else if (e.target.checked) P[key] = true; else delete P[key];
+      draw(); changed();
+    } }), label);
+    box.replaceChildren(on,
+      h('input', { type: 'text', value: P.question || '', placeholder: 'Вопрос', 'aria-label': 'Вопрос опроса', maxlength: '300', oninput: (e) => { P.question = e.target.value; changed(); } }),
+      ...opts,
+      P.options.length < 12 ? h('button', { type: 'button', class: 'ghost small-btn', text: '＋ вариант', onclick: () => { P.options.push({ text: '' }); draw(); changed(); } }) : null,
+      flag('type', 'Викторина (один правильный ответ)', 'quiz'),
+      P.type === 'quiz' ? h('input', { type: 'text', value: P.explanation || '', placeholder: 'Пояснение после ответа', oninput: (e) => { if (e.target.value) P.explanation = e.target.value; else delete P.explanation; changed(); } }) : flag('allows_multiple_answers', 'Несколько ответов'),
+      h('p', { class: 'muted small', text: 'Уйдёт в тот же канал (и тему) отдельным сообщением, когда выйдет пост, в том числе отложенный. Остальные поля sendPoll задаются во вкладке JSON (poll_after).' }));
+  };
+  draw();
+  return box;
+}

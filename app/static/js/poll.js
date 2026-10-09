@@ -2,8 +2,10 @@
 import { api } from './api.js';
 import { closeDialog, openDialog } from './dialogs.js';
 import { act, h, store, toast } from './dom.js';
+import { changed, renderAfter } from './editor.js';
 import { loadPosts } from './posts.js';
 import { S, target, targetLabel } from './state.js';
+import { whenPicker } from './when.js';
 
 // ---------- polls ----------
 export function showPoll() {
@@ -23,7 +25,7 @@ export function showPoll() {
   const quizBox = h('div');
   const drawQuiz = () => { drawOpts(); quizBox.replaceChildren(...(P.quiz ? [field('Пояснение после ответа', inp('explanation', { placeholder: 'Почему этот ответ верный' }))] : [])); };
   drawQuiz();
-  const when = h('input', { type: 'datetime-local' });
+  const pick = whenPicker(Date.now() + 3600e3);
   const build = () => {
     const poll = { question: P.question.trim(), options: P.options.map((o) => o.trim()).filter(Boolean).map((text) => ({ text })) };
     if (P.description.trim()) poll.description = P.description.trim();
@@ -44,14 +46,27 @@ export function showPoll() {
     try { poll = build(); } catch (e) { toast('Доп. параметры: ' + e.message, 'err'); return; }
     /** @type {Json} */
     const body = { poll, pin: P.pin, ...target() };
-    if (scheduled) { if (!when.value) { toast('Укажите время', 'err'); return; } body.at = Math.floor(new Date(when.value).getTime() / 1000); }
+    if (scheduled) { const at = pick.value(); if (!at || at * 1000 < Date.now()) { toast('Выберите время в будущем', 'err'); return; } body.at = at; }
     if (!scheduled && !confirm('Отправить опрос в ' + targetLabel() + '?')) return;
     const r = await act(() => api('POST', '/api/poll', body), scheduled ? 'Опрос запланирован' : (x) => 'Опрос отправлен' + (x.warnings.length ? '\n' + x.warnings.join('; ') : ''));
     if (r) { closeDialog(d); loadPosts(); }
   };
+  // the same poll as an attachment of the draft: it goes out right after the post
+  const attach = () => {
+    let poll;
+    try { poll = build(); } catch (e) { toast('Доп. параметры: ' + e.message, 'err'); return; }
+    if (!poll.question || poll.options.length < 2) { toast('Нужны вопрос и минимум два варианта', 'err'); return; }
+    delete poll.close_date; delete poll.disable_notification; // counted from the post's own time and options
+    S.extra.poll = poll;
+    closeDialog(d);
+    renderAfter(); changed();
+    const panel = /** @type {HTMLDetailsElement | null} */ (document.getElementById('panel-after'));
+    if (panel) { panel.open = true; panel.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
+    toast('Опрос уйдёт сразу после поста', 'ok');
+  };
   const d = openDialog([
     h('h3', { text: 'Опрос в канал' }),
-    h('p', { class: 'muted small', text: 'Отдельное сообщение (в rich-пост опрос не вкладывается). Удобно отправить сразу после поста. Куда: ' + (targetLabel() || 'канал не указан') }),
+    h('p', { class: 'muted small', text: 'Отдельное сообщение (в rich-пост опрос не вкладывается). «После поста» прикрепит его к черновику: опрос уйдёт сразу за постом. Куда: ' + (targetLabel() || 'канал не указан') }),
     field('Вопрос', inp('question', { maxlength: '300', placeholder: 'Во сколько провести эфир?' })),
     field('Варианты (2–12)', opts),
     field('Описание под вопросом (до 1024 символов)', inp('description')),
@@ -64,8 +79,9 @@ export function showPoll() {
     chk('pin', 'Закрепить опрос'),
     h('details', {}, h('summary', { class: 'small', text: 'Дополнительные параметры sendPoll (JSON)' }),
       h('textarea', { class: 'code', style: 'min-height:60px', value: P.extra, placeholder: '{"allows_revoting": true, "shuffle_options": true}', oninput: (e) => { P.extra = e.target.value; save(); } })),
-    field('Отложить до (необязательно)', when)],
+    h('details', {}, h('summary', { class: 'small', text: 'Время для «Отложить»' }), pick.el)],
   [h('button', { class: 'ghost', value: 'cancel', text: 'Закрыть' }),
+    h('button', { class: 'ghost', text: 'После поста', title: 'Прикрепить к черновику: опрос уйдёт сразу после публикации поста', onclick: attach }),
     h('button', { class: 'ghost', text: 'Отложить', onclick: () => go(true) }),
     h('button', { class: 'primary', text: 'Отправить', onclick: () => go(false) })]);
 }

@@ -177,7 +177,8 @@ interface EditorState {
   flags: Json;
   keyboard: ButtonRow[];
   options: Json;
-  extra: { pin: boolean; comment: string; commentObj: Json | null; callbacks: Record<string, string | Json> };
+  /** poll: sendPoll fields of the poll sent right after the post (post.poll_after) */
+  extra: { pin: boolean; comment: string; commentObj: Json | null; callbacks: Record<string, string | Json>; poll: Json | null };
   updates: UpdatesStatus | null;
   uploads: Upload[];
   posts: PostRow[];

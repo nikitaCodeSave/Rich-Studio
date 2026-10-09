@@ -234,3 +234,18 @@ dialog::backdrop { background: rgba(0,0,0,.4); }
 .pf > label { display: block; margin-bottom: 2px; }
 .pf input[type=text] { width: 100%; }
 .pf .row input[type=text] { flex: 1; width: auto; }
+
+/* history of a post: what each version changed */
+.history .version { display: block; }
+.history .version > .row { margin: 0; }
+.diff { font-size: 12px; margin: 4px 0; display: grid; gap: 2px; }
+.diff .add, .diff .del { padding: 2px 6px; border-radius: 4px; overflow-wrap: anywhere; }
+.diff .add { background: color-mix(in srgb, var(--ok) 14%, transparent); }
+.diff .del { background: color-mix(in srgb, var(--err) 12%, transparent); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--err) 50%, transparent); }
+.version-preview { max-height: 320px; overflow: auto; border-radius: 8px; margin-top: 4px; }
+.when .presets { flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+.when .queue ul { margin: 4px 0; }
+.poll-after input[type=text] { width: 100%; }
+.poll-after .row input[type=text] { flex: 1; width: auto; }
+.list .badge { display: inline-block; margin-left: 6px; font-size: 10px; padding: 0 5px; border-radius: 6px; border: 1px solid var(--border); color: var(--muted); vertical-align: 1px; }
+.list .badge.ok { color: var(--ok); border-color: var(--ok); } .list .badge.w { color: var(--warn); border-color: var(--warn); }

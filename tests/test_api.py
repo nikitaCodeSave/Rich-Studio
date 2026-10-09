@@ -674,6 +674,49 @@ def test_pin_failure_is_a_warning_not_an_error(client, tg):
     assert any("закрепить" in w for w in r.json()["warnings"])
 
 
+POLL = {"question": "Во сколько эфир?", "options": ["Утром", {"text": "Вечером"}]}
+
+
+def test_poll_after_post_goes_right_after_it(client, tg):
+    post = {**BLOCKS_POST, "options": {"disable_notification": True}, "poll_after": POLL}
+    r = post_json(client, "/api/send", {"post": post}).json()
+    assert r["warnings"] == []
+    methods = [c["method"] for c in tg.calls]
+    assert methods.index("sendPoll") == methods.index("sendRichMessage") + 1
+    # the post itself goes to the Bot API without the studio's poll_after
+    assert "poll_after" not in tg.last("sendRichMessage")["body"]
+    poll = tg.last("sendPoll")["body"]
+    assert poll["question"] == "Во сколько эфир?" and poll["options"] == [{"text": "Утром"}, {"text": "Вечером"}]
+    assert poll["disable_notification"] is True and poll["chat_id"] == -1001
+    rows = client.get("/api/posts").json()
+    assert [x["kind"] for x in rows[:2]] == ["poll", "rich"] and rows[0]["status"] == "sent"
+    dry = post_json(client, "/api/send", {"post": post, "dry_run": True}).json()
+    assert "sendPoll (poll_after)" in dry["after_send"]
+
+
+def test_poll_after_post_failure_is_a_warning_and_a_row(client, tg):
+    tg.fail["sendPoll"] = "Bad Request: poll can't be sent"
+    r = post_json(client, "/api/send", {"post": {**BLOCKS_POST, "poll_after": POLL}})
+    assert r.status_code == 200 and r.json()["post"]["status"] == "sent"
+    assert any("опрос после поста" in w for w in r.json()["warnings"])
+    failed = [x for x in client.get("/api/posts").json() if x["kind"] == "poll"]
+    assert failed[0]["status"] == "failed" and "poll can't be sent" in failed[0]["error"]
+
+
+def test_poll_after_post_is_checked_before_the_post_goes(client, tg):
+    r = post_json(client, "/api/send", {"post": {**BLOCKS_POST, "poll_after": {"question": "?", "options": ["один"]}}})
+    assert r.status_code == 422 and "два варианта" in r.text
+    assert not [c for c in tg.calls if c["method"] == "sendRichMessage"]
+
+
+def test_scheduled_post_sends_its_poll_after(client, tg, monkeypatch):
+    at = int(time.time()) + 600
+    post_json(client, "/api/schedule", {"post": {**BLOCKS_POST, "poll_after": POLL}, "at": at})
+    monkeypatch.setattr(time, "time", lambda: at + 1)
+    _run(scheduler.run_due_posts())
+    assert [c["method"] for c in tg.calls][-2:] == ["sendRichMessage", "sendPoll"]
+
+
 def test_send_to_several_channels(client, tg):
     r = post_json(client, "/api/send", {"post": BLOCKS_POST, "chat_ids": ["@a", "@b", "@a", "-1002"]}).json()
     chats = [c["body"]["chat_id"] for c in tg.calls if c["method"] == "sendRichMessage"]

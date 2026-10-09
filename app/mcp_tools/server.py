@@ -40,18 +40,22 @@ with post_id is an edit of that post and can only go out through edit_post); pos
 studio_status says whether scheduled posts, button answers and first comments will actually work.
 studio_health lists what is wrong and what to do (status ok|warn|fail per check); studio_logs reads the log.
 A post is {"rich_message": InputRichMessage with exactly one of html|markdown|blocks, "reply_markup"?,
-"options"?, "pin"?, "comment"?, "callbacks"?}; it reaches the Bot API unchanged. describe_type gives exact
+"options"?, "pin"?, "comment"?, "callbacks"?, "poll_after"? (sendPoll fields: a poll sent right after the post)};
+it reaches the Bot API unchanged. describe_type gives exact
 fields of any Bot API type. Uploaded files are referenced as upload:<name>."""
 
 PostArg = Annotated[
     dict[str, Any],
-    Field(description="Пост: {rich_message: {html|markdown|blocks, media?}, reply_markup?, options?, pin?, comment?}"),
+    Field(
+        description="Пост: {rich_message: {html|markdown|blocks, media?}, reply_markup?, options?, pin?, comment?, "
+        "poll_after? (опрос сразу после поста)}"
+    ),
 ]
 OptPostArg = Annotated[
     dict[str, Any] | None,
     Field(
-        description="Пост: {rich_message: {html|markdown|blocks, media?}, reply_markup?, options?, pin?, comment?}; "
-        "или вместо него draft_id"
+        description="Пост: {rich_message: {html|markdown|blocks, media?}, reply_markup?, options?, pin?, comment?, "
+        "poll_after?}; или вместо него draft_id"
     ),
 ]
 DraftArg = Annotated[
