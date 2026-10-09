@@ -302,7 +302,7 @@ pip install -r requirements-dev.txt
 pytest                          # 224 теста API и MCP на подставном Telegram, без сети и токена
 ruff check . && ruff format --check . && mypy   # линтер, формат, типы (настройки в pyproject.toml)
 npm ci && npm run lint && npm run typecheck   # ESLint и проверка типов редактора; Node нужен только для проверок
-npm run test:render             # 33 проверки очистки HTML в предпросмотре (Playwright, без студии)
+npm run test:render             # 43 проверки очистки HTML и разбора Markdown в предпросмотре (Playwright, без студии)
 npm run test:parity             # предпросмотр HTML и Markdown против блоков настоящего Telegram (tests/telegram_parse)
 npm run test:shots              # примеры из examples/ в обеих темах: вёрстка и скриншоты в test-results/preview/
 ```

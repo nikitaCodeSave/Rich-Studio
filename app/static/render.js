@@ -392,7 +392,9 @@
     const refs = new Set([...root.querySelectorAll('.tg-ref')].map((n) => n.id.slice(4)));
     const anchors = new Set([...root.querySelectorAll('.tg-anchor')].map((n) => n.getAttribute('name')));
     root.querySelectorAll('a[href^="#"]').forEach((a) => {
-      const name = decodeURIComponent((a.getAttribute('href') || '').slice(1));
+      const raw = (a.getAttribute('href') || '').slice(1);
+      let name;
+      try { name = decodeURIComponent(raw); } catch (e) { name = raw; } // a broken %-escape stays as typed
       if (refs.has(name)) { a.setAttribute('href', '#ref-' + name); a.classList.add('tg-reflink'); }
       else if (anchors.has(name) || !name) { a.setAttribute('href', '#anchor-' + name); a.classList.add('tg-link'); } // bare # is the top of the post
     });
@@ -521,14 +523,15 @@
     let n = startLine + 1;
     for (; n < endLine && state.sCount[n] >= state.blkIndent + 4; n++) parts.push(state.src.slice(state.bMarks[n] + state.tShift[n], state.eMarks[n]));
     const env = state.env;
-    (env.footnotes = env.footnotes || {})[m[1]] = parts.join(' ');
+    // no prototype: labels such as [^__proto__] or [^toString] are plain names
+    (env.footnotes = env.footnotes || Object.create(null))[m[1]] = parts.join(' ');
     state.line = n;
     return true;
   }
   function footnoteRef(state, silent) {
     const m = /^\[\^([^\]\s]+)\]/.exec(state.src.slice(state.pos, state.posMax));
     const notes = state.env.footnotes;
-    if (!m || !notes || !(m[1] in notes)) return false;
+    if (!m || !notes || !Object.hasOwn(notes, m[1])) return false;
     if (!silent) {
       const order = state.env.footnoteOrder = state.env.footnoteOrder || [];
       if (!order.includes(m[1])) order.push(m[1]);

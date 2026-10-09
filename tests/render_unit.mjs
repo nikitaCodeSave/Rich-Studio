@@ -117,6 +117,35 @@ check('safeUrl table', await page.evaluate(() => {
   check('markdown: task list renders as disabled checkboxes', (r.html.match(/type="checkbox"/g) || []).length === 2 && has(r.html, /checked/), r.html);
 }
 
+// ---------- Telegram markdown extensions (spoiler, marker, math, footnotes, tables) ----------
+const EXTENSIONS = {
+  'html in a spoiler': '||<img src=x onerror="window.__xss=1">||',
+  'html in a marker': '==<svg onload="window.__xss=1"></svg>==',
+  'closing tg-math from inline math': '$</tg-math><img src=x onerror="window.__xss=1">$',
+  'closing tg-math-block from block math': '$$\n</tg-math-block><img src=x onerror="window.__xss=1">\n$$',
+  'html and javascript: in a footnote': 'a[^1]\n\n[^1]: <img src=x onerror="window.__xss=1"> [l](javascript:window.__xss=1)',
+  'html in an aligned table cell': '| a |\n|:-:|\n| <img src=x onerror="window.__xss=1"> |',
+};
+// escaped text may still read "onerror=" (a formula error shows its source); only real tags and attributes count
+const live = (html) => /<(svg|script)\b|<[^>]*\son\w+="|href="javascript/i.test(html);
+for (const [name, src] of Object.entries(EXTENSIONS)) {
+  const r = await render({ markdown: src });
+  check('markdown: ' + name, !r.xss && !live(r.html), r.html);
+}
+{
+  const r = await render({ html: '<a name="x&quot; onclick=&quot;window.__xss=1">a</a><a href="#x&quot; onclick=&quot;window.__xss=1">b</a><code class="language-js" onclick="window.__xss=1">c</code><tg-time unix="1"><img src=x onerror="window.__xss=1"></tg-time>' });
+  check('anchors, code language and tg-time keep no handlers', !r.xss && !live(r.html), r.html);
+}
+// odd input must not turn the whole preview into a render error
+for (const [name, rm] of Object.entries({
+  'broken %-escape in an html #link': { html: '<p><a href="#%">x</a></p>' },
+  'broken %-escape in a markdown #link': { markdown: '[x](#%E0%A4%A)' },
+  'footnote named like a prototype property': { markdown: 'a [^__proto__] b [^toString]\n\n[^__proto__]: x\n[^toString]: y' },
+})) {
+  const r = await render(rm);
+  check('renders ' + name, !has(r.all, /Ошибка рендера/), r.all.slice(0, 300));
+}
+
 check('no script ran and no page errors', (await page.evaluate(() => window.__xss)) === 0 && pageErrors.length === 0, pageErrors.join(' | '));
 await browser.close();
 const failed = results.filter((x) => !x).length;

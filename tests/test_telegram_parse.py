@@ -59,3 +59,28 @@ def test_preview_send_returns_how_telegram_parsed_the_post(client, tg):
     parsed = r.json()["parsed"]
     assert parsed["blocks"] == case["blocks"]
     assert parsed["input_blocks"][1] == {"type": "mathematical_expression", "expression": "E=mc^2"}
+
+
+def test_odd_block_shapes_do_not_break_the_converter(current):
+    odd = [
+        {"type": "blockquote", "blocks": None},
+        {"type": "blockquote", "blocks": "x"},
+        {"type": "photo", "photo": [1, 2]},
+        {"type": "video", "video": "v"},
+    ]
+    quote_none, quote_str, photo, video = spec.to_input_blocks(current, odd)
+    assert quote_none["blocks"] is None and quote_str["blocks"] == "x"
+    assert photo["photo"]["media"] == "" and video["video"]["media"] == ""
+
+
+def test_preview_answers_even_if_the_conversion_fails(client, tg, monkeypatch):
+    def broken(*_):
+        raise TypeError("unexpected shape")
+
+    monkeypatch.setattr(spec, "to_input_blocks", broken)
+    post = {"rich_message": {"markdown": "x"}, "callbacks": {"go": "ok"}, "comment": {"html": "<p>c</p>"}}
+    r = client.post("/api/preview-send", json={"post": post})
+    assert r.status_code == 200, r.text
+    assert "blocks" in r.json()["parsed"] and "input_blocks" not in r.json()["parsed"]
+    # the steps after the send still ran: the first comment went out as a reply
+    assert tg.last("sendRichMessage")["body"]["rich_message"] == {"html": "<p>c</p>"}

@@ -37,7 +37,7 @@ def _object(spec: Spec, by_value: dict, value: dict, type_name: str) -> dict:
 
 def _value(spec: Spec, by_value: dict, v, types: list, parent: dict):
     t = types[0] if len(types) == 1 else ""
-    if t == "Array of InputRichBlock":
+    if t == "Array of InputRichBlock" and isinstance(v, list):
         return [_block(spec, by_value, x) for x in v]
     if t.startswith("Array of InputRich") and isinstance(v, list):
         item = t.removeprefix("Array of ")
@@ -50,9 +50,11 @@ def _value(spec: Spec, by_value: dict, v, types: list, parent: dict):
 def _media(spec: Spec, media_type: str, sent, parent: dict) -> dict:
     """A sent Photo/Video/… as InputMedia that reuses Telegram's file_id."""
     if isinstance(sent, list):  # photo: sizes, the largest is the original
-        sent = max(sent, key=lambda s: (s.get("width", 0) * s.get("height", 0), s.get("file_size", 0)), default={})
+        sizes = [s for s in sent if isinstance(s, dict)]
+        sent = max(sizes, key=lambda s: (s.get("width", 0) * s.get("height", 0), s.get("file_size", 0)), default={})
     const = spec.type_const(media_type)
-    out = {"type": const[1] if const else parent.get("type"), "media": (sent or {}).get("file_id", "")}
+    file_id = sent.get("file_id", "") if isinstance(sent, dict) else ""
+    out = {"type": const[1] if const else parent.get("type"), "media": file_id}
     fields = {f["name"] for f in spec.types.get(media_type, {}).get("fields", [])}
     if parent.get("has_spoiler") and "has_spoiler" in fields:
         out["has_spoiler"] = True
