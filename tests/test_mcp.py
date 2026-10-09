@@ -96,6 +96,29 @@ def test_mcp_is_behind_the_api_key(client, monkeypatch):
     assert r.status_code == 200 and json.loads(r.text)["result"]["tools"]
 
 
+def test_get_mcp_is_405_not_a_stream_that_never_ends(client):
+    r = client.get("/mcp", headers={"Accept": "text/event-stream"})
+    assert r.status_code == 405 and r.headers["allow"] == "POST"
+
+
+def test_mcp_publish_off_leaves_only_drafts_and_preview(monkeypatch):
+    import asyncio
+
+    import mcp_tools
+    import settings
+
+    monkeypatch.setattr(settings.get(), "mcp_publish", False)
+    names = {t.name for t in asyncio.run(mcp_tools.build().list_tools())}
+    assert names == EXPECTED_TOOLS - {"publish_post", "schedule_post", "edit_post"}
+
+
+def test_tools_that_reach_telegram_say_so(client):
+    tools = {t["name"]: t["annotations"] for t in rpc(client, "tools/list")["result"]["tools"]}
+    for name in ("send_preview_to_me", "check_channel", "publish_post", "schedule_post", "edit_post"):
+        assert tools[name]["openWorldHint"] is True, name
+    assert tools["send_preview_to_me"]["destructiveHint"] is False
+
+
 def test_preview_app(client, tg):
     """preview_post is bound to a self-contained ui:// page that renders the post with render.js."""
     tools = {t["name"]: t for t in rpc(client, "tools/list")["result"]["tools"]}

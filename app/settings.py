@@ -33,6 +33,8 @@ class Settings:
     spec_refresh_hours: float = 12.0
     # Bot API accepts uploads up to 50 MB; a self-hosted Bot API server (TG_API_BASE) up to 2000 MB
     max_upload_mb: float = 50.0
+    # MCP tools that post to a channel (publish_post, schedule_post, edit_post); off = agents only draft and preview
+    mcp_publish: bool = True
 
     @property
     def media_dir(self) -> Path:
@@ -59,6 +61,7 @@ class Settings:
         s.spec_refresh_hours = float(env.get("SPEC_REFRESH_HOURS", "12"))
         own_server = s.api_base != cls.api_base
         s.max_upload_mb = float(env.get("MAX_UPLOAD_MB", "2000" if own_server else "50"))
+        s.mcp_publish = _flag(env, "MCP_PUBLISH")
         return s
 
 

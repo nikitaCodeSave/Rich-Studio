@@ -101,6 +101,10 @@ def create_app(cfg: settings.Settings | None = None) -> FastAPI:
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
     # MCP for agents at /mcp, behind the same guard (Host, CSRF, X-API-Key) as the REST API
+    @app.get("/mcp", include_in_schema=False)
+    def mcp_no_stream():  # stateless server: nothing to push, and an open GET stream would hang until shutdown
+        return Response(status_code=405, headers={"Allow": "POST"})
+
     app.state.mcp = mcp_tools.build()
     mcp_app = app.state.mcp.streamable_http_app(
         streamable_http_path="/mcp",

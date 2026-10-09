@@ -16,6 +16,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
+import settings
 import spec
 import store
 import telegram as tg
@@ -47,6 +48,9 @@ KeyArg = Annotated[
 
 READ = ToolAnnotations(read_only_hint=True, open_world_hint=False)
 LOCAL = ToolAnnotations(read_only_hint=False, destructive_hint=False, open_world_hint=False)
+# reaches Telegram but changes nothing in the channel
+TELEGRAM_READ = ToolAnnotations(read_only_hint=True, open_world_hint=True)
+TO_ME = ToolAnnotations(read_only_hint=False, destructive_hint=False, open_world_hint=True)
 PUBLIC = ToolAnnotations(read_only_hint=False, destructive_hint=True, open_world_hint=True)
 
 
@@ -95,6 +99,8 @@ def build() -> MCPServer:
 
     def tool(annotations: ToolAnnotations):
         def register(fn):
+            if annotations is PUBLIC and not settings.get().mcp_publish:
+                return fn  # MCP_PUBLISH=off: the tool does not exist for agents
             server.tool(annotations=annotations)(_errors_as_tool_errors(fn))
             return fn
 
@@ -138,12 +144,12 @@ def build() -> MCPServer:
         """Черновики студии (последние сверху)."""
         return store.list_drafts()
 
-    @tool(LOCAL)
+    @tool(TO_ME)
     async def send_preview_to_me(post: PostArg) -> dict:
         """Отправить пост пользователю в личку (TG_PREVIEW_CHAT), чтобы он увидел его в Telegram. В канал не уходит."""
         return await posts.preview(_post(post))
 
-    @tool(READ)
+    @tool(TELEGRAM_READ)
     async def check_channel(chat_id: ChatArg = None) -> dict:
         """Бот админ канала и может публиковать?"""
         return await tg.check_chat(publisher.resolve_chat(chat_id))
