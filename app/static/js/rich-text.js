@@ -4,7 +4,7 @@ import { clone, h, toast } from './dom.js';
 import { changed } from './editor.js';
 import { objectFields } from './forms.js';
 import { RT_LABELS, RT_WRAP } from './labels.js';
-import { htmlToRt } from './paste.js';
+import { htmlToRt, linkError } from './paste.js';
 import { defaultObject, isNewType, rtTypes, T } from './spec.js';
 
 // ---------- rich text field ----------
@@ -148,15 +148,6 @@ export function editLink() {
     plainText ? h('label', { class: 'stack' }, 'Текст', text) : null,
     h('label', { class: 'stack' }, 'Адрес', url), err], actions);
   (plainText && !text.value ? text : url).focus();
-}
-
-/** Why Telegram would not take the link (the same rule the server applies to buttons). */
-export function linkError(u) {
-  if (!u) return 'Впишите адрес';
-  if (/^(tg:|mailto:)/i.test(u)) return null;
-  if (/^https?:\/*$/i.test(u)) return 'В адресе нет сайта';
-  try { const p = new URL(u); if (!/^https?:$/.test(p.protocol)) return 'Адрес должен начинаться с https://, http://, tg:// или mailto:'; if (!p.hostname) return 'В адресе нет сайта'; } catch { return 'Это не похоже на адрес: ' + u; }
-  return null;
 }
 
 const linkTitle = (url) => url + ' · Ctrl+K: изменить';

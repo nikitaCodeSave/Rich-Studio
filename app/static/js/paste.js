@@ -10,6 +10,15 @@ const TAG_MARK = { b: 'bold', strong: 'bold', i: 'italic', em: 'italic', cite: '
   mark: 'marked', 'tg-spoiler': 'spoiler' };
 const SAFE_URL = /^(https?:|tg:|mailto:)/i;
 
+/** Why Telegram would not take the link (the same rule the server applies to buttons). */
+export function linkError(u) {
+  if (!u) return 'Впишите адрес';
+  if (/^(tg:|mailto:)/i.test(u)) return null;
+  if (/^https?:\/*$/i.test(u)) return 'В адресе нет сайта';
+  try { const p = new URL(u); if (!/^https?:$/.test(p.protocol)) return 'Адрес должен начинаться с https://, http://, tg:// или mailto:'; if (!p.hostname) return 'В адресе нет сайта'; } catch { return 'Это не похоже на адрес: ' + u; }
+  return null;
+}
+
 /**
  * @param {string} html clipboard text/html
  * @returns {{ rt: any, images: number }} RichText ('' when nothing is left) and how many pictures were dropped
@@ -48,7 +57,7 @@ export function htmlToRt(html) {
     if (/vertical-align\s*:\s*super/.test(style)) add({ type: 'superscript' });
     if (/vertical-align\s*:\s*sub/.test(style)) add({ type: 'subscript' });
     if (tag === 'span' && el.classList.contains('tg-spoiler')) add({ type: 'spoiler' });
-    if (tag === 'a') { const href = (el.getAttribute('href') || '').trim(); if (SAFE_URL.test(href)) add({ type: 'url', url: href }); }
+    if (tag === 'a') { const href = (el.getAttribute('href') || '').trim(); if (SAFE_URL.test(href) && !linkError(href)) add({ type: 'url', url: href }); }
     if (/^h[1-6]$/.test(tag)) add({ type: 'bold' });
     if (tag === 'li') {
       const nth = list === 'ol' ? [...(el.parentElement?.children || [])].filter((x) => x.tagName === 'LI').indexOf(el) + 1 : 0;
