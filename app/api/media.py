@@ -5,6 +5,7 @@ from fastapi.responses import FileResponse
 
 import settings
 from errors import StudioError
+from models import FetchReq
 from services import media
 
 router = APIRouter()
@@ -35,6 +36,11 @@ async def media_upload(file: UploadFile = File(...)):
             status=413,
         )
     return media.describe(name)
+
+
+@router.post("/api/media/fetch", tags=["media"], summary="Скачать файл по ссылке в загрузки; дальше он upload:<name>")
+async def media_fetch(req: FetchReq):
+    return await media.fetch(req.url, req.filename)
 
 
 @router.post(

@@ -24,6 +24,8 @@ class Settings:
     preview_chat: str = ""
     api_key: str = ""
     api_base: str = "https://api.telegram.org"
+    # where the person opens the studio: agents get links to drafts and previews from it
+    public_url: str = "http://localhost:8080"
     # host names the service answers to (DNS rebinding guard)
     allowed_hosts: set[str] = field(default_factory=lambda: {"localhost", "127.0.0.1", "[::1]", "::1"})
     # getUpdates loop: button clicks, first comments, reactions, poll results
@@ -76,6 +78,7 @@ class Settings:
         s.preview_chat = env.get("TG_PREVIEW_CHAT", "").strip()
         s.api_key = env.get("STUDIO_API_KEY", "").strip()
         s.api_base = env.get("TG_API_BASE", s.api_base).rstrip("/")
+        s.public_url = env.get("STUDIO_URL", s.public_url).strip().rstrip("/") or s.public_url
         s.allowed_hosts |= {h.strip().lower() for h in env.get("ALLOWED_HOSTS", "").split(",") if h.strip()}
         s.updates_on = _flag(env, "TG_UPDATES")
         s.background = _flag(env, "STUDIO_BACKGROUND")

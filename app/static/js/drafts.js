@@ -9,7 +9,12 @@ import { dirty, editing, S, saveState } from './state.js';
 
 // ---------- drafts ----------
 export async function loadDrafts() {
-  S.drafts = await api('GET', '/api/drafts');
+  showDrafts(await api('GET', '/api/drafts'));
+}
+
+/** @param {DraftRow[]} list */
+function showDrafts(list) {
+  S.drafts = list;
   const ul = $('#drafts');
   ul.replaceChildren(...S.drafts.map((d) => h('li', { class: d.id === S.draftId ? 'on' : '', onclick: () => openDraft(d.id) },
     h('span', { text: d.title || 'Без названия' }),
@@ -29,13 +34,43 @@ export async function openDraft(id) {
   resetHistory();
   dirty.value = false; saveState.value = 'сохранено';
   store.set('lastDraft', id);
+  showAddress(id);
   loadDrafts();
+}
+
+// the address bar names the open draft: the link can be bookmarked or given by an agent (/?draft=<id>)
+function showAddress(id) {
+  const url = id ? '?draft=' + encodeURIComponent(id) : location.pathname;
+  if (location.search !== (id ? url : '')) history.replaceState(null, '', url);
+}
+
+// ---------- the open draft changed elsewhere (an agent, another tab) ----------
+let lastSeen = '';
+/** Every few seconds while the tab is visible: a newer version of the open draft reloads it when nothing here
+ * is unsaved, otherwise the conflict dialog asks; the list on the left follows new drafts by itself. */
+export async function watchDrafts() {
+  if (document.visibilityState !== 'visible' || S.conflict || pending) return;
+  const list = await api('GET', '/api/drafts').catch(() => null);
+  if (!list || pending) return;
+  const key = JSON.stringify(list.map((d) => [d.id, d.version, d.title]));
+  if (key !== lastSeen) { lastSeen = key; showDrafts(list); }
+  const mine = S.draftId && list.find((d) => d.id === S.draftId);
+  if (!mine || S.draftVersion === null || mine.version <= S.draftVersion) return;
+  if (!dirty.value) {
+    await openDraft(mine.id);
+    toast('Черновик изменили в другом месте (агент или другая вкладка): показана новая версия', 'ok');
+    return;
+  }
+  const current = await api('GET', '/api/drafts/' + mine.id).catch(() => null);
+  draftConflict({ message: 'черновик изменили в другом месте (агент или другая вкладка), пока вы печатали', current });
 }
 
 // one save at a time: a second one sent before the first returns would carry a stale version and get 409
 let saving = Promise.resolve();
+let pending = 0; // saves in flight: their new version is ours, not someone else's
 export function saveDraft(silent, overwrite) {
-  const run = saving.then(() => doSave(silent, overwrite));
+  pending++;
+  const run = saving.then(() => doSave(silent, overwrite)).finally(() => { pending--; });
   saving = run.catch(() => {});
   return run;
 }
@@ -54,6 +89,7 @@ async function doSave(silent, overwrite) {
   S.draftId = d.id; S.draftVersion = d.version; $('#title').value = d.title;
   dirty.value = false; saveState.value = 'сохранено ' + new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
   store.set('lastDraft', d.id);
+  showAddress(d.id);
   if (!silent) toast('Черновик сохранён', 'ok');
   loadDrafts();
   return d;
@@ -84,5 +120,6 @@ export async function newDraft() {
   loadPost({ rich_message: { blocks: [{ type: 'heading', size: 1, text: 'Заголовок' }, { type: 'paragraph', text: 'Текст поста' }] } });
   resetHistory();
   saveState.value = '';
+  showAddress(null);
   loadDrafts();
 }

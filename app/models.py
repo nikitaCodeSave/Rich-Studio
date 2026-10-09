@@ -75,6 +75,11 @@ class PinReq(BaseModel):
     disable_notification: bool = True
 
 
+class FetchReq(BaseModel):
+    url: str = Field(..., description="Ссылка http(s) на файл")
+    filename: str | None = Field(None, description="Имя файла; по умолчанию из ссылки")
+
+
 class DraftReq(BaseModel):
     title: str = ""
     post: dict

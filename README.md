@@ -17,7 +17,7 @@
 | Публикация | сразу, по расписанию, «мне в личку», в несколько каналов, замена текста или только кнопок, удаление |
 | Канал | закреп без уведомления, первый комментарий в обсуждении, ответы на callback-кнопки, опросы и викторины для каналов, счётчики реакций и нажатий |
 | Свежесть | редактор строится из машиночитаемой спецификации Bot API, новые поля работают в день релиза |
-| Агенты | HTTP API, MCP-сервер на `/mcp` с 22 инструментами и предпросмотром прямо в чате, `dry_run`, `Idempotency-Key`, отметка о том, кто отправил пост |
+| Агенты | HTTP API, MCP-сервер на `/mcp` с 24 инструментами и предпросмотром прямо в чате, `dry_run`, `Idempotency-Key`, отметка о том, кто отправил пост |
 
 ## Быстрый старт
 
@@ -164,7 +164,7 @@ HTML и Markdown предпросмотр разбирает так же, как
 | `GET /api/logs?level=&limit=&since=&logger=&q=` | журнал студии (строки JSON) с фильтрами; `q=<request_id>` — всё, что сделал один запрос |
 | `GET /healthz`, `GET /readyz` | жив ли процесс; готова ли студия работать (503 и имена сбойных проверок), обе без ключа |
 | `GET /api/export` | бэкап: zip с базой и файлами |
-| `POST /api/media`, `GET /api/media`, `POST /api/media/cleanup`, `DELETE /api/media/{name}` | загрузка файлов; `used` у файла, удаление всех ненужных; удаление файла, нужного отложенному посту или черновику, даёт 409 (`?force=true` удаляет всё равно) |
+| `POST /api/media`, `POST /api/media/fetch` (по ссылке), `GET /api/media`, `POST /api/media/cleanup`, `DELETE /api/media/{name}` | загрузка файлов; `used` у файла, удаление всех ненужных; удаление файла, нужного отложенному посту или черновику, даёт 409 (`?force=true` удаляет всё равно) |
 | `POST /api/raw/{method}` | любой метод Bot API как есть |
 
 Время в `/api/schedule` передавайте как unix или ISO 8601 с часовым поясом (`2026-10-10T09:00:00+03:00`). Контракт API записан в `docs/openapi.json`.
@@ -240,7 +240,9 @@ claude mcp add --transport http rich-studio http://localhost:8080/mcp
 claude mcp add --transport http rich-studio http://localhost:8080/mcp --header "X-API-Key: <ключ>"
 ```
 
-Инструменты: `bot_api_status`, `refresh_bot_api` (скачать спецификацию сейчас), `studio_status` (что работает: токен, приём событий, предел опоздания отложки), `studio_health` (что сломано и что делать), `studio_logs` (журнал), `describe_type`, `validate_post`, `preview_post`, `save_draft` (новый или обновить существующий с проверкой версии; сразу возвращает результат проверки), `list_drafts`, `get_draft`, `list_media`, `send_preview_to_me`, `check_channel`, `publish_post` (с `idempotency_key` и `dry_run`), `schedule_post` (тоже с `dry_run`), `list_posts`, `get_post`, `post_history`, `edit_post`, `reschedule_post`, `cancel_scheduled_post`.
+Инструменты: `bot_api_status`, `refresh_bot_api` (скачать спецификацию сейчас), `studio_status` (что работает: токен, приём событий, предел опоздания отложки), `studio_health` (что сломано и что делать), `studio_logs` (журнал), `describe_type`, `validate_post`, `preview_post`, `save_draft` (новый или обновить существующий с проверкой версии; сразу возвращает результат проверки), `list_drafts`, `get_draft`, `list_media`, `upload_media` (по ссылке или base64), `send_preview_to_me`, `check_channel`, `publish_post` (с `idempotency_key` и `dry_run`), `schedule_post` (тоже с `dry_run`), `send_poll` (опрос или викторина), `list_posts`, `get_post`, `post_history`, `edit_post`, `reschedule_post`, `cancel_scheduled_post`.
+
+Ответы `save_draft`, `preview_post` и `get_draft` содержат `editor_url` (черновик в редакторе, `/?draft=<id>`) и `preview_url`, `get_post` даёт `editor_url` вида `/?post=<id>`, который открывает пост на правку. Адрес берётся из `STUDIO_URL` (по умолчанию `http://localhost:8080`). Открытый в редакторе черновик, который поменял агент, обновляется сам через несколько секунд. Если в редакторе есть несохранённые правки, он спросит, чью версию оставить.
 
 Агент передаёт JSON поста один раз, в `save_draft`; дальше `preview_post`, `publish_post` и `schedule_post` берут пост по `draft_id`. Публикация по `draft_id` требует `version`, которую вернул `preview_post`, и откажет, если вы успели изменить черновик в редакторе после предпросмотра. Черновик-правка опубликованного поста уходит только через `edit_post` с `draft_id`, вторым постом в канал он не попадёт.
 

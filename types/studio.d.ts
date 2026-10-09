@@ -77,6 +77,8 @@ interface DraftRow {
   updated_at: number;
   /** the post this draft edits, if any */
   post_id: string | null;
+  /** grows with every save: the editor notices a draft changed elsewhere */
+  version: number;
 }
 
 /** GET /api/posts/{id}/versions item */

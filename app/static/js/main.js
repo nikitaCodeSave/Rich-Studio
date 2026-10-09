@@ -16,8 +16,8 @@ import './components/rs-preview.js';
 import './components/rs-edit-bar.js';
 import './components/rs-health.js';
 import './components/rs-parse-check.js';
-import { leaveEditing, reschedulePost, showHistory, updatePost } from './editing.js';
-import { loadDrafts, newDraft, openDraft, saveDraft } from './drafts.js';
+import { editPost, leaveEditing, reschedulePost, showHistory, updatePost } from './editing.js';
+import { loadDrafts, newDraft, openDraft, saveDraft, watchDrafts } from './drafts.js';
 import { autosave, buildPost, changed, loadPost, parsedToBlocks, parseKey, renderPreview, setMode } from './editor.js';
 import { watchHealth } from './health.js';
 import { canRedo, canUndo, redo, undo } from './history.js';
@@ -166,8 +166,24 @@ async function boot() {
   bindActions();
   watchHealth();
   await Promise.all([loadUploads().catch(() => {}), loadPosts().catch(() => {})]);
-  const last = store.get('lastDraft', null);
   await loadDrafts();
+  await openFromAddress();
+  setInterval(() => { watchDrafts().catch(() => {}); }, 4000);
+}
+
+// /?draft=<id> opens that draft, /?post=<id> opens a published post for editing (links agents give);
+// otherwise the draft open last time
+async function openFromAddress() {
+  const q = new URLSearchParams(location.search);
+  const draft = q.get('draft');
+  const post = q.get('post');
+  if (draft && S.drafts.some((d) => d.id === draft)) { await openDraft(draft); return; }
+  if (post) {
+    const p = await api('GET', '/api/posts/' + encodeURIComponent(post)).catch(() => null);
+    if (p) { await editPost(p).catch((e) => toast(e.message, 'err')); return; }
+  }
+  if (draft || post) toast((draft ? 'Черновика ' + draft : 'Поста ' + post) + ' нет: открыт последний черновик', 'err');
+  const last = store.get('lastDraft', null);
   if (last && S.drafts.some((d) => d.id === last)) await openDraft(last); else newDraft();
 }
 

@@ -1,7 +1,12 @@
 """Uploaded files that posts reference as upload:<name>."""
 
+import base64
+import binascii
 import re
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
+
+import httpx
 
 import settings
 import store
@@ -118,3 +123,58 @@ def path_of(name: str, must_exist: bool = True) -> Path:
     if must_exist and not p.exists():
         raise NotFound("Not Found")
     return p
+
+
+def _limit() -> int:
+    return int(settings.get().max_upload_mb * 1024 * 1024)
+
+
+def _too_big() -> StudioError:
+    return StudioError(
+        f"файл больше {settings.get().max_upload_mb:g} МБ: столько Telegram не примет "
+        "(для больших файлов нужен свой сервер Bot API, см. TG_API_BASE и MAX_UPLOAD_MB)",
+        status=413,
+    )
+
+
+def save_base64(filename: str, data: str) -> dict:
+    """An upload an agent sends inline (base64), saved like one from the editor."""
+    try:
+        raw = base64.b64decode(data, validate=True)
+    except (binascii.Error, ValueError):
+        raise StudioError("data_base64: не base64") from None
+    if len(raw) > _limit():
+        raise _too_big()
+    name = free_name(filename)
+    (media_dir() / name).write_bytes(raw)
+    return describe(name)
+
+
+async def fetch(url: str, filename: str | None = None) -> dict:
+    """Download a file by http(s) link into the uploads, so a post can use it as upload:<name>."""
+    parts = urlsplit(url)
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        raise StudioError("url: нужна ссылка http(s)")
+    name = free_name(filename or unquote(Path(parts.path).name) or "file")
+    path = media_dir() / name
+    size = 0
+    try:
+        async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client, client.stream("GET", url) as r:
+            if r.status_code != 200:
+                raise StudioError(f"не удалось скачать: HTTP {r.status_code}")
+            with path.open("wb") as f:
+                async for chunk in r.aiter_bytes(1 << 20):
+                    size += len(chunk)
+                    if size > _limit():
+                        break
+                    f.write(chunk)
+    except httpx.HTTPError as e:
+        path.unlink(missing_ok=True)
+        raise StudioError(f"не удалось скачать: {type(e).__name__}") from None
+    except StudioError:
+        path.unlink(missing_ok=True)
+        raise
+    if size > _limit():
+        path.unlink(missing_ok=True)
+        raise _too_big()
+    return describe(name)

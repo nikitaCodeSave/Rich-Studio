@@ -10,7 +10,8 @@ from .db import conn, row
 def list_drafts() -> list[dict]:
     with conn() as c:
         return [
-            dict(r) for r in c.execute("select id, title, updated_at, post_id from drafts order by updated_at desc")
+            dict(r)
+            for r in c.execute("select id, title, updated_at, post_id, version from drafts order by updated_at desc")
         ]
 
 

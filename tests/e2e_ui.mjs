@@ -395,6 +395,8 @@ check('Header fits one row at 1440px', Math.abs(header.pub - header.brand) < 12 
 
 // 15b. while a post is open for editing, «Опубликовать» posts a new copy on purpose (as_new), never a 409
 {
+  // an error toast of an earlier check (the spec refresh, 9 s) must not count against this one
+  await page.evaluate(() => document.querySelector('#toasts').replaceChildren());
   const before = (await mockLog()).filter((c) => c.method === 'sendRichMessage').length;
   await page.click('#btn-publish');
   await page.waitForTimeout(1200);
@@ -468,6 +470,32 @@ check('Header fits one row at 1440px', Math.abs(header.pub - header.brand) < 12 
   check('Field names are text, an empty button link is an error, the table fits a phone',
     !opts.includes('[object') && /message_effect_id/.test(opts) && /кнопка «Кнопка».*пустая ссылка/.test(verdict) && !/Пост проходит проверку/.test(verdict) && wide <= 390,
     JSON.stringify({ objectBug: opts.includes('[object'), verdict: verdict.slice(0, 160), wide }));
+}
+
+// 12. agent link: /?draft=<id> opens that draft; a newer version from an agent shows up by itself or asks
+{
+  const api = (method, path, body) => page.evaluate(([m, p, b]) => fetch(p, { method: m, headers: { 'Content-Type': 'application/json' }, body: b ? JSON.stringify(b) : undefined }).then((r) => r.json()), [method, path, body]);
+  const text = (t) => ({ rich_message: { blocks: [{ type: 'paragraph', text: t }] } });
+  const d = await api('POST', '/api/drafts', { title: 'От агента', post: text('Первая версия') });
+  await page.goto(`${BASE}/?draft=${d.id}`);
+  await page.waitForSelector('.block');
+  await page.waitForTimeout(600);
+  const opened = await page.inputValue('#title');
+  const addr = new URL(page.url()).search;
+  const v2 = await api('PUT', '/api/drafts/' + d.id, { title: 'От агента 2', post: text('Вторая версия'), version: d.version });
+  await page.waitForTimeout(5000); // the editor looks every 4 s
+  const reloaded = await page.inputValue('#title');
+  const reloadedText = await page.evaluate(() => document.querySelector('#preview').shadowRoot.textContent);
+  await page.fill('#title', 'Моя правка');
+  await api('PUT', '/api/drafts/' + d.id, { title: 'От агента 3', post: text('Третья версия'), version: v2.version });
+  await page.waitForSelector('dialog[open]', { timeout: 8000 }).catch(() => {});
+  const asked = (await page.locator('dialog[open]').textContent().catch(() => '')) || '';
+  await page.locator('dialog[open] button', { hasText: 'Открыть их версию' }).click().catch(() => {});
+  await page.waitForTimeout(600);
+  const theirs = await page.inputValue('#title');
+  check('A draft link opens the draft; an agent\'s new version reloads it or asks when there are unsaved edits',
+    opened === 'От агента' && addr === '?draft=' + d.id && reloaded === 'От агента 2' && /Вторая версия/.test(reloadedText) && /Черновик изменился/.test(asked) && theirs === 'От агента 3',
+    JSON.stringify({ opened, addr, reloaded, asked: asked.slice(0, 80), theirs }));
 }
 
 check('No CSP violations or JS errors in the editor', errors.length === 0 && csp.length === 0, [...errors, ...csp].join(' | '));

@@ -120,6 +120,32 @@
     "title": "EditReq",
     "type": "object"
    },
+   "FetchReq": {
+    "properties": {
+     "filename": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Имя файла; по умолчанию из ссылки",
+      "title": "Filename"
+     },
+     "url": {
+      "description": "Ссылка http(s) на файл",
+      "title": "Url",
+      "type": "string"
+     }
+    },
+    "required": [
+     "url"
+    ],
+    "title": "FetchReq",
+    "type": "object"
+   },
    "HTTPValidationError": {
     "properties": {
      "detail": {
@@ -1074,6 +1100,45 @@
      }
     },
     "summary": "Удалить файлы, которые не упоминает ни один черновик и ни один живой пост",
+    "tags": [
+     "media"
+    ]
+   }
+  },
+  "/api/media/fetch": {
+   "post": {
+    "operationId": "media_fetch_api_media_fetch_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/FetchReq"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Скачать файл по ссылке в загрузки; дальше он upload:<name>",
     "tags": [
      "media"
     ]

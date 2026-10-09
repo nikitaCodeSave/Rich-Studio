@@ -25,13 +25,15 @@ EXPECTED_TOOLS = {
     "preview_post",
     "get_draft",
     "list_media",
+    "upload_media",
+    "send_poll",
     "studio_status",
     "reschedule_post",
     "cancel_scheduled_post",
     "get_post",
     "post_history",
 }
-PUBLISHING = {"publish_post", "schedule_post", "edit_post", "reschedule_post", "cancel_scheduled_post"}
+PUBLISHING = {"publish_post", "schedule_post", "edit_post", "reschedule_post", "cancel_scheduled_post", "send_poll"}
 
 
 def rpc(client, method, params=None, rid=1, **kw):
@@ -86,6 +88,46 @@ def test_publish_is_idempotent_and_marked_mcp(client, tg):
     assert len([c for c in tg.calls if c["method"] == "sendRichMessage"]) == 1
     [p] = store.list_posts()
     assert p["actor"] == "mcp" and p["status"] == "sent"
+
+
+def test_upload_media_by_url_and_base64(client, tg):
+    import base64
+
+    import settings
+
+    _, f, _ = call(
+        client, "upload_media", data_base64=base64.b64encode(b"\x89PNG fake").decode(), filename="обложка.png"
+    )
+    assert f["ref"].startswith("upload:") and f["kind"] == "photo"
+    _, g, _ = call(client, "upload_media", url=settings.get().api_base + "/log", filename="calls.json")
+    assert g["ref"] == "upload:calls.json" and (settings.get().media_dir / "calls.json").read_bytes().startswith(b"[")
+    res, _, text = call(client, "upload_media", url="file:///etc/passwd")
+    assert res["isError"] and "http" in text
+    res, _, text = call(client, "upload_media", data_base64="AAAA")
+    assert res["isError"] and "filename" in text
+    names = {m["name"] for m in call_list(client, "list_media")}
+    assert {"calls.json"} <= names and len(names) == 2
+
+
+def test_send_poll_through_mcp(client, tg):
+    poll = {"question": "Когда эфир?", "options": ["Утром", "Вечером"]}
+    _, r, _ = call(client, "send_poll", poll=poll, chat_id="@c", idempotency_key="poll-1")
+    assert r["results"][0]["ok"] and tg.last("sendPoll")["body"]["question"] == "Когда эфир?"
+    call(client, "send_poll", poll=poll, chat_id="@c", idempotency_key="poll-1")
+    assert len([c for c in tg.calls if c["method"] == "sendPoll"]) == 1
+
+
+def test_links_to_the_editor(client, tg):
+    _, d, _ = call(client, "save_draft", post=BLOCKS_POST, title="Ссылки")
+    assert d["editor_url"] == f"http://localhost:8080/?draft={d['id']}"
+    assert d["preview_url"] == f"http://localhost:8080/render/draft/{d['id']}"
+    _, shown, _ = call(client, "preview_post", draft_id=d["id"])
+    assert shown["editor_url"] == d["editor_url"]
+    _, got, _ = call(client, "get_draft", draft_id=d["id"])
+    assert got["editor_url"] == d["editor_url"]
+    _, sent, _ = call(client, "publish_post", post=BLOCKS_POST)
+    _, post, _ = call(client, "get_post", post_id=sent["post"]["id"])
+    assert post["editor_url"] == f"http://localhost:8080/?post={sent['post']['id']}"
 
 
 def test_publish_dry_run_and_validation_errors(client, tg):
