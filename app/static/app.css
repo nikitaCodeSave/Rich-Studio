@@ -42,6 +42,11 @@ code { background: var(--soft); padding: 0 4px; border-radius: 4px; font-size: 1
 @media (min-width: 1280px) { .top { flex-wrap: nowrap; } }
 .badge { background: var(--soft); color: var(--text); border-color: var(--border); font-size: 12px; padding: 4px 10px; border-radius: 999px; }
 .badge.new { background: #ffefc2; color: #6b4b00; border-color: #f2c94c; }
+.badge.warn { border-color: #f2c94c; }
+.icon-btn { padding: 4px 8px; }
+dialog .ok { color: var(--ok); } dialog .w { color: var(--warn); }
+.icon-btn.spin { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 
 .layout { flex: 1; display: grid; grid-template-columns: 240px minmax(380px, 1fr) minmax(340px, 480px); min-height: 0; }
 .side, .editor, .preview-col { min-height: 0; overflow: auto; }

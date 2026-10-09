@@ -28,7 +28,7 @@ from services import idempotency, posts, publisher
 ACTOR = "mcp"
 
 INSTRUCTIONS = """Rich Studio: write, check, preview and publish rich posts for the user's Telegram channel.
-Order: bot_api_status (what is new) → validate_post (fix every error) → preview_post (the user sees the post
+Order: bot_api_status (what is new; refresh_bot_api if the user asks for the newest) → validate_post (fix every error) → preview_post (the user sees the post
 as in Telegram right in the chat) → save_draft and/or send_preview_to_me
 → publish_post or schedule_post only after the user explicitly confirmed that exact post and channel.
 A post is {"rich_message": InputRichMessage with exactly one of html|markdown|blocks, "reply_markup"?,
@@ -51,6 +51,8 @@ LOCAL = ToolAnnotations(read_only_hint=False, destructive_hint=False, open_world
 # reaches Telegram but changes nothing in the channel
 TELEGRAM_READ = ToolAnnotations(read_only_hint=True, open_world_hint=True)
 TO_ME = ToolAnnotations(read_only_hint=False, destructive_hint=False, open_world_hint=True)
+# downloads the Bot API spec from GitHub and updates the studio's cached copy
+FETCH = TO_ME
 PUBLIC = ToolAnnotations(read_only_hint=False, destructive_hint=True, open_world_hint=True)
 
 
@@ -115,7 +117,16 @@ def build() -> MCPServer:
             "release_date": s.data.get("release_date"),
             "source": s.source,
             "changes": s.changes[:3],
+            "gaps": s.summary()["gaps"],
+            "last_check": s.last_check,
         }
+
+    @tool(FETCH)
+    async def refresh_bot_api() -> dict:
+        """Скачать свежую спецификацию Bot API прямо сейчас (обычно студия делает это сама при запуске и раз в
+        12 часов). Возвращает версию, изменения rich-типов и чего не хватает подписям и предпросмотру (gaps).
+        При ошибке скачивания студия продолжает работать на прежней версии, ошибка в поле error."""
+        return await spec.current.refresh(force=True)
 
     @tool(READ)
     async def describe_type(

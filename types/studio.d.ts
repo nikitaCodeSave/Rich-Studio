@@ -36,6 +36,18 @@ interface SpecSummary {
   types: Record<string, SpecType>;
   methods: Record<string, SpecMethod>;
   changes: Json[];
+  gaps: SpecGap[];
+  last_check: { at: number; error: string | null } | null;
+}
+
+/** What labels.js or render.js does not know yet (spec/coverage.py) */
+interface SpecGap {
+  part: 'labels' | 'preview';
+  file: string;
+  where: string;
+  kind: 'block' | 'inline';
+  name: string;
+  type: string;
 }
 
 /** GET /api/updates, and `updates` in /api/config */
