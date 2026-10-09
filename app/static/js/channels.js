@@ -3,7 +3,7 @@ import { api } from './api.js';
 import { closeDialog, openDialog } from './dialogs.js';
 import { $, act, h, toast } from './dom.js';
 import { changed, renderPreview } from './editor.js';
-import { channelOf, channelTitle, chats, S } from './state.js';
+import { channelOf, channelTitle, chatLabel, chats, S } from './state.js';
 
 export { channelTitle };
 
@@ -18,10 +18,9 @@ export async function loadChannels() {
 // the header: where the post goes, by name, and the forum topic when there is one channel
 export function showTarget() {
   const list = chats();
-  const names = list.map((id) => channelTitle(id));
   const btn = $('#btn-check');
-  btn.textContent = (list.length ? names.join(', ') : 'Канал не выбран') + ' ▾';
-  btn.title = (list.length ? 'Пост уйдёт в: ' + list.map((id, i) => names[i] === id ? id : `${names[i]} (${id})`).join(', ') + '\n' : '') + 'Выбрать канал, проверить права бота, темы форума';
+  btn.textContent = (list.length ? list.map(chatLabel).join(', ') : 'Канал не выбран') + ' ▾';
+  btn.title = (list.length ? 'Пост уйдёт в: ' + list.map(chatLabel).join(', ') + '\n' : '') + 'Выбрать каналы (id через запятую), проверить права бота, темы форума';
   const one = list.length === 1 ? channelOf(list[0]) : null;
   const sel = /** @type {HTMLSelectElement} */ ($('#topic'));
   let topic = S.options.message_thread_id;

@@ -6,7 +6,7 @@ import { $, h, store, toast } from './dom.js';
 import { changed, draftPayload, flushSave, loadPost } from './editor.js';
 import { followDraft } from './editing.js';
 import { resetHistory } from './history.js';
-import { chats, dirty, editing, S, saveState } from './state.js';
+import { chatLabel, chats, dirty, editing, S, saveState } from './state.js';
 
 // the draft's own channels; one without them goes to the channel the editor used to remember
 // (rs.chat, before drafts kept channels; dropped once a draft saves it) or to the default channel.
@@ -23,6 +23,8 @@ export async function loadDrafts() {
   const ul = $('#drafts');
   ul.replaceChildren(...S.drafts.map((d) => h('li', { class: d.id === S.draftId ? 'on' : '', onclick: () => openDraft(d.id) },
     h('span', { text: d.title || 'Без названия' }),
+    // where it goes, so drafts for different channels never mix up
+    h('span', { class: 'meta chan', text: '→ ' + (d.chat_ids && d.chat_ids.length ? d.chat_ids.map(chatLabel).join(', ') : (S.config.default_chat ? chatLabel(S.config.default_chat) + ' (по умолчанию)' : 'канал не выбран')) }),
     h('span', { class: 'meta' }, new Date(d.updated_at * 1000).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' }),
       h('a', { href: '/render/draft/' + d.id, target: '_blank', title: 'Рендер отдельной страницей', text: '↗', onclick: (e) => e.stopPropagation() }),
       h('a', { href: '#', title: 'Удалить черновик', text: '✕', onclick: async (e) => { e.preventDefault(); e.stopPropagation(); if (confirm('Удалить черновик «' + (d.title || 'Без названия') + '»?')) { await api('DELETE', '/api/drafts/' + d.id); if (S.draftId === d.id) newDraft(); loadDrafts(); } } })))));

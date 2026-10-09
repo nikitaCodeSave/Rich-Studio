@@ -98,3 +98,12 @@ def remove(chat_id) -> None:
 def title_of(chat_id) -> str | None:
     ch = store.get_channel(chat_id) if chat_id not in (None, "") else None
     return ch.get("title") if ch else None
+
+
+def goes_to(chat_ids) -> list[dict]:
+    """Where a draft goes, by name: its own channels, else the default channel (default: true)."""
+    ids = [str(c) for c in dict.fromkeys(chat_ids or [])]
+    default = not ids
+    if default and settings.get().default_chat:
+        ids = [str(settings.get().default_chat)]
+    return [{"chat_id": c, "title": title_of(c), "default": default} for c in ids]

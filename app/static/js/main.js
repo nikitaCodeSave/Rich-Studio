@@ -162,7 +162,8 @@ async function boot() {
   bindEffects();
   bindActions();
   watchHealth();
-  await Promise.all([loadUploads().catch(() => {}), loadPosts().catch(() => {}), loadChannels().catch(() => {})]);
+  await loadChannels().catch(() => {}); // the lists below name channels by title
+  await Promise.all([loadUploads().catch(() => {}), loadPosts().catch(() => {})]);
   const last = store.get('lastDraft', null);
   await loadDrafts();
   if (last && S.drafts.some((d) => d.id === last)) await openDraft(last); else newDraft();

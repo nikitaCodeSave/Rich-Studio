@@ -12,7 +12,7 @@ import telegram as tg
 from errors import Conflict, MayHaveGone, NotFound, StudioError, Upstream
 from telegram.uploads import MissingUpload, collect_uploads
 
-from . import publisher
+from . import channels, publisher
 from .updates import poll_results, remember_preview
 
 log = logging.getLogger("rich-studio.posts")
@@ -61,6 +61,8 @@ async def send(
     if dry_run:
         return dry_run_report(chats, post, report["warnings"])
     results, warnings = await publisher.publish(chats, post, draft_id, actor=actor)
+    for r in results:  # the agent and the editor name the channel, not only its id
+        r["chat_title"] = channels.title_of(r["chat_id"])
     first = next((r for r in results if r["ok"]), None)
     if not first:
         detail = {
@@ -88,7 +90,7 @@ def dry_run_report(chats: list, post: dict, warnings: list[str]) -> dict:
             collect_uploads(params, {}, media_dir)
         except MissingUpload as e:
             raise StudioError(str(e)) from None
-        requests.append({"method": method, "params": params})
+        requests.append({"method": method, "params": params, "chat_title": channels.title_of(chat)})
     steps = [s for s, on in (("pinChatMessage", post.get("pin")), ("first comment", post.get("comment"))) if on]
     return {"dry_run": True, "requests": requests, "after_send": steps, "warnings": warnings}
 
@@ -190,7 +192,13 @@ def schedule(
     publisher.check_thread(chats, post)
     if dry_run:
         return {**dry_run_report(chats, post, report["warnings"]), "at": when}
-    recs = [store.add_post(c, post, draft_id, "scheduled", scheduled_at=when, actor=actor) for c in chats]
+    recs = [
+        {
+            **store.add_post(c, post, draft_id, "scheduled", scheduled_at=when, actor=actor),
+            "chat_title": channels.title_of(c),
+        }
+        for c in chats
+    ]
     return recs[0] if len(recs) == 1 else {**recs[0], "all": recs}
 
 

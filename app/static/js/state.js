@@ -37,6 +37,8 @@ export function channelTitle(id) {
   const c = channelOf(id);
   return (c && c.title) || id || '';
 }
+/** A channel as the person reads it: its title and its id, so two channels never look alike. @param {string} id */
+export const chatLabel = (id) => { const t = channelTitle(id); return t === id ? id : `${t} · ${id}`; };
 /** Where the post goes, as the person reads it: titles, and the forum topic when there is one. */
 export const targetLabel = () => {
   const c = chats();

@@ -249,14 +249,16 @@ def build() -> MCPServer:
             "title": d["title"],
             "version": d["version"],
             "chat_ids": d["chat_ids"],
+            "goes_to": channels.goes_to(d["chat_ids"]),
             "preview_path": f"/render/draft/{d['id']}",
             "validation": publisher.check(d["payload"]),
         }
 
     @tool(READ)
     async def list_drafts() -> list:
-        """Черновики студии (последние сверху); post_id — опубликованный пост, который правится в черновике."""
-        return store.list_drafts()
+        """Черновики студии (последние сверху); post_id — опубликованный пост, который правится в черновике;
+        goes_to — куда уйдёт публикация без chat_id: каналы черновика по названию или канал по умолчанию."""
+        return [{**d, "goes_to": channels.goes_to(d.get("chat_ids"))} for d in store.list_drafts()]
 
     @tool(READ)
     async def get_draft(draft_id: Annotated[str, Field(description="id из list_drafts")]) -> dict:
@@ -264,7 +266,7 @@ def build() -> MCPServer:
         d = store.get_draft(draft_id)
         if not d:
             raise NotFound(f"черновика {draft_id} нет")
-        return d
+        return {**d, "goes_to": channels.goes_to(d.get("chat_ids"))}
 
     @tool(READ)
     async def list_media() -> list:
@@ -411,7 +413,7 @@ def build() -> MCPServer:
         p = store.get_post(post_id)
         if not p:
             raise NotFound(f"поста {post_id} нет")
-        return p
+        return {**p, "chat_title": channels.title_of(p["chat_id"])}
 
     @tool(READ)
     async def post_history(post_id: PostIdArg) -> list:

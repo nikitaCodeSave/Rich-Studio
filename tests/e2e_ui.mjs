@@ -517,10 +517,11 @@ check('Header fits one row at 1440px', Math.abs(header.pub - header.brand) < 12 
   await page.locator('#drafts li', { hasText: 'Канал черновика' }).first().click();
   await page.waitForTimeout(500);
   const reopened = await page.inputValue('#chat');
+  const draftRow = await page.locator('#drafts li', { hasText: 'Канал черновика' }).first().textContent();
   const stored = await page.evaluate((id) => fetch('/api/drafts/' + JSON.parse(id)).then((r) => r.json()), keptId);
   check('A checked channel shows its title and the draft keeps its channel',
-    /Тест/.test(dialogText) && /публикация/.test(dialogText) && /Тест/.test(header) && label === 'Тест ▾' && fresh === '@test' && reopened === '@kept_chan' && JSON.stringify(stored.chat_ids) === '["@kept_chan"]',
-    JSON.stringify({ dialogText: dialogText.slice(0, 120), label, fresh, reopened, stored: stored.chat_ids }));
+    /Тест/.test(dialogText) && /публикация/.test(dialogText) && /Тест/.test(header) && label === 'Тест · @kept_chan ▾' && fresh === '@test' && reopened === '@kept_chan' && /→ Тест · @kept_chan/.test(draftRow) && JSON.stringify(stored.chat_ids) === '["@kept_chan"]',
+    JSON.stringify({ dialogText: dialogText.slice(0, 120), label, fresh, reopened, draftRow, stored: stored.chat_ids }));
 }
 
 // 11. a forum topic goes with its channel; the channel the editor used to remember moves into an old draft
