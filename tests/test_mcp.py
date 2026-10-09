@@ -299,3 +299,32 @@ def test_save_draft_reports_validation_errors(client):
     bad = {"rich_message": {"blocks": [{"type": "table", "rows": []}]}}
     _, d, _ = call(client, "save_draft", post=bad)
     assert d["validation"]["ok"] is False and "cells" in d["validation"]["errors"][0]
+
+
+def test_a_draft_that_edits_a_published_post_never_goes_out_as_a_new_post(client, tg):
+    call(client, "publish_post", post=BLOCKS_POST, chat_id="@x")
+    [p] = store.list_posts()
+    d = store.save_draft(None, "правка", {"rich_message": {"markdown": "новый текст"}}, None, p["id"])
+    for tool, extra in (("publish_post", {"chat_id": "@x"}), ("schedule_post", {"at": "2030-01-01T09:00:00+03:00"})):
+        res, _, text = call(client, tool, draft_id=d["id"], version=d["version"], **extra)
+        assert res["isError"] and "edit_post" in text and p["id"] in text
+    assert len(store.list_posts()) == 1 and len([c for c in tg.calls if c["method"] == "sendRichMessage"]) == 1
+    _, prev, _ = call(client, "preview_post", draft_id=d["id"])
+    assert prev["version"] == d["version"]  # the agent publishes exactly the version it showed
+    res, _, _ = call(client, "edit_post", post_id=p["id"], draft_id=d["id"], version=prev["version"])
+    assert not res.get("isError"), res
+    assert tg.last("editMessageText")["body"]["rich_message"] == {"markdown": "новый текст"}
+    [after] = store.list_posts()
+    assert after["id"] == p["id"] and store.get_post(p["id"])["payload"]["rich_message"] == {"markdown": "новый текст"}
+
+
+def test_edit_post_by_draft_checks_the_version_and_the_post(client, tg):
+    call(client, "publish_post", post=BLOCKS_POST, chat_id="@x")
+    call(client, "publish_post", post=BLOCKS_POST, chat_id="@y")
+    one, two = store.list_posts()
+    d = store.save_draft(None, "правка", BLOCKS_POST, None, one["id"])
+    res, _, text = call(client, "edit_post", post_id=two["id"], draft_id=d["id"], version=d["version"])
+    assert res["isError"] and one["id"] in text  # a working copy of one post does not replace another
+    res, _, text = call(client, "edit_post", post_id=one["id"], draft_id=d["id"])
+    assert res["isError"] and "version" in text
+    assert not [c for c in tg.calls if c["method"] == "editMessageText"]

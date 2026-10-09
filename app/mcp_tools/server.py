@@ -31,10 +31,11 @@ ACTOR = "mcp"
 INSTRUCTIONS = """Rich Studio: write, check, preview and publish rich posts for the user's Telegram channel.
 Order: bot_api_status (what is new; refresh_bot_api if the user asks for the newest) → save_draft (returns validation:
 fix every error and save again) → preview_post with draft_id (the user sees the post as in Telegram right in the chat)
-→ publish_post or schedule_post with draft_id and version only after the user explicitly confirmed that exact post
+→ publish_post or schedule_post with draft_id and the version preview_post returned, only after the user explicitly confirmed that exact post
 and channel. Pass the post JSON once, to save_draft; later calls take draft_id. validate_post checks without saving.
 To continue the user's work: list_drafts → get_draft → save_draft with draft_id and version (the editor shows it).
-To change a published post: list_posts → get_post (read it first) → edit_post; post_history shows earlier versions.
+To change a published post: list_posts → get_post (read it first) → edit_post (post or draft_id + version; a draft
+with post_id is an edit of that post and can only go out through edit_post); post_history shows earlier versions.
 studio_status says whether scheduled posts, button answers and first comments will actually work.
 studio_health lists what is wrong and what to do (status ok|warn|fail per check); studio_logs reads the log.
 A post is {"rich_message": InputRichMessage with exactly one of html|markdown|blocks, "reply_markup"?,
@@ -87,13 +88,17 @@ def _post(raw: dict) -> dict:
         raise ToolError(f"неверный пост: {e}") from None
 
 
-def _source(post: dict | None, draft_id: str | None, version: int | None, *, publish: bool) -> dict:
-    """The post itself or the one saved in a draft, so an agent sends the JSON once (to save_draft).
-    Publishing from a draft needs its version: the user may have changed it in the editor after the preview."""
+def _source(
+    post: dict | None, draft_id: str | None, version: int | None, *, publish: bool, edits: str | None = None
+) -> tuple[dict, int | None]:
+    """The post itself or the one saved in a draft, so an agent sends the JSON once (to save_draft); with the draft's
+    version. Publishing from a draft needs that version: the user may have changed it in the editor after the preview.
+    A draft that is a working copy of a published post (post_id) only goes out as an edit of that post (`edits`):
+    publishing it would put a second post in the channel."""
     if (post is None) == (draft_id is None):
         raise ToolError("передайте post или draft_id, одно из двух")
     if post is not None:
-        return _post(post)
+        return _post(post), None
     d = store.get_draft(draft_id or "")
     if not d:
         raise NotFound(f"черновика {draft_id} нет")
@@ -106,7 +111,12 @@ def _source(post: dict | None, draft_id: str | None, version: int | None, *, pub
             f"черновик изменили (version {d['version']}, а не {version}): покажите его пользователю заново через "
             "get_draft и preview_post"
         )
-    return _post(d["payload"])
+    if publish and d.get("post_id") and d["post_id"] != edits:
+        raise ToolError(
+            f"черновик {draft_id} — правка поста {d['post_id']}: замените его через edit_post с post_id "
+            f"{d['post_id']}, draft_id и version, а не публикуйте новый пост"
+        )
+    return _post(d["payload"]), d["version"]
 
 
 def _key(given: str | None, scope: str, body: dict) -> str:
@@ -146,8 +156,10 @@ def build() -> MCPServer:
     async def preview_post(post: OptPostArg = None, draft_id: DraftArg = None) -> dict:
         """Показать пост пользователю прямо в чате так, как его отрисует Telegram, вместе с ошибками проверки.
         Ничего не отправляет. Файлы upload:<имя> в чате не загружаются."""
-        p = _source(post, draft_id, None, publish=False)
-        return {"post": p, "validation": spec.validate_rich_message(spec.current, p["rich_message"])}
+        p, version = _source(post, draft_id, None, publish=False)
+        # version: what to pass to publish_post/edit_post, so exactly the version shown here goes out
+        out = {"post": p, "validation": spec.validate_rich_message(spec.current, p["rich_message"])}
+        return out if version is None else {**out, "version": version}
 
     server = MCPServer(name="rich-studio", title="Rich Studio", instructions=INSTRUCTIONS, extensions=[apps])
 
@@ -304,7 +316,7 @@ def build() -> MCPServer:
     ) -> dict:
         """Опубликовать пост в канал. Только после явного подтверждения пользователя для этого поста и канала.
         Пост или draft_id с version; опубликованный из черновика пост связан с ним, как из редактора."""
-        p = _source(post, draft_id, version, publish=not dry_run)
+        p, _ = _source(post, draft_id, version, publish=not dry_run)
         if dry_run:
             return await posts.send(p, chat_id, chat_ids, dry_run=True)
         body = {"post": p, "chat_id": chat_id, "chat_ids": chat_ids, "draft_id": draft_id, "dry_run": False}
@@ -328,7 +340,7 @@ def build() -> MCPServer:
     ) -> dict:
         """Отложить публикацию. Только после явного подтверждения пользователя. Студия должна работать в это время;
         если она была выключена и пост опоздал больше schedule_late_min, он станет missed и не уйдёт сам."""
-        p = _source(post, draft_id, version, publish=not dry_run)
+        p, _ = _source(post, draft_id, version, publish=not dry_run)
         if dry_run:
             return posts.schedule(p, at, chat_id, chat_ids, dry_run=True)
         body = {"post": p, "chat_id": chat_id, "chat_ids": chat_ids, "draft_id": draft_id, "dry_run": False, "at": at}
@@ -339,11 +351,15 @@ def build() -> MCPServer:
         return await idempotency.run(_key(idempotency_key, "schedule", body), "schedule", body, action)
 
     @tool(PUBLIC)
-    async def edit_post(post_id: PostIdArg, post: PostArg) -> dict | None:
+    async def edit_post(
+        post_id: PostIdArg, post: OptPostArg = None, draft_id: DraftArg = None, version: VersionArg = None
+    ) -> dict | None:
         """Заменить содержимое опубликованного или отложенного поста. Только после подтверждения пользователя.
-        Сначала прочитайте пост через get_post. Ответы на кнопки и первый комментарий остаются, если их не передать;
+        Сначала прочитайте пост через get_post. Новое содержимое: post или draft_id с version (черновик-правка
+        этого поста из get_draft). Ответы на кнопки и первый комментарий остаются, если их не передать;
         прежняя версия попадёт в post_history."""
-        return await posts.edit(post_id, _post(post), actor=ACTOR)
+        p, _ = _source(post, draft_id, version, publish=True, edits=post_id)
+        return await posts.edit(post_id, p, actor=ACTOR)
 
     @tool(PUBLIC)
     async def reschedule_post(
