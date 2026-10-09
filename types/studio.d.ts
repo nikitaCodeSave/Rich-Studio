@@ -114,6 +114,10 @@ interface EditorState {
   spec: SpecSummary;
   config: StudioConfig;
   draftId: string | null;
+  /** version of the open draft as the server last confirmed it; a save based on another one gets 409 */
+  draftVersion: number | null;
+  /** a 409 dialog is open: autosave waits for the person's choice */
+  conflict: boolean;
   format: 'blocks' | 'html' | 'markdown';
   mode: string;
   buf: { blocks: Json[]; html: string; markdown: string };

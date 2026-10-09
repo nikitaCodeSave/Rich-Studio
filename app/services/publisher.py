@@ -106,7 +106,11 @@ async def after_send(pid: str, post: dict, res: dict) -> list[str]:
     if res.get("poll"):
         fields["poll_id"] = res["poll"].get("id")
     if post.get("comment"):
-        fields["comment_status"] = "waiting"
+        if settings.get().updates_on:
+            fields["comment_status"] = "waiting"
+        else:  # nobody will see the forward to the discussion group
+            fields["comment_status"] = "skipped"
+            warnings.append("первый комментарий не будет опубликован: приём событий выключен (TG_UPDATES=off)")
     store.update_post(pid, **fields)
     if post.get("pin"):
         try:

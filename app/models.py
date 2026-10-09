@@ -69,3 +69,8 @@ class PinReq(BaseModel):
 class DraftReq(BaseModel):
     title: str = ""
     post: dict
+    version: int | None = Field(
+        None,
+        description="Версия черновика, на которой основана правка; если с тех пор его сохранили "
+        "в другом месте, ответ 409 вместо перезаписи. Без поля черновик перезаписывается",
+    )

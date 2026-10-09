@@ -29,6 +29,7 @@ EXTRA_COLUMNS = {
     "poll_id": "text",
     "poll_results": "text",  # {"total": n, "options": [{"text", "voter_count"}], "is_closed"}
     "actor": "text",  # who asked for the post: ui | api | the X-Studio-Client value (e.g. mcp:claude-code)
+    "retry_at": "integer",  # scheduled post that could not reach Telegram: next attempt (nothing was sent)
 }
 
 # Numbered steps after the columns above (PRAGMA user_version). Append only; never edit a shipped step.
@@ -43,6 +44,8 @@ MIGRATIONS: list[str] = [
     """create table if not exists idempotency(
          key text primary key, scope text not null, fingerprint text not null,
          status text not null, response text, created_at integer not null);""",
+    # 4: a draft open in two tabs: a save based on an older version is refused instead of overwriting
+    """alter table drafts add column version integer not null default 0;""",
 ]
 
 JSON_FIELDS = ("payload", "reactions", "clicks", "poll_results")

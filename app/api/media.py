@@ -37,9 +37,13 @@ async def media_upload(file: UploadFile = File(...)):
     return media.describe(name)
 
 
-@router.delete("/api/media/{name}", tags=["media"])
-def media_delete(name: str):
-    media.path_of(name, must_exist=False).unlink(missing_ok=True)
+@router.delete(
+    "/api/media/{name}",
+    tags=["media"],
+    summary="Удалить файл; если он нужен отложенному посту или черновику, 409 (force=true удаляет всё равно)",
+)
+def media_delete(name: str, force: bool = False):
+    media.delete(name, force)
     return {"ok": True}
 
 

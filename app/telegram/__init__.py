@@ -8,6 +8,6 @@ Call through the package (`telegram.call`), so tests can replace it in one place
 """
 
 from .chat import check_chat
-from .client import TelegramError, call
+from .client import NoAnswer, TelegramError, Unreachable, call
 
-__all__ = ["TelegramError", "call", "check_chat"]
+__all__ = ["NoAnswer", "TelegramError", "Unreachable", "call", "check_chat"]

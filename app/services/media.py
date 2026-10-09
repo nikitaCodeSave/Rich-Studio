@@ -4,7 +4,8 @@ import re
 from pathlib import Path
 
 import settings
-from errors import NotFound, StudioError
+import store
+from errors import Conflict, NotFound, StudioError
 
 # served inline; everything else is a download so uploaded html/svg never renders on the studio origin
 INLINE = {
@@ -64,6 +65,19 @@ def free_name(filename: str | None) -> str:
         name = f"{stem or base}-{i}{dot}{ext if stem else ''}"
         i += 1
     return name
+
+
+def used_by(name: str) -> list[str]:
+    """What still needs the file: scheduled posts and drafts that mention upload:<name>."""
+    ref = describe(name)["ref"]
+    posts = [f"отложенный пост в {p['chat_id']}" for p in store.using_upload(ref)]
+    return posts + [f"черновик «{d['title'] or 'Без названия'}»" for d in store.drafts_using(ref)]
+
+
+def delete(name: str, force: bool = False) -> None:
+    if not force and (users := used_by(name)):
+        raise Conflict({"message": f"файл {name} ещё нужен: " + ", ".join(users), "used_by": users})
+    path_of(name, must_exist=False).unlink(missing_ok=True)
 
 
 def path_of(name: str, must_exist: bool = True) -> Path:

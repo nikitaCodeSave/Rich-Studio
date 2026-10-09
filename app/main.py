@@ -70,6 +70,10 @@ async def _telegram_error(request: Request, e: Exception):
     return JSONResponse({"detail": f"Telegram: {e.description}", "error_code": e.code}, status_code=502)
 
 
+async def _no_answer(request: Request, e: Exception):
+    return JSONResponse({"detail": f"{e}. Действие могло выполниться, проверьте в Telegram"}, status_code=502)
+
+
 def create_app(cfg: settings.Settings | None = None) -> FastAPI:
     if cfg is not None:
         settings.use(cfg)
@@ -87,6 +91,7 @@ def create_app(cfg: settings.Settings | None = None) -> FastAPI:
     app.middleware("http")(guard)
     app.add_exception_handler(StudioError, _studio_error)
     app.add_exception_handler(tg.TelegramError, _telegram_error)
+    app.add_exception_handler(tg.NoAnswer, _no_answer)
     for module in (service, specs, preview, drafts, posts, raw, media):
         app.include_router(module.router)
 

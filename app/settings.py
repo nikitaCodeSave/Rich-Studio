@@ -35,6 +35,9 @@ class Settings:
     max_upload_mb: float = 50.0
     # MCP tools that post to a channel (publish_post, schedule_post, edit_post); off = agents only draft and preview
     mcp_publish: bool = True
+    # a scheduled post later than this (the service or the computer was off) is not sent but marked "missed";
+    # 0 = send however late
+    schedule_late_min: float = 60.0
 
     @property
     def media_dir(self) -> Path:
@@ -62,6 +65,7 @@ class Settings:
         own_server = s.api_base != cls.api_base
         s.max_upload_mb = float(env.get("MAX_UPLOAD_MB", "2000" if own_server else "50"))
         s.mcp_publish = _flag(env, "MCP_PUBLISH")
+        s.schedule_late_min = float(env.get("SCHEDULE_LATE_MIN", "60"))
         return s
 
 

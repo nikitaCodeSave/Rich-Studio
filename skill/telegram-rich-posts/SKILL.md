@@ -91,7 +91,7 @@ Without the studio, call `https://api.telegram.org/bot$TG_BOT_TOKEN/sendRichMess
 ## 5. Rules
 
 - Never publish, edit or delete a channel post without the user's explicit go-ahead for that exact action; drafts, validation, render and preview-send are fine to do on your own.
-- Every `send`, `schedule` and `poll` call carries an `Idempotency-Key` (one per post). After a timeout or 5xx, retry with the same key: the studio returns the first result instead of posting twice. A 502 saying the post "мог уйти" stays the same on retry: check the channel with the user before using a new key.
+- Every `send`, `schedule` and `poll` call carries an `Idempotency-Key` (one per post). After a timeout or an error, retry with the same key: the studio returns the first result instead of posting twice. A 502 saying the post "мог уйти" stays the same on retry: check the channel with the user before using a new key.
 - Never print, echo or ask the user to paste the bot token into chat; it lives in `.env` / `TG_BOT_TOKEN`.
 - Send markup as is. Do not invent tags or fields: confirm anything not in the cheat sheet against the current spec or the formatting section, and say when something is unverified.
 - Write post text in the user's language and voice.

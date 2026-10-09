@@ -2,7 +2,7 @@
 
 from . import idempotency
 from .db import conn, init
-from .drafts import delete_draft, get_draft, list_drafts, save_draft
+from .drafts import delete_draft, drafts_using, get_draft, list_drafts, save_draft
 from .meta import get_meta, set_meta
 from .posts import (
     add_post,
@@ -10,13 +10,18 @@ from .posts import (
     cancel_scheduled,
     claim_post,
     due_posts,
+    expire_comments,
     find_poll,
     find_post,
     find_sent,
     get_post,
     list_posts,
+    mark_missed,
     recover_stale_sending,
+    replace_scheduled,
+    retry_later,
     update_post,
+    using_upload,
 )
 
 __all__ = [
@@ -26,7 +31,9 @@ __all__ = [
     "claim_post",
     "conn",
     "delete_draft",
+    "drafts_using",
     "due_posts",
+    "expire_comments",
     "find_poll",
     "find_post",
     "find_sent",
@@ -37,8 +44,12 @@ __all__ = [
     "init",
     "list_drafts",
     "list_posts",
+    "mark_missed",
     "recover_stale_sending",
+    "replace_scheduled",
+    "retry_later",
     "save_draft",
     "set_meta",
     "update_post",
+    "using_upload",
 ]

@@ -1,9 +1,9 @@
 // Published and scheduled posts.
 import { api } from './api.js';
 import { $, h, toast } from './dom.js';
-import { buildPost, callbacksFor, loadPost, updatesLabel } from './editor.js';
+import { autosave, buildPost, callbacksFor, flushSave, loadPost, updatesLabel } from './editor.js';
 import { resetHistory } from './history.js';
-import { S } from './state.js';
+import { dirty, S, saveState } from './state.js';
 
 // ---------- posts ----------
 export async function loadPosts() {
@@ -13,7 +13,7 @@ export async function loadPosts() {
   const u = S.updates;
   $('#updates-state').replaceChildren(h('span', { class: u && u.state === 'ok' ? 'ok' : 'w', title: (u && u.error) || '', text: 'Приём событий: ' + updatesLabel() }),
     h('span', { class: 'muted', text: ' · нажатия кнопок, первые комментарии, реакции, итоги опросов' }));
-  const label = { sent: 'опубликован', scheduled: 'отложен', failed: 'ошибка', cancelled: 'отменён', deleted: 'удалён', sending: 'отправляется' };
+  const label = { sent: 'опубликован', scheduled: 'отложен', failed: 'ошибка', cancelled: 'отменён', deleted: 'удалён', sending: 'отправляется', missed: 'пропущен' };
   ul.replaceChildren(...S.posts.map((p) => {
     const when = (p.status === 'scheduled' && p.scheduled_at) || p.sent_at || p.created_at;
     const poll = p.kind === 'poll';
@@ -23,7 +23,7 @@ export async function loadPosts() {
       p.pinned ? '📌 закреплён' : null,
       p.reactions && Object.keys(p.reactions).length ? Object.entries(p.reactions).map(([k, v]) => (k.startsWith('custom:') ? '★' : k === 'paid' ? '⭐' : k) + ' ' + v).join('  ') : null,
       p.clicks && Object.keys(p.clicks).length ? 'нажатия: ' + Object.entries(p.clicks).map(([k, v]) => k + ' ' + v).join(', ') : null,
-      p.comment_status ? 'комментарий: ' + ({ waiting: 'ждёт пересылки в обсуждение', sent: 'опубликован', failed: 'ошибка' }[p.comment_status] || p.comment_status) : null,
+      p.comment_status ? 'комментарий: ' + ({ waiting: 'ждёт пересылки в обсуждение', sent: 'опубликован', failed: 'ошибка', skipped: 'не будет: приём событий выключен' }[p.comment_status] || p.comment_status) : null,
       pr ? `голосов: ${pr.total}${pr.is_closed ? ' (закрыт)' : ''} · ` + pr.options.map((o) => `${o.text} ${o.voter_count}`).join(' / ') : null,
     ].filter(Boolean);
     const call = async (method, path, body, ok) => { try { await api(method, path, body); toast(ok, 'ok'); } catch (e) { toast(e.message, 'err'); } loadPosts(); };
@@ -33,7 +33,7 @@ export async function loadPosts() {
       h('span', { class: 'meta', text: new Date(when * 1000).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' }) + (p.error ? ' · ' + p.error : '') }),
       stats.length ? h('span', { class: 'meta stats', text: stats.join(' · ') }) : null,
       h('span', { class: 'acts' },
-        poll ? null : h('button', { class: 'ghost small-btn', text: 'Открыть', title: 'Загрузить содержимое в редактор', onclick: async () => { const full = await api('GET', '/api/posts/' + p.id); S.draftId = null; $('#title').value = 'Копия поста ' + (p.message_id || ''); loadPost(full.payload); resetHistory(); } }),
+        poll ? null : h('button', { class: 'ghost small-btn', text: 'Открыть', title: 'Загрузить содержимое в редактор', onclick: () => openCopy(p) }),
         !poll && ['sent', 'scheduled'].includes(p.status) ? h('button', { class: 'ghost small-btn', text: 'Заменить', title: 'Заменить этот пост содержимым редактора', onclick: () => replacePost(p) }) : null,
         !poll && ['sent', 'scheduled'].includes(p.status) ? h('button', { class: 'ghost small-btn', text: 'Кнопки', title: 'Заменить только кнопки под постом кнопками из редактора; текст не меняется', onclick: () => {
           const kb = S.keyboard.filter((r) => r.length);
@@ -49,6 +49,20 @@ export async function loadPosts() {
         } }) : null));
   }));
   if (!S.posts.length) ul.append(h('li', { class: 'muted small', text: 'Здесь появятся опубликованные и отложенные посты.' }));
+}
+
+// the post as a new draft; the open draft is saved first, so nothing typed is lost
+async function openCopy(p) {
+  try {
+    await flushSave();
+    const full = await api('GET', '/api/posts/' + p.id);
+    S.draftId = null; S.draftVersion = null;
+    $('#title').value = 'Копия поста ' + (p.message_id || '');
+    loadPost(full.payload);
+    resetHistory();
+    dirty.value = true; saveState.value = 'есть изменения';
+    autosave();
+  } catch (e) { toast(e.message, 'err'); }
 }
 
 export async function replacePost(p) {

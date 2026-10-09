@@ -135,6 +135,57 @@ def recover_stale_sending() -> int:
 
 
 def due_posts() -> list[dict]:
+    """Scheduled posts whose time (or retry time) has come, earliest first."""
     with conn() as c:
-        rows = c.execute("select * from posts where status='scheduled' and scheduled_at<=?", (int(time.time()),))
+        rows = c.execute(
+            """select * from posts where status='scheduled' and coalesce(retry_at, scheduled_at)<=?
+               order by scheduled_at, created_at""",
+            (int(time.time()),),
+        )
         return [row(r) for r in rows]  # type: ignore[misc]
+
+
+def mark_missed(pid: str, error: str) -> bool:
+    """A scheduled post far past its time: keep it for the person instead of sending it late."""
+    with conn() as c:
+        cur = c.execute("update posts set status='missed', error=? where id=? and status='scheduled'", (error, pid))
+        return cur.rowcount == 1
+
+
+def retry_later(pid: str, at: int, error: str) -> None:
+    """A claimed post that never reached Telegram goes back to the queue."""
+    with conn() as c:
+        c.execute(
+            "update posts set status='scheduled', retry_at=?, error=? where id=? and status='sending'", (at, error, pid)
+        )
+
+
+def replace_scheduled(pid: str, payload: dict) -> bool:
+    """New content for a post that is still waiting; False if the scheduler already took it."""
+    with conn() as c:
+        cur = c.execute(
+            "update posts set payload=? where id=? and status='scheduled'",
+            (json.dumps(payload, ensure_ascii=False), pid),
+        )
+        return cur.rowcount == 1
+
+
+def expire_comments(sent_before: int, error: str) -> int:
+    """First comments still waiting for the forward long after the post: Telegram no longer delivers it."""
+    with conn() as c:
+        cur = c.execute(
+            """update posts set comment_status='failed', error=coalesce(error || '; ', '') || ?
+               where comment_status='waiting' and sent_at<?""",
+            (error, sent_before),
+        )
+        return cur.rowcount
+
+
+def using_upload(ref: str) -> list[dict]:
+    """Scheduled posts whose content mentions the upload reference (e.g. "upload:cat.png")."""
+    with conn() as c:
+        rows = c.execute(
+            "select id, chat_id, scheduled_at from posts where status='scheduled' and instr(payload, ?) > 0",
+            (json.dumps(ref, ensure_ascii=False),),
+        )
+        return [dict(r) for r in rows]

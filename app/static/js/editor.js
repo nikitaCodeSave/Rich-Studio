@@ -10,8 +10,9 @@ import { chats, dark, dirty, S, saveState } from './state.js';
 
 // ---------- change tracking ----------
 export const refreshPreview = debounce(() => { renderPreview(); validate(); }, 250);
-export const autosave = debounce(() => { if (S.draftId) saveDraft(true).catch((e) => toast('Автосохранение не удалось: ' + e.message, 'err')); }, 2500);
-export async function flushSave() { if (dirty.value && S.draftId) await saveDraft(true); }
+// a new post becomes a draft on its first change, so a reload or a crashed tab never loses it
+export const autosave = debounce(() => { if (dirty.value && !S.conflict) saveDraft(true).catch((e) => toast('Автосохранение не удалось: ' + e.message, 'err')); }, 2500);
+export async function flushSave() { if (dirty.value && !S.conflict) await saveDraft(true); }
 export function changed() { dirty.value = true; saveState.value = 'есть изменения'; refreshPreview(); autosave(); recordHistory(); }
 
 export function buildPost() {

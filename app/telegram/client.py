@@ -42,9 +42,26 @@ for _name in ("httpx", "httpcore"):
 
 
 class TelegramError(Exception):
+    """Telegram refused the call, or it never reached Telegram: nothing was executed."""
+
     def __init__(self, description: str, code: int | None = None, raw: Any = None):
         super().__init__(description)
         self.description, self.code, self.raw = description, code, raw
+
+    @property
+    def retry_after(self) -> int | None:
+        return ((self.raw or {}).get("parameters") or {}).get("retry_after") if isinstance(self.raw, dict) else None
+
+
+class Unreachable(TelegramError):
+    """No connection to Telegram was made (DNS, refused, connect timeout, proxy): the request was not sent."""
+
+
+class NoAnswer(Exception):
+    """Telegram's gateway answered with an error page or a 5xx: the call may still have been executed.
+
+    Deliberately not a TelegramError: for a send this means "the post may have gone", never "safe to retry".
+    """
 
 
 def _token() -> str:
@@ -66,7 +83,7 @@ async def call(method: str, params: dict | None = None, timeout: float = 60) -> 
         try:
             return await _post(url, params, files, timeout)
         except TelegramError as e:
-            wait = ((e.raw or {}).get("parameters") or {}).get("retry_after")
+            wait = e.retry_after
             if e.code != 429 or not wait or wait > MAX_RETRY_AFTER or attempt == MAX_RETRIES:
                 raise
             log.warning("%s: Telegram asks to wait %ss (429), retrying", method, wait)
@@ -74,7 +91,30 @@ async def call(method: str, params: dict | None = None, timeout: float = 60) -> 
     raise AssertionError("unreachable")
 
 
+# errors raised before a single byte of the request reached Telegram
+_NOT_SENT = (httpx.ConnectError, httpx.ConnectTimeout, httpx.ProxyError, httpx.UnsupportedProtocol)
+
+
 async def _post(url: str, params: dict, files: dict[str, Path], timeout: float) -> Any:  # noqa: ASYNC109
+    try:
+        r = await _request(url, params, files, timeout)
+    except _NOT_SENT as e:
+        raise Unreachable(f"нет связи с Telegram ({type(e).__name__}): запрос не отправлен") from e
+    try:
+        body = r.json()
+    except ValueError:
+        body = None
+    detail = body.get("description") if isinstance(body, dict) else r.text[:300]
+    if r.status_code >= 500 or (isinstance(body, dict) and (body.get("error_code") or 0) >= 500):
+        raise NoAnswer(f"Telegram ответил HTTP {r.status_code}: {detail}")
+    if not isinstance(body, dict):  # a 4xx page from a proxy or a wrong TG_API_BASE: refused, not executed
+        raise TelegramError(f"HTTP {r.status_code}: {detail}", r.status_code)
+    if not body.get("ok"):
+        raise TelegramError(body.get("description", "unknown error"), body.get("error_code"), body)
+    return body["result"]
+
+
+async def _request(url: str, params: dict, files: dict[str, Path], timeout: float) -> httpx.Response:  # noqa: ASYNC109
     async with httpx.AsyncClient(timeout=timeout) as client:
         if files:
             data = {
@@ -92,10 +132,4 @@ async def _post(url: str, params: dict, files: dict[str, Path], timeout: float) 
                     h[1].close()
         else:
             r = await client.post(url, json={k: v for k, v in params.items() if v is not None})
-    try:
-        body = r.json()
-    except ValueError as e:
-        raise TelegramError(f"HTTP {r.status_code}: {r.text[:300]}", r.status_code) from e
-    if not body.get("ok"):
-        raise TelegramError(body.get("description", "unknown error"), body.get("error_code"), body)
-    return body["result"]
+    return r

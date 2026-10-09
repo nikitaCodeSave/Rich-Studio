@@ -83,6 +83,28 @@ async def preview(post: dict, chat_id=None) -> dict:
     return out
 
 
+NOT_MODIFIED = "message is not modified"
+
+
+def after_edit(old: dict, post: dict) -> dict:
+    """The stored post after editMessageText: new text and buttons, everything else as it was.
+
+    Pin and first comment were done at publish time, and answers to buttons stay unless the new
+    post brings its own (an agent usually sends only rich_message). A comment still waiting for the
+    forward can be replaced.
+    """
+    new = {**old, "rich_message": post["rich_message"]}
+    if post.get("reply_markup"):
+        new["reply_markup"] = post["reply_markup"]
+    else:  # no reply_markup removes the buttons
+        new.pop("reply_markup", None)
+    if post.get("callbacks"):
+        new["callbacks"] = post["callbacks"]
+    if post.get("comment"):
+        new["comment"] = post["comment"]
+    return new
+
+
 async def edit_message(post: dict, chat_id, message_id: int) -> dict:
     """Replace the content of any channel message (editMessageText + rich_message)."""
     publisher.validate(post)
@@ -93,19 +115,18 @@ async def edit_message(post: dict, chat_id, message_id: int) -> dict:
     }
     if post.get("reply_markup"):
         params["reply_markup"] = post["reply_markup"]
-    result = await tg.call("editMessageText", params)
+    try:
+        result = await tg.call("editMessageText", params)
+    except tg.TelegramError as e:
+        # the same text and buttons again (e.g. only the answers to buttons changed): nothing to do in Telegram
+        if NOT_MODIFIED not in e.description:
+            raise
+        result = None
     # if the studio published this message, keep its history in step with the channel
     rec = store.find_sent(params["chat_id"], message_id)
     if rec and rec.get("kind") != "poll":
-        # only what editMessageText changed: text and buttons (no reply_markup removes them);
-        # callbacks, first comment and pin settings stay as they were
-        payload = {**rec["payload"], "rich_message": post["rich_message"]}
-        if post.get("reply_markup"):
-            payload["reply_markup"] = post["reply_markup"]
-        else:
-            payload.pop("reply_markup", None)
-        store.update_post(rec["id"], payload=payload)
-    return {"result": result}
+        store.update_post(rec["id"], payload=after_edit(rec["payload"], post))
+    return {"result": result, "unchanged": result is None}
 
 
 def schedule(
@@ -131,11 +152,13 @@ async def edit(pid: str, post: dict) -> dict | None:
         raise StudioError("опрос заменить нельзя; можно закрыть или удалить")
     if p["status"] == "scheduled":
         publisher.validate(post)
-        return store.update_post(pid, payload=post)
+        if not store.replace_scheduled(pid, post):
+            raise StudioError("пост уже отправляется: обновите список и замените опубликованный")
+        return store.get_post(pid)
     if not p["message_id"]:
         raise StudioError(f"пост в статусе {p['status']}, редактировать нечего")
     await edit_message(post, p["chat_id"], p["message_id"])
-    return store.update_post(pid, payload=post)
+    return store.update_post(pid, payload=after_edit(p["payload"], post))
 
 
 async def delete(pid: str) -> dict | None:

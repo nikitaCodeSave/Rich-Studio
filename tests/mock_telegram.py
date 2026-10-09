@@ -11,13 +11,16 @@ import json
 from fastapi import FastAPI, Request
 
 TRUE_METHODS = {
-    "editMessageText",
     "deleteMessage",
     "pinChatMessage",
     "unpinChatMessage",
     "editMessageReplyMarkup",
     "answerCallbackQuery",
 }
+
+
+def _content(body: dict) -> dict:
+    return {"rich_message": body.get("rich_message"), "reply_markup": body.get("reply_markup")}
 
 
 class FakeTelegram:
@@ -28,8 +31,9 @@ class FakeTelegram:
         self.next_id = 100
         self.next_update = 1
         self.fail: dict[str, str] = {}  # method -> description of a 400 error
-        self.queue: dict[str, list[dict]] = {}  # method -> raw responses returned before the normal answer
+        self.queue: dict[str, list] = {}  # method -> raw responses (dicts or Responses) before the normal answer
         self.updates: list[dict] = []  # what the next getUpdates returns
+        self.messages: dict[tuple, dict] = {}  # (chat_id, message_id) -> content, to answer edits like Telegram
         self.app = self._build()
 
     def reset(self):
@@ -37,6 +41,7 @@ class FakeTelegram:
         self.fail.clear()
         self.queue.clear()
         self.updates.clear()
+        self.messages.clear()
 
     def last(self, method: str) -> dict:
         return [c for c in self.calls if c["method"] == method][-1]
@@ -57,7 +62,7 @@ class FakeTelegram:
         self.updates.clear()
         return {"ok": True, "result": out}
 
-    def answer(self, method: str, body: dict) -> dict:
+    def answer(self, method: str, body: dict):
         if self.queue.get(method):
             return self.queue[method].pop(0)
         if method in self.fail:
@@ -77,9 +82,22 @@ class FakeTelegram:
         if method in ("sendRichMessage", "sendPoll"):
             self.next_id += 1
             res: dict = {"message_id": self.next_id, "chat": {"id": -1001}}
+            self.messages[(body.get("chat_id"), self.next_id)] = _content(body)
             if method == "sendPoll":
                 res["poll"] = {"id": f"poll{self.next_id}", "question": body.get("question")}
             return {"ok": True, "result": res}
+        if method == "editMessageText":
+            # like Telegram: the edited Message for channel posts, 400 when nothing would change
+            key = (body.get("chat_id"), body.get("message_id"))
+            if self.messages.get(key) == _content(body):
+                return {
+                    "ok": False,
+                    "error_code": 400,
+                    "description": "Bad Request: message is not modified: specified new message content and "
+                    "reply markup are exactly the same as a current content and reply markup of the message",
+                }
+            self.messages[key] = _content(body)
+            return {"ok": True, "result": {"message_id": body.get("message_id"), "chat": {"id": -1001}}}
         if method == "stopPoll":
             return {
                 "ok": True,
@@ -116,7 +134,7 @@ class FakeTelegram:
             if method == "getUpdates":
                 return await self._get_updates(body)
             self.calls.append({"method": method, "token": token, "body": body, "files": files})
-            return self.answer(method, body)
+            return self.answer(method, body)  # a queued starlette Response (e.g. an HTML 502) goes out as is
 
         @app.post("/push")
         async def push(update: dict):

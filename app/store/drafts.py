@@ -17,17 +17,37 @@ def get_draft(did: str) -> dict | None:
         return row(c.execute("select * from drafts where id=?", (did,)).fetchone())
 
 
-def save_draft(did: str | None, title: str, payload: dict) -> dict | None:
+def save_draft(did: str | None, title: str, payload: dict, version: int | None = None) -> dict | None:
+    """Create or overwrite a draft. With `version`, only if nobody saved it since that version
+    (another tab, an agent); returns None then, and also when that draft was deleted meanwhile."""
     now = int(time.time())
     did = did or uuid.uuid4().hex[:12]
+    data = json.dumps(payload, ensure_ascii=False)
     with conn() as c:
-        c.execute(
-            """insert into drafts(id,title,payload,created_at,updated_at) values(?,?,?,?,?)
-                     on conflict(id) do update set title=excluded.title, payload=excluded.payload,
-                     updated_at=excluded.updated_at""",
-            (did, title, json.dumps(payload, ensure_ascii=False), now, now),
-        )
+        if version is not None:
+            cur = c.execute(
+                "update drafts set title=?, payload=?, updated_at=?, version=version+1 where id=? and version=?",
+                (title, data, now, did, version),
+            )
+            if cur.rowcount != 1:
+                return None
+        else:
+            c.execute(
+                """insert into drafts(id,title,payload,created_at,updated_at) values(?,?,?,?,?)
+                         on conflict(id) do update set title=excluded.title, payload=excluded.payload,
+                         updated_at=excluded.updated_at, version=drafts.version+1""",
+                (did, title, data, now, now),
+            )
     return get_draft(did)
+
+
+def drafts_using(ref: str) -> list[dict]:
+    """Drafts whose content mentions the upload reference (e.g. "upload:cat.png")."""
+    with conn() as c:
+        rows = c.execute(
+            "select id, title from drafts where instr(payload, ?) > 0", (json.dumps(ref, ensure_ascii=False),)
+        )
+        return [dict(r) for r in rows]
 
 
 def delete_draft(did: str) -> None:

@@ -11,7 +11,7 @@ export const dark = signal(matchMedia('(prefers-color-scheme: dark)').matches);
 /** @type {EditorState} */
 export const S = {
   // boot() in main.js loads the spec before anything renders, so modules may treat it as present
-  spec: /** @type {SpecSummary} */ (/** @type {unknown} */ (null)), config: {}, draftId: null, format: 'blocks', mode: 'blocks',
+  spec: /** @type {SpecSummary} */ (/** @type {unknown} */ (null)), config: {}, draftId: null, draftVersion: null, conflict: false, format: 'blocks', mode: 'blocks',
   buf: { blocks: [], html: '', markdown: '' }, media: [], flags: {}, keyboard: [], options: {},
   extra: { pin: false, comment: '', commentObj: null, callbacks: {} }, updates: null,
   uploads: [], posts: [], drafts: [],
