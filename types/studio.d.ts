@@ -115,6 +115,8 @@ interface Upload {
   url: string;
   ref: string;
   size: number;
+  /** a draft or a live post mentions the file */
+  used: boolean;
 }
 
 type ButtonRow = Json[];

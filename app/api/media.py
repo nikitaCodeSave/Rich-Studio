@@ -37,6 +37,15 @@ async def media_upload(file: UploadFile = File(...)):
     return media.describe(name)
 
 
+@router.post(
+    "/api/media/cleanup",
+    tags=["media"],
+    summary="Удалить файлы, которые не упоминает ни один черновик и ни один живой пост",
+)
+def media_cleanup():
+    return {"deleted": media.delete_unused()}
+
+
 @router.delete(
     "/api/media/{name}",
     tags=["media"],

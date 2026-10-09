@@ -51,9 +51,19 @@ def describe(name: str) -> dict:
 
 
 def list_files() -> list[dict]:
+    """Uploads, newest first; `used` is false when no draft and no live post mentions the file."""
     files = [p for p in media_dir().iterdir() if p.is_file()]
     files.sort(key=lambda p: -p.stat().st_mtime)
-    return [{**describe(p.name), "size": p.stat().st_size} for p in files]
+    refs = store.backup.upload_refs()
+    return [{**describe(p.name), "size": p.stat().st_size, "used": p.name in refs} for p in files]
+
+
+def delete_unused() -> list[str]:
+    """Remove files nothing mentions any more (drafts, scheduled, missed and published posts)."""
+    gone = [f["name"] for f in list_files() if not f["used"]]
+    for name in gone:
+        path_of(name, must_exist=False).unlink(missing_ok=True)
+    return gone
 
 
 def free_name(filename: str | None) -> str:

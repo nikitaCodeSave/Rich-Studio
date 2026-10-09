@@ -346,6 +346,14 @@ check('Header fits one row at 1440px', Math.abs(header.pub - header.brand) < 12 
     JSON.stringify({ barText: barText.replace(/\s+/g, ' ').trim(), edits: edits.length, history }));
 }
 
+// 16. the Files tab downloads a backup zip
+{
+  await page.click('#side-tabs [data-tab=uploads]');
+  const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 8000 }), page.click('#export')]);
+  const name = dl.suggestedFilename();
+  check('Backup downloads as a zip', /^rich-studio-\d{8}-\d{4}\.zip$/.test(name), name);
+}
+
 check('No CSP violations or JS errors in the editor', errors.length === 0 && csp.length === 0, [...errors, ...csp].join(' | '));
 // screenshots of the editor for a person to look at (CI keeps them as an artifact): a PR that changes the UI shows them
 mkdirSync('test-results/ui', { recursive: true });

@@ -855,6 +855,20 @@
     ]
    }
   },
+  "/api/export": {
+   "get": {
+    "operationId": "export_api_export_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Скачать бэкап: zip с базой (черновики, посты, история) и загруженными файлами",
+    "tags": [
+     "service"
+    ]
+   }
+  },
   "/api/media": {
    "get": {
     "operationId": "media_list_api_media_get",
@@ -906,6 +920,25 @@
      }
     },
     "summary": "Загрузить файл; в посте он указывается как upload:<name>",
+    "tags": [
+     "media"
+    ]
+   }
+  },
+  "/api/media/cleanup": {
+   "post": {
+    "operationId": "media_cleanup_api_media_cleanup_post",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Удалить файлы, которые не упоминает ни один черновик и ни один живой пост",
     "tags": [
      "media"
     ]

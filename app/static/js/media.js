@@ -62,9 +62,19 @@ export async function loadUploads() {
   ul.replaceChildren(...S.uploads.map((u) => h('li', {},
     u.kind === 'photo' ? h('img', { class: 'thumb', src: u.url, alt: '' }) : h('span', { class: 'thumb', text: u.kind }),
     h('span', { class: 'name', title: u.name, text: u.name }),
+    u.used ? null : h('span', { class: 'unused', title: 'Нет ни в одном черновике и ни в одном живом посте', text: 'не нужен' }),
     h('button', { class: 'ghost small-btn', text: 'в пост', onclick: () => insertUpload(u) }),
     h('button', { class: 'ghost small-btn', text: '✕', title: 'Удалить файл', onclick: () => deleteUpload(u.name) }))));
   if (!S.uploads.length) ul.append(h('li', { class: 'muted small', text: 'Файлов нет.' }));
+  const unused = S.uploads.filter((u) => !u.used).length;
+  const clean = $('#media-cleanup');
+  clean.hidden = !unused;
+  clean.textContent = `Удалить ненужные (${unused})`;
+  clean.onclick = async () => {
+    if (!confirm(`Удалить ${unused} файлов, которых нет ни в одном черновике и ни в одном живом посте?`)) return;
+    try { const r = await api('POST', '/api/media/cleanup'); toast('Удалено файлов: ' + r.deleted.length, 'ok'); } catch (e) { toast(e.message, 'err'); }
+    loadUploads();
+  };
 }
 
 export async function upload(files) {
