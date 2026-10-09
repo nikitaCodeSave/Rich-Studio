@@ -2,7 +2,7 @@
 import { closeDialog, editJson, openDialog } from './dialogs.js';
 import { $, clone, h } from './dom.js';
 import { changed } from './editor.js';
-import { BLOCK_LABELS, FIELD_LABELS, IGNORED_MEDIA_FIELDS } from './labels.js';
+import { BLOCK_LABELS, FIELD_HINTS, FIELD_LABELS, IGNORED_MEDIA_FIELDS } from './labels.js';
 import { richTextEditor } from './rich-text.js';
 import { blockTypeName, blockTypes, cell, constField, constOf, defaultFor, defaultObject, isNewType, newBlock, T } from './spec.js';
 import { S } from './state.js';
@@ -85,13 +85,13 @@ export function fieldEditor(f, obj, key, depth, redraw) {
   const t = types[0];
   const set = (v) => { obj[key] = v; changed(); };
   if (types.length === 1) {
-    if (t === 'RichText') return richTextEditor(obj, key, { placeholder: f.description });
+    if (t === 'RichText') return richTextEditor(obj, key, { placeholder: FIELD_HINTS[f.name] || '' });
     if (t === 'String' && f.enum && f.enum.length > 1) {
       return h('select', { onchange: (e) => set(e.target.value) }, f.enum.map((v) => h('option', { value: v, text: v, selected: obj[key] === v ? true : null })));
     }
     if (t === 'String') {
       const long = ['expression', 'text'].includes(key);
-      const inp = h(long ? 'textarea' : 'input', { type: 'text', value: obj[key] ?? '', placeholder: f.description.replace(/^Optional\.\s*/, '').slice(0, 90), oninput: (e) => set(e.target.value) });
+      const inp = h(long ? 'textarea' : 'input', { type: 'text', value: obj[key] ?? '', placeholder: FIELD_HINTS[f.name] || '', oninput: (e) => set(e.target.value) });
       return inp;
     }
     if (t === 'Integer' || t === 'Float') {
@@ -143,7 +143,7 @@ export function objectArray(obj, key, itemType, depth) {
       objectFields(itemType, it, depth + 1)));
   });
   box.append(h('button', { class: 'ghost small-btn add-block', text: '＋ ' + (itemType === 'InputRichBlockListItem' ? 'пункт' : itemType === 'RichMessageButton' ? 'кнопка' : 'элемент'), onclick: () => {
-    const it = itemType === 'InputRichBlockListItem' ? { blocks: [{ type: 'paragraph', text: '' }] } : itemType === 'RichMessageButton' ? { text: 'Кнопка', url: 'https://' } : defaultObject(itemType);
+    const it = itemType === 'InputRichBlockListItem' ? { blocks: [{ type: 'paragraph', text: '' }] } : itemType === 'RichMessageButton' ? { text: 'Кнопка', url: '' } : defaultObject(itemType);
     arr.push(it); redraw(); changed();
   } }));
   return box;

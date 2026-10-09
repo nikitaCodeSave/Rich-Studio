@@ -54,7 +54,7 @@ The studio preview follows these rules. `send_preview_to_me` (and `preview-send`
 
 Media: put `tg://photo?id=X` (video/audio/document/animation/voice_note) in html/markdown and add `{"id":"X","media":{"type":"photo","media":"<URL|file_id|attach://name>"}}` to `media`. In blocks the media object sits in the block itself. Captions on InputMedia are ignored.
 
-Buttons: `RichMessageButton{text, style?: primary|success|danger|link, exactly one of url|callback_data|login_url|switch_inline_query|switch_inline_query_chosen_chat|copy_text{text}|disabled{}}`. Keyboard under the post: normal `reply_markup.inline_keyboard`.
+Buttons: `RichMessageButton{text, style?: primary|success|danger|link, exactly one of url|callback_data|login_url|switch_inline_query|switch_inline_query_chosen_chat|copy_text{text}|disabled{}}`. Keyboard under the post: normal `reply_markup.inline_keyboard`; a button `url` needs a host: Telegram rejects the whole post for `https://` alone, and validation reports it as an error.
 
 Channels: no ephemeral messages, no `message_effect_id`, no `thinking`/drafts, no `web_app` buttons (use a t.me link), `callback_data` needs a running bot. Bot API has no scheduling: use the studio scheduler.
 

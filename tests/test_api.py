@@ -103,6 +103,29 @@ def test_unknown_field_is_a_warning_not_an_error(client):
     assert any("future_field" in w for w in r["warnings"])
 
 
+@pytest.mark.parametrize("url", ["https://", "", "http:///path"])
+def test_button_without_host_is_an_error(client, tg, url):
+    """Telegram rejects the whole post (400 "URL host is empty"), so the check must say so before a send."""
+    post = {**BLOCKS_POST, "reply_markup": {"inline_keyboard": [[{"text": "Сайт", "url": url}]]}}
+    r = post_json(client, "/api/validate", post).json()
+    assert not r["ok"]
+    assert any("кнопка «Сайт» (ряд 1, №1)" in e for e in r["errors"]), r["errors"]
+    assert post_json(client, "/api/send", {"post": post}).status_code == 422
+    assert not [c for c in tg.calls if c["method"] == "sendRichMessage"]
+
+
+def test_good_button_links_pass(client):
+    keyboard = [[{"text": "Сайт", "url": "https://t.me/telegram"}, {"text": "Бот", "url": "tg://resolve?domain=x"}]]
+    r = post_json(client, "/api/validate", {**BLOCKS_POST, "reply_markup": {"inline_keyboard": keyboard}}).json()
+    assert r["ok"], r
+
+
+def test_rich_button_without_host_is_a_warning(client):
+    rm = {"blocks": [{"type": "buttons", "buttons": [{"text": "Сайт", "url": "https://"}]}]}
+    r = post_json(client, "/api/validate", {"rich_message": rm}).json()
+    assert any("нет адреса сайта" in w for w in r["warnings"]), r
+
+
 # ---------- sending ----------
 def test_send_passes_payload_through_unchanged(client, tg):
     post = {
