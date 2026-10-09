@@ -63,7 +63,7 @@ export async function loadUploads() {
     u.kind === 'photo' ? h('img', { class: 'thumb', src: u.url, alt: '' }) : h('span', { class: 'thumb', text: u.kind }),
     h('span', { class: 'name', title: u.name, text: u.name }),
     h('button', { class: 'ghost small-btn', text: 'в пост', onclick: () => insertUpload(u) }),
-    h('button', { class: 'ghost small-btn', text: '✕', title: 'Удалить файл', onclick: async () => { if (confirm('Удалить файл ' + u.name + '?')) { await api('DELETE', '/api/media/' + encodeURIComponent(u.name)); loadUploads(); } } }))));
+    h('button', { class: 'ghost small-btn', text: '✕', title: 'Удалить файл', onclick: () => deleteUpload(u.name) }))));
   if (!S.uploads.length) ul.append(h('li', { class: 'muted small', text: 'Файлов нет.' }));
 }
 
@@ -75,4 +75,18 @@ export async function upload(files) {
   await loadUploads();
   if (S.mode === 'blocks') renderBlocksPane();
   renderMedia();
+}
+
+// a file a scheduled post or a draft still needs is deleted only after a second, explicit yes
+async function deleteUpload(name) {
+  if (!confirm('Удалить файл ' + name + '?')) return;
+  const path = '/api/media/' + encodeURIComponent(name);
+  try {
+    await api('DELETE', path);
+  } catch (e) {
+    if (e.status !== 409) { toast(e.message, 'err'); return; }
+    if (!confirm(e.message + '.\nБез него эти посты не отправятся. Всё равно удалить?')) return;
+    await api('DELETE', path + '?force=true').catch((err) => toast(err.message, 'err'));
+  }
+  loadUploads();
 }

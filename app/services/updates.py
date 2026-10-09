@@ -14,6 +14,8 @@ log = logging.getLogger("rich-studio.updates")
 _sleep = asyncio.sleep
 OFFSET_KEY = "updates_offset"
 ALLOWED_UPDATES = ["message", "callback_query", "message_reaction_count", "poll"]
+# Telegram keeps undelivered updates for about a day; a forward older than that will never arrive
+COMMENT_WAIT = 24 * 3600
 
 
 @dataclass
@@ -85,6 +87,12 @@ async def handle_update(u: dict) -> str | None:
             store.update_post(p["id"], comment_status="sent", comment_message_id=res["message_id"])
         except tg.TelegramError as e:
             store.update_post(p["id"], comment_status="failed", error=f"первый комментарий: {e.description}")
+        except Exception as e:  # noqa: BLE001 - mid-send: the update is already confirmed, so say it once here
+            store.update_post(
+                p["id"],
+                comment_status="failed",
+                error=f"первый комментарий: {type(e).__name__}: {e}. Он мог уйти, проверьте обсуждение",
+            )
         return "comment"
     if rc := u.get("message_reaction_count"):
         p = store.find_post(rc["chat"]["id"], rc["message_id"])
@@ -116,6 +124,9 @@ async def loop() -> None:
                 "getUpdates", {"offset": offset, "timeout": 25, "allowed_updates": ALLOWED_UPDATES}, timeout=40
             )
             STATUS.state, STATUS.error = "ok", None
+            store.expire_comments(
+                int(time.time()) - COMMENT_WAIT, "первый комментарий: пересылка в обсуждение не пришла за сутки"
+            )
             for u in ups:
                 offset = u["update_id"] + 1
                 store.set_meta(OFFSET_KEY, str(offset))

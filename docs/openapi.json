@@ -57,6 +57,18 @@
       "default": "",
       "title": "Title",
       "type": "string"
+     },
+     "version": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Версия черновика, на которой основана правка; если с тех пор его сохранили в другом месте, ответ 409 вместо перезаписи. Без поля черновик перезаписывается",
+      "title": "Version"
      }
     },
     "required": [
@@ -858,6 +870,16 @@
        "title": "Name",
        "type": "string"
       }
+     },
+     {
+      "in": "query",
+      "name": "force",
+      "required": false,
+      "schema": {
+       "default": false,
+       "title": "Force",
+       "type": "boolean"
+      }
      }
     ],
     "responses": {
@@ -880,7 +902,7 @@
       "description": "Validation Error"
      }
     },
-    "summary": "Media Delete",
+    "summary": "Удалить файл; если он нужен отложенному посту или черновику, 409 (force=true удаляет всё равно)",
     "tags": [
      "media"
     ]

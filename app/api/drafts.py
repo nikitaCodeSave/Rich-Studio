@@ -3,7 +3,7 @@
 from fastapi import APIRouter
 
 import store
-from errors import NotFound
+from errors import Conflict, NotFound
 from models import DraftReq
 
 router = APIRouter(tags=["drafts"])
@@ -29,7 +29,18 @@ def create_draft(req: DraftReq):
 
 @router.put("/api/drafts/{did}")
 def put_draft(did: str, req: DraftReq):
-    return store.save_draft(did, req.title, req.post)
+    d = store.save_draft(did, req.title, req.post, req.version)
+    if d is None:
+        current = store.get_draft(did)
+        raise Conflict(
+            {
+                "message": "черновик изменили в другой вкладке или агентом"
+                if current
+                else "черновик удалили в другой вкладке",
+                "current": current,
+            }
+        )
+    return d
 
 
 @router.delete("/api/drafts/{did}")

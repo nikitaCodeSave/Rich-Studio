@@ -12,3 +12,4 @@
 | [0002](0002-lit-and-signals.md) | Lit и signals вендорены в `app/static/vendor/` |
 | [0003](0003-spec-source.md) | Спецификация Bot API из telegram-bot-api-spec, а не со страницы Telegram |
 | [0004](0004-no-retry-after-send.md) | Нет автоповтора, если пост мог уйти |
+| [0005](0005-missed-scheduled-posts.md) | Опоздавший отложенный пост не отправляется сам |

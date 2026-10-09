@@ -21,7 +21,7 @@ export async function api(method, path, body, raw) {
   if (!r.ok) {
     const d = data.detail;
     const msg = typeof d === 'string' ? d : d && d.message ? d.message + (d.errors ? ':\n• ' + d.errors.join('\n• ') : '') : JSON.stringify(d || data);
-    throw new Error(msg);
+    throw Object.assign(new Error(msg), { status: r.status, detail: d });
   }
   return data;
 }

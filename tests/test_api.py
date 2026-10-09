@@ -679,7 +679,8 @@ def test_callback_click_is_answered_and_counted(client, tg):
     assert tg.last("answerCallbackQuery")["body"] == {"callback_query_id": "cq3"}
 
 
-def test_first_comment_goes_under_the_forwarded_post(client, tg):
+def test_first_comment_goes_under_the_forwarded_post(client, tg, monkeypatch):
+    monkeypatch.setattr(settings.get(), "updates_on", True)
     post = {**BLOCKS_POST, "comment": {"html": "<p>Ссылки из эфира</p>"}}
     r = post_json(client, "/api/send", {"post": post}).json()
     assert r["post"]["comment_status"] == "waiting"

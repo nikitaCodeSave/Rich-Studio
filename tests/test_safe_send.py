@@ -1,5 +1,7 @@
 """Safe sending for agents: Idempotency-Key, who sent the post, dry run."""
 
+import time
+
 import httpx
 import pytest
 
@@ -129,7 +131,7 @@ def test_actor_survives_scheduling(client, tg):
 
     body = {"post": BLOCKS_POST, "at": "2099-01-01T09:00:00+03:00"}
     rec = client.post("/api/schedule", json=body, headers={"X-Studio-Client": "ui"}).json()
-    store.update_post(rec["id"], scheduled_at=1)
+    store.update_post(rec["id"], scheduled_at=int(time.time()) - 5)
     asyncio.run(scheduler.run_due_posts())
     p = store.get_post(rec["id"])
     assert p["status"] == "sent" and p["actor"] == "ui"
