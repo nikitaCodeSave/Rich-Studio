@@ -79,7 +79,7 @@ K=$(uuidgen)   # one key per post; reuse it when retrying the same send
 curl -s -X POST $S/api/send -H 'content-type: application/json' -H "Idempotency-Key: $K" -H 'X-Studio-Client: claude-code' -d '{"chat_id":"@channel","post":'"$(cat post.json)"'}'
 curl -s -X POST $S/api/schedule -H 'content-type: application/json' -H "Idempotency-Key: $K" -d '{"chat_id":"@channel","at":"2026-10-10T09:00:00+03:00","post":'"$(cat post.json)"'}'
 curl -s -X POST $S/api/posts/<id>/edit -H 'content-type: application/json' -d @post.json   # replace a published post
-# a draft with post_id is a working copy of that post: replace the post as above, never /api/send with its draft_id (that posts a second copy; only the editor does it on purpose, after its own warning)
+# a draft with post_id is a working copy of that post: replace the post as above, /api/send with its draft_id answers 409; "as_new": true posts a second copy, only when the user asked for one
 curl -s -X POST $S/api/send -H 'content-type: application/json' -d '{"chat_ids":["@one","@two"],"post":'"$(cat post.json)"'}'  # several channels
 curl -s -X POST $S/api/posts/<id>/pin -H 'content-type: application/json' -d '{"disable_notification":true}'   # DELETE to unpin
 curl -s -X POST $S/api/posts/<id>/buttons -H 'content-type: application/json' -d '{"reply_markup":{"inline_keyboard":[[...]]}}'  # buttons only

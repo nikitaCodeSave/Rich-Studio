@@ -67,3 +67,18 @@ def test_draft_remembers_the_post_it_edits(client, tg):
     d = client.put(f"/api/drafts/{d['id']}", json={"title": "Правка", "post": NEW, "version": d["version"]}).json()
     assert d["post_id"] is None  # leaving the post: the next save sends no post_id
     assert client.get("/api/drafts").json()[0]["post_id"] is None
+
+
+def test_rest_never_sends_an_edit_copy_as_a_second_post_unless_asked(client, tg):
+    """A draft with post_id is a working copy of that post: /api/send and /api/schedule refuse it with 409, so an agent
+    on the HTTP API replaces the post instead; the editor's «Опубликовать» warns first and passes as_new."""
+    p = client.post("/api/send", json={"post": BLOCKS_POST, "chat_id": "@x"}).json()["post"]
+    d = client.post("/api/drafts", json={"title": "правка", "post": BLOCKS_POST, "post_id": p["id"]}).json()
+    for path, extra in (("/api/send", {}), ("/api/schedule", {"at": int(time.time()) + 3600})):
+        for dry in (False, True):
+            body = {"post": BLOCKS_POST, "chat_id": "@x", "draft_id": d["id"], "dry_run": dry, **extra}
+            r = client.post(path, json=body)
+            assert r.status_code == 409 and f"/api/posts/{p['id']}/edit" in r.json()["detail"]
+    assert len(store.list_posts()) == 1
+    r = client.post("/api/send", json={"post": BLOCKS_POST, "chat_id": "@x", "draft_id": d["id"], "as_new": True})
+    assert r.status_code == 200 and len(store.list_posts()) == 2

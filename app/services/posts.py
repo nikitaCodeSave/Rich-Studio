@@ -6,7 +6,7 @@ Functions take plain dicts and return what the API returns; they never import Fa
 import settings
 import store
 import telegram as tg
-from errors import MayHaveGone, NotFound, StudioError, Upstream
+from errors import Conflict, MayHaveGone, NotFound, StudioError, Upstream
 from telegram.uploads import MissingUpload, collect_uploads
 
 from . import publisher
@@ -27,9 +27,29 @@ def _sent(pid: str) -> dict:
     return p
 
 
+def _not_an_edit_copy(draft_id: str | None, as_new: bool) -> None:
+    """A draft with post_id is a working copy of that post: sending it would put a second post in the channel.
+    The editor does that on purpose after its own warning (as_new); anyone else meant to replace the post."""
+    if not draft_id or as_new:
+        return
+    d = store.get_draft(draft_id)
+    if d and d.get("post_id"):
+        raise Conflict(
+            f"черновик {draft_id} — правка поста {d['post_id']}: замените пост (POST /api/posts/{d['post_id']}/edit, "
+            "MCP edit_post) или передайте as_new: true, чтобы опубликовать копию новым постом"
+        )
+
+
 async def send(
-    post: dict, chat_id=None, chat_ids=None, draft_id: str | None = None, actor: str = "api", dry_run: bool = False
+    post: dict,
+    chat_id=None,
+    chat_ids=None,
+    draft_id: str | None = None,
+    actor: str = "api",
+    dry_run: bool = False,
+    as_new: bool = False,
 ) -> dict:
+    _not_an_edit_copy(draft_id, as_new)
     report = publisher.validate(post)
     chats = publisher.targets(chat_id, chat_ids)
     if dry_run:
@@ -138,8 +158,16 @@ async def edit_message(post: dict, chat_id, message_id: int, actor: str = "api",
 
 
 def schedule(
-    post: dict, at, chat_id=None, chat_ids=None, draft_id: str | None = None, actor: str = "api", dry_run: bool = False
+    post: dict,
+    at,
+    chat_id=None,
+    chat_ids=None,
+    draft_id: str | None = None,
+    actor: str = "api",
+    dry_run: bool = False,
+    as_new: bool = False,
 ) -> dict:
+    _not_an_edit_copy(draft_id, as_new)
     report = publisher.validate(post)
     when = publisher.parse_at(at)
     if dry_run:

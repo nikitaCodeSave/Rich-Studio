@@ -22,12 +22,12 @@ async def check(chat_id: str | None = None):
 async def send(req: PublishReq, who: str = Depends(actor), key: str | None = Depends(idempotency_key)):
     post = req.post.model_dump()
     if req.dry_run:  # nothing is sent, so there is nothing to deduplicate
-        return await posts.send(post, req.chat_id, req.chat_ids, dry_run=True)
+        return await posts.send(post, req.chat_id, req.chat_ids, req.draft_id, dry_run=True, as_new=req.as_new)
     return await idempotency.run(
         key,
         "send",
         req.model_dump(),
-        lambda: posts.send(post, req.chat_id, req.chat_ids, req.draft_id, actor=who),
+        lambda: posts.send(post, req.chat_id, req.chat_ids, req.draft_id, actor=who, as_new=req.as_new),
     )
 
 
@@ -44,10 +44,14 @@ async def edit(req: EditReq, who: str = Depends(actor)):
 @router.post("/api/schedule", summary="Отложить публикацию")
 async def schedule(req: ScheduleReq, who: str = Depends(actor), key: str | None = Depends(idempotency_key)):
     if req.dry_run:
-        return posts.schedule(req.post.model_dump(), req.at, req.chat_id, req.chat_ids, dry_run=True)
+        return posts.schedule(
+            req.post.model_dump(), req.at, req.chat_id, req.chat_ids, req.draft_id, dry_run=True, as_new=req.as_new
+        )
 
     async def action():
-        return posts.schedule(req.post.model_dump(), req.at, req.chat_id, req.chat_ids, req.draft_id, actor=who)
+        return posts.schedule(
+            req.post.model_dump(), req.at, req.chat_id, req.chat_ids, req.draft_id, actor=who, as_new=req.as_new
+        )
 
     return await idempotency.run(key, "schedule", req.model_dump(), action)
 
