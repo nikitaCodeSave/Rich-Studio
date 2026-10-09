@@ -85,6 +85,7 @@ function setTarget(value) {
 export function showChannels() {
   const box = h('div', { class: 'channels' });
   const use = (c) => { setTarget(c.chat_id); closeDialog(); };
+  const addTo = (c) => { setTarget([...chats(), c.chat_id].join(', ')); where.value = /** @type {HTMLInputElement} */ ($('#chat')).value; draw(); };
   const check = (id) => act(async () => { const r = await api('POST', '/api/channels', { chat_id: id }); await loadChannels(); draw(); return r; },
     (r) => `«${r.channel.title}»: ` + (r.can_post ? 'бот может публиковать' : 'у бота нет права публиковать'));
   const draw = () => {
@@ -95,7 +96,8 @@ export function showChannels() {
       h('div', { class: 'row', style: 'margin:0' },
         h('b', { text: c.title || c.chat_id }), h('span', { class: 'muted small', text: c.chat_id + (c.type ? ' · ' + ({ channel: 'канал', supergroup: c.is_forum ? 'форум' : 'группа', group: 'группа', private: 'личка' }[c.type] || c.type) : '') + (c.is_default ? ' · по умолчанию' : '') }),
         h('span', { class: 'grow' }),
-        h('button', { class: 'ghost small-btn', text: 'Сюда', title: 'Публиковать этот черновик в этот канал', onclick: () => use(c) }),
+        h('button', { class: 'ghost small-btn', text: 'Сюда', title: 'Публиковать этот черновик только в этот канал', onclick: () => use(c) }),
+        current.includes(c.chat_id) ? null : h('button', { class: 'ghost small-btn', text: '＋', title: 'Добавить к каналам этого черновика', onclick: () => addTo(c) }),
         h('button', { class: 'ghost small-btn', text: c.checked_at ? 'Проверить снова' : 'Проверить', onclick: () => check(c.chat_id) }),
         c.checked_at && !c.is_default ? h('button', { class: 'ghost small-btn', text: '✕', title: 'Убрать из списка (в Telegram ничего не меняется)', onclick: () => act(async () => { await api('DELETE', '/api/channels/' + encodeURIComponent(c.chat_id)); await loadChannels(); draw(); }) }) : null),
       rightsLine(c),

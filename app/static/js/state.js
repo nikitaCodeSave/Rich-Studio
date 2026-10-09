@@ -23,7 +23,8 @@ export const S = {
   uploads: [], posts: [], drafts: [], channels: [], topicChat: undefined,
 };
 
-export const chats = () => $('#chat').value.split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean);
+// each channel once, as the server counts them (@Chan and @chan are one channel)
+export const chats = () => { const seen = new Set(); return $('#chat').value.split(/[\s,;]+/).map((x) => x.trim()).filter((x) => x && !seen.has(x.toLowerCase()) && seen.add(x.toLowerCase())); };
 export const chat = () => chats()[0];
 // body fields for one or several channels
 // always the explicit list the confirmation showed, never "whatever the saved draft says"
