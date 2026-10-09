@@ -5,6 +5,7 @@ import base64
 import binascii
 import ipaddress
 import re
+import secrets
 import socket
 from pathlib import Path
 from urllib.parse import unquote, urljoin, urlsplit
@@ -182,7 +183,8 @@ async def _public_only(host: str, port: int) -> str | None:
                 f"url: {host} — локальный или внутренний адрес, студия туда не ходит "
                 "(свой сервер в локальной сети: MEDIA_FETCH_PRIVATE=1)"
             )
-    return addrs[0]
+    # IPv4 first: a Docker container often has no IPv6 route, while the host has both
+    return sorted(addrs, key=lambda a: ":" in a)[0]
 
 
 def _pinned(url: str, ip: str | None) -> tuple[httpx.URL, dict, dict]:
@@ -199,7 +201,7 @@ async def fetch(url: str, filename: str | None = None) -> dict:
     """Download a file by http(s) link into the uploads, so a post can use it as upload:<name>.
     Only public addresses, checked again on every redirect; written under a temporary name until complete."""
     name = free_name(filename or unquote(Path(urlsplit(url).path).name) or "file")
-    part = media_dir() / f".{name}.part"
+    part = media_dir() / f".{name}.{secrets.token_hex(4)}.part"  # two downloads of one name never share it
     size = 0
     try:
         async with (
