@@ -9,7 +9,9 @@ from .db import conn, row
 
 def list_drafts() -> list[dict]:
     with conn() as c:
-        rows = c.execute("select id, title, updated_at, post_id, chat_ids from drafts order by updated_at desc")
+        rows = c.execute(
+            "select id, title, updated_at, post_id, version, chat_ids from drafts order by updated_at desc"
+        )
         return [row(r) for r in rows]  # type: ignore[misc]
 
 

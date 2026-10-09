@@ -674,6 +674,49 @@ def test_pin_failure_is_a_warning_not_an_error(client, tg):
     assert any("закрепить" in w for w in r.json()["warnings"])
 
 
+POLL = {"question": "Во сколько эфир?", "options": ["Утром", {"text": "Вечером"}]}
+
+
+def test_poll_after_post_goes_right_after_it(client, tg):
+    post = {**BLOCKS_POST, "options": {"disable_notification": True}, "poll_after": POLL}
+    r = post_json(client, "/api/send", {"post": post}).json()
+    assert r["warnings"] == []
+    methods = [c["method"] for c in tg.calls]
+    assert methods.index("sendPoll") == methods.index("sendRichMessage") + 1
+    # the post itself goes to the Bot API without the studio's poll_after
+    assert "poll_after" not in tg.last("sendRichMessage")["body"]
+    poll = tg.last("sendPoll")["body"]
+    assert poll["question"] == "Во сколько эфир?" and poll["options"] == [{"text": "Утром"}, {"text": "Вечером"}]
+    assert poll["disable_notification"] is True and poll["chat_id"] == -1001
+    rows = client.get("/api/posts").json()
+    assert [x["kind"] for x in rows[:2]] == ["poll", "rich"] and rows[0]["status"] == "sent"
+    dry = post_json(client, "/api/send", {"post": post, "dry_run": True}).json()
+    assert "sendPoll (poll_after)" in dry["after_send"]
+
+
+def test_poll_after_post_failure_is_a_warning_and_a_row(client, tg):
+    tg.fail["sendPoll"] = "Bad Request: poll can't be sent"
+    r = post_json(client, "/api/send", {"post": {**BLOCKS_POST, "poll_after": POLL}})
+    assert r.status_code == 200 and r.json()["post"]["status"] == "sent"
+    assert any("опрос после поста" in w for w in r.json()["warnings"])
+    failed = [x for x in client.get("/api/posts").json() if x["kind"] == "poll"]
+    assert failed[0]["status"] == "failed" and "poll can't be sent" in failed[0]["error"]
+
+
+def test_poll_after_post_is_checked_before_the_post_goes(client, tg):
+    r = post_json(client, "/api/send", {"post": {**BLOCKS_POST, "poll_after": {"question": "?", "options": ["один"]}}})
+    assert r.status_code == 422 and "два варианта" in r.text
+    assert not [c for c in tg.calls if c["method"] == "sendRichMessage"]
+
+
+def test_scheduled_post_sends_its_poll_after(client, tg, monkeypatch):
+    at = int(time.time()) + 600
+    post_json(client, "/api/schedule", {"post": {**BLOCKS_POST, "poll_after": POLL}, "at": at})
+    monkeypatch.setattr(time, "time", lambda: at + 1)
+    _run(scheduler.run_due_posts())
+    assert [c["method"] for c in tg.calls][-2:] == ["sendRichMessage", "sendPoll"]
+
+
 def test_send_to_several_channels(client, tg):
     r = post_json(client, "/api/send", {"post": BLOCKS_POST, "chat_ids": ["@a", "@b", "@a", "-1002"]}).json()
     chats = [c["body"]["chat_id"] for c in tg.calls if c["method"] == "sendRichMessage"]
@@ -728,6 +771,11 @@ def test_replace_only_buttons(client, tg):
     assert not [c for c in tg.calls if c["method"] == "editMessageText"]
     post_json(client, f"/api/posts/{pid}/buttons", {"reply_markup": None})
     assert "reply_markup" not in tg.last("editMessageReplyMarkup")["body"]
+    # the same link rule as a full send: an empty link never reaches Telegram
+    calls = len(tg.calls)
+    bad = {"inline_keyboard": [[{"text": "Сайт", "url": ""}]]}
+    r = client.post(f"/api/posts/{pid}/buttons", json={"reply_markup": bad})
+    assert r.status_code == 422 and "другой тип" in str(r.json()["detail"]) and len(tg.calls) == calls
 
 
 def test_callback_click_is_answered_and_counted(client, tg):
@@ -963,3 +1011,46 @@ def test_spec_refresh_on_demand_reports_gaps_and_failures(client, monkeypatch):
     assert r["updated"] is False and "offline" in r["error"]
     check = client.get("/api/spec").json()["last_check"]
     assert check["at"] > 0 and "offline" in check["error"]
+
+
+def test_button_without_an_action_is_an_error(client):
+    post = {**BLOCKS_POST, "reply_markup": {"inline_keyboard": [[{"text": "Пусто", "style": "primary"}]]}}
+    r = post_json(client, "/api/validate", post).json()
+    assert not r["ok"] and any("не задано, что она делает" in e for e in r["errors"])
+    # a field the studio does not know yet counts as the action: new Bot API buttons pass
+    post["reply_markup"]["inline_keyboard"][0][0]["future_action"] = {"x": 1}
+    assert not any("что она делает" in e for e in post_json(client, "/api/validate", post).json()["errors"])
+
+
+def test_poll_after_post_is_checked_like_sendpoll(client, tg):
+    def refused(poll, **kw):
+        r = post_json(client, "/api/send", {"post": {**BLOCKS_POST, "poll_after": poll}, **kw})
+        return r.status_code, r.text
+
+    status, text = refused({**POLL, "type": "quiz"})
+    assert status == 422 and "правильный ответ" in text
+    status, text = refused({**POLL, "is_anonymous": "да"})
+    assert status == 422 and "is_anonymous" in text
+    # a topic of the poll is the topic of the post: one chat only
+    status, text = refused({**POLL, "message_thread_id": 5}, chat_ids=["@a", "@b"], dry_run=True)
+    assert status == 400 and "тема форума" in text
+    assert not [c for c in tg.calls if c["method"].startswith("send")]
+
+
+def test_a_poll_that_may_have_gone_stays_listed(client, tg, monkeypatch):
+    import telegram
+
+    real = telegram.call
+
+    async def flaky(method, params, *a, **kw):
+        if method == "sendPoll":
+            raise TimeoutError("read timeout")
+        return await real(method, params, *a, **kw)
+
+    monkeypatch.setattr(telegram, "call", flaky)
+    did = post_json(client, "/api/drafts", {"title": "С опросом", "post": BLOCKS_POST}).json()["id"]
+    post = {**BLOCKS_POST, "poll_after": POLL}
+    for _ in range(2):
+        assert post_json(client, "/api/send", {"post": post, "draft_id": did}).status_code == 200
+    gone = [x for x in client.get("/api/posts").json() if x["kind"] == "poll"]
+    assert len(gone) == 2 and all("Опрос мог уйти" in x["error"] for x in gone)

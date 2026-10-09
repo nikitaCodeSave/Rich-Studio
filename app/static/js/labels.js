@@ -9,6 +9,13 @@ export const BLOCK_LABELS = {
   animation: 'GIF', audio: 'Аудио', document: 'Файл', photo: 'Фото', video: 'Видео',
   voice_note: 'Голосовое', thinking: 'Думаю… (только личка)',
 };
+// groups of the block palette; blocks the spec adds later land in «Другое»
+export const BLOCK_GROUPS = {
+  Текст: ['paragraph', 'heading', 'list', 'blockquote', 'expandable_blockquote', 'pullquote', 'pre', 'mathematical_expression', 'footer'],
+  Медиа: ['photo', 'video', 'animation', 'collage', 'slideshow', 'audio', 'voice_note', 'document', 'map'],
+  Структура: ['table', 'details', 'divider', 'anchor'],
+  Кнопки: ['buttons'],
+};
 export const RT_LABELS = {
   bold: 'Жирный', italic: 'Курсив', underline: 'Подчёркнутый', strikethrough: 'Зачёркнутый', spoiler: 'Спойлер',
   date_time: 'Дата и время', text_mention: 'Упоминание по id', subscript: 'Нижний индекс', superscript: 'Верхний индекс',

@@ -17,8 +17,8 @@ import './components/rs-preview.js';
 import './components/rs-edit-bar.js';
 import './components/rs-health.js';
 import './components/rs-parse-check.js';
-import { leaveEditing, reschedulePost, showHistory, updatePost } from './editing.js';
-import { loadDrafts, newDraft, openDraft, saveDraft } from './drafts.js';
+import { editPost, leaveEditing, reschedulePost, showHistory, updatePost } from './editing.js';
+import { loadDrafts, newDraft, openDraft, renderDrafts, saveDraft, watchDrafts } from './drafts.js';
 import { autosave, buildPost, changed, loadPost, parsedToBlocks, parseKey, renderPreview, setMode } from './editor.js';
 import { watchHealth } from './health.js';
 import { canRedo, canUndo, redo, undo } from './history.js';
@@ -27,7 +27,8 @@ import { addMediaEntry, loadUploads, upload } from './media.js';
 import { showPoll } from './poll.js';
 import { loadPosts, replacePost } from './posts.js';
 import { refreshSpec, showSpec, updateBadge } from './spec-dialog.js';
-import { chat, dark, dirty, editing, parsed, S, saveState, showParsed, target, targetLabel } from './state.js';
+import { chat, chatLabel, chats, dark, dirty, editing, parsed, S, saveState, showParsed, target, targetLabel } from './state.js';
+import { whenPicker } from './when.js';
 
 const isTextField = (el) => el instanceof HTMLElement && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName));
 
@@ -37,9 +38,44 @@ function bindEffects() {
   effect(() => { $('#btn-undo').disabled = !canUndo.value; $('#btn-redo').disabled = !canRedo.value; });
   effect(() => { store.set('dark', dark.value); parsed.value; showParsed.value; renderPreview(); });
   effect(() => { /** @type {any} */ ($('#edit-bar')).post = editing.value; });
+  // «Кнопки» in «Посты» shows only for the post being edited
+  let wasEditing = editing.peek()?.id;
+  effect(() => { const id = editing.value?.id; if (id !== wasEditing) { wasEditing = id; loadPosts().catch(() => {}); } });
+}
+
+// «Опубликовать ▾»: Отложить, Опрос, Заменить пост; closes on a choice, a click elsewhere or Escape
+function bindPublishMenu() {
+  const menu = $('#publish-menu');
+  const more = $('#btn-more');
+  const show = (on) => { menu.hidden = !on; more.setAttribute('aria-expanded', String(on)); if (on) /** @type {HTMLElement} */ (menu.querySelector('button')).focus(); };
+  more.onclick = (e) => { e.stopPropagation(); show(menu.hidden); };
+  menu.addEventListener('click', () => show(false)); // the item's own handler runs first
+  document.addEventListener('click', (e) => { if (!menu.hidden && !$('#publish-split').contains(/** @type {Node} */ (e.target))) show(false); });
+  menu.addEventListener('keydown', (e) => {
+    const items = [...menu.querySelectorAll('button')];
+    const i = items.indexOf(/** @type {HTMLButtonElement} */ (document.activeElement));
+    if (e.key === 'Escape') { show(false); more.focus(); }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); items[(i + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length].focus(); }
+  });
+}
+
+// phone: «Редактор» and «Предпросмотр» are tabs (the layout is one column there)
+function bindViewTabs() {
+  const tabs = $('#view-tabs');
+  tabs.onclick = (e) => {
+    const b = /** @type {HTMLElement} */ (e.target).closest('button');
+    if (!b) return;
+    tabs.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b));
+    document.body.classList.toggle('view-preview', b.dataset.view === 'preview');
+    if (b.dataset.view === 'preview') renderPreview();
+    scrollTo(0, 0);
+  };
 }
 
 function bindActions() {
+  bindPublishMenu();
+  bindViewTabs();
+  $('#check-pill').onclick = () => $('#validation').scrollIntoView({ block: 'center', behavior: 'smooth' });
   $('#btn-save').onclick = () => act(() => saveDraft());
   $('#btn-undo').onclick = undo;
   $('#btn-redo').onclick = redo;
@@ -85,14 +121,16 @@ function bindActions() {
     loadPosts();
   };
   $('#btn-schedule').onclick = () => {
-    const d = new Date(Date.now() + 3600e3 - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-    const inp = h('input', { type: 'datetime-local', value: d });
+    const pick = whenPicker(Date.now() + 3600e3);
     const e = editing.value;
     openDialog([h('h3', { text: 'Отложить публикацию' }),
+      h('p', { class: 'small' }, 'Куда: ', h('b', { text: targetLabel() || 'канал не указан' })),
       ...(e ? [h('p', { class: 'err small', text: `Это отложит НОВЫЙ пост. Чтобы изменить пост ${e.message_id ? '#' + e.message_id : ''} в ${e.chat_id}, нажмите «Обновить пост» над редактором.` })] : []),
-      h('p', { class: 'muted small', text: 'Пост отправит сервис в указанное время, поэтому контейнер должен работать в этот момент.' }), inp],
-      [h('button', { class: 'ghost', value: 'cancel', text: 'Отмена' }), h('button', { type: 'button', text: 'Запланировать', onclick: async () => {
-        const at = Math.floor(new Date(inp.value).getTime() / 1000);
+      pick.el,
+      h('p', { class: 'muted small', text: 'Пост отправит сервис в указанное время, поэтому контейнер должен работать в этот момент.' })],
+      [h('button', { class: 'ghost', value: 'cancel', text: 'Отмена' }), h('button', { type: 'button', class: 'primary', text: 'Запланировать', onclick: async () => {
+        const at = pick.value();
+        if (!at || at * 1000 < Date.now()) { toast('Выберите время в будущем', 'err'); return; }
         closeDialog();
         await act(async () => { if (dirty.value || !S.draftId) await saveDraft(true); return api('POST', '/api/schedule', { post: buildPost(), ...target(), draft_id: S.draftId, at, as_new: true }); }, 'Запланировано на ' + new Date(at * 1000).toLocaleString('ru-RU'));
         loadPosts();
@@ -102,13 +140,16 @@ function bindActions() {
     await loadPosts();
     const sent = S.posts.filter((p) => ['sent', 'scheduled'].includes(p.status));
     const mid = h('input', { type: 'number', placeholder: 'message_id' });
+    const where = chats();
     openDialog([h('h3', { text: 'Заменить опубликованный пост' }),
-      sent.length ? h('ul', { class: 'list' }, sent.slice(0, 15).map((p) => h('li', { onclick: () => { closeDialog(); replacePost(p); } }, h('span', { text: `${p.chat_id} #${p.message_id || '—'} · ${STATUS_LABELS[p.status] || p.status}` }), h('span', { class: 'meta', text: new Date((p.sent_at || p.scheduled_at || p.created_at) * 1000).toLocaleString('ru-RU') })))) : h('p', { class: 'muted', text: 'Через студию ещё ничего не публиковалось.' }),
-      h('p', { class: 'muted small', text: 'Или любой пост бота по message_id (видно в ссылке на пост: t.me/канал/ID):' }), mid],
+      sent.length ? h('ul', { class: 'list' }, sent.slice(0, 15).map((p) => h('li', { onclick: () => { closeDialog(); replacePost(p); } }, h('span', { text: `${chatLabel(p.chat_id)} #${p.message_id || '—'} · ${STATUS_LABELS[p.status] || p.status}` }), h('span', { class: 'meta', text: new Date((p.sent_at || p.scheduled_at || p.created_at) * 1000).toLocaleString('ru-RU') })))) : h('p', { class: 'muted', text: 'Через студию ещё ничего не публиковалось.' }),
+      h('p', { class: 'muted small', text: where.length > 1
+        ? 'Пост по message_id ищется в одном канале, а у черновика их ' + where.length + ': оставьте один в окне «Каналы».'
+        : 'Или любой пост бота в ' + chatLabel(where[0] || S.config.default_chat || '') + ' по message_id (видно в ссылке на пост: t.me/канал/ID):' }), where.length > 1 ? null : mid],
       [h('button', { class: 'ghost', value: 'cancel', text: 'Отмена' }), h('button', { type: 'button', text: 'Заменить по id', onclick: async () => {
-        const id = parseInt(mid.value, 10); if (!id) return;
+        const id = parseInt(mid.value, 10); if (!id || where.length > 1) return;
         closeDialog();
-        await act(() => api('POST', '/api/edit', { post: buildPost(), chat_id: chat(), message_id: id }), 'Пост #' + id + ' обновлён');
+        await act(() => api('POST', '/api/edit', { post: buildPost(), chat_id: where[0] || chat(), message_id: id }), 'Пост #' + id + ' обновлён');
       } })]);
   };
 
@@ -163,11 +204,29 @@ async function boot() {
   snippetBar('html'); snippetBar('markdown'); bindCode('html'); bindCode('markdown');
   bindEffects();
   bindActions();
+  document.addEventListener('rs-uploads-changed', () => loadUploads().catch(() => {}));
+  document.addEventListener('rs-posts-changed', () => renderDrafts());
   watchHealth();
   await loadChannels().catch(() => {}); // the lists below name channels by title
   await Promise.all([loadUploads().catch(() => {}), loadPosts().catch(() => {})]);
-  const last = store.get('lastDraft', null);
   await loadDrafts();
+  await openFromAddress();
+  setInterval(() => { watchDrafts().catch(() => {}); }, 4000);
+}
+
+// /?draft=<id> opens that draft, /?post=<id> opens a published post for editing (links agents give);
+// otherwise the draft open last time
+async function openFromAddress() {
+  const q = new URLSearchParams(location.search);
+  const draft = q.get('draft');
+  const post = q.get('post');
+  if (draft && S.drafts.some((d) => d.id === draft)) { await openDraft(draft); return; }
+  if (post) {
+    const p = await api('GET', '/api/posts/' + encodeURIComponent(post)).catch(() => null);
+    if (p) { await editPost(p).catch((e) => toast(e.message, 'err')); return; }
+  }
+  if (draft || post) toast((draft ? 'Черновика ' + draft : 'Поста ' + post) + ' нет: открыт последний черновик', 'err');
+  const last = store.get('lastDraft', null);
   if (last && S.drafts.some((d) => d.id === last)) await openDraft(last); else newDraft();
 }
 

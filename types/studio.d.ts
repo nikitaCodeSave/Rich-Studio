@@ -77,6 +77,8 @@ interface DraftRow {
   updated_at: number;
   /** the post this draft edits, if any */
   post_id: string | null;
+  /** grows with every save: the editor notices a draft changed elsewhere */
+  version: number;
   /** the channels the draft is meant for; null: the default channel */
   chat_ids: string[] | null;
 }
@@ -177,7 +179,8 @@ interface EditorState {
   flags: Json;
   keyboard: ButtonRow[];
   options: Json;
-  extra: { pin: boolean; comment: string; commentObj: Json | null; callbacks: Record<string, string | Json> };
+  /** poll: sendPoll fields of the poll sent right after the post (post.poll_after) */
+  extra: { pin: boolean; comment: string; commentObj: Json | null; callbacks: Record<string, string | Json>; poll: Json | null };
   updates: UpdatesStatus | null;
   uploads: Upload[];
   posts: PostRow[];

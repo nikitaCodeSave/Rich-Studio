@@ -185,7 +185,8 @@ check('Pin, first comment and callback answer work end to end',
   commentShown === 1 && !sentRich.body.pin && !sentRich.body.comment && !!pinned && answer && answer.body.text === 'Спасибо, учтено' && /нажатия: like 1/.test(statsText) && /ждёт пересылки/.test(statsText),
   JSON.stringify({ commentShown, pinned: !!pinned, answer: answer && answer.body, statsText }));
 
-// 11. poll dialog
+// 11. poll dialog (in the «Опубликовать ▾» menu)
+await page.click('#btn-more');
 await page.click('#btn-poll');
 await page.waitForSelector('dialog[open]');
 const dlg = page.locator('dialog[open]');
@@ -325,9 +326,11 @@ check('Header fits one row at 1440px', Math.abs(header.pub - header.brand) < 12 
   const onDialog = (d) => { prompts++; d.dismiss(); };
   page.on('dialog', onDialog);
   await page.route('**/api/health', async (route) => {
-    const r = await (await route.fetch()).json();
+    const res = await route.fetch().catch(() => null);
+    if (!res) return;
+    const r = await res.json();
     r.status = 'warn'; r.problems = ['posts: 1 постов требуют внимания', 'backup: свежей копии нет'];
-    route.fulfill({ json: r });
+    await route.fulfill({ json: r }).catch(() => {}); // a poll still in flight when the test unroutes
   });
   await poll(); await settle('warn');
   const warn = await read();
@@ -397,6 +400,8 @@ check('Header fits one row at 1440px', Math.abs(header.pub - header.brand) < 12 
 
 // 15b. while a post is open for editing, «Опубликовать» posts a new copy on purpose (as_new), never a 409
 {
+  // an error toast of an earlier check (the spec refresh, 9 s) must not count against this one
+  await page.evaluate(() => document.querySelector('#toasts').replaceChildren());
   const before = (await mockLog()).filter((c) => c.method === 'sendRichMessage').length;
   await page.click('#btn-publish');
   await page.waitForTimeout(1200);
@@ -492,6 +497,33 @@ check('Header fits one row at 1440px', Math.abs(header.pub - header.brand) < 12 
     JSON.stringify(rows).slice(0, 300));
 }
 
+// 12. agent link: /?draft=<id> opens that draft; a newer version from an agent shows up by itself or asks
+{
+  const api = (method, path, body) => page.evaluate(([m, p, b]) => fetch(p, { method: m, headers: { 'Content-Type': 'application/json' }, body: b ? JSON.stringify(b) : undefined }).then((r) => r.json()), [method, path, body]);
+  const text = (t) => ({ rich_message: { blocks: [{ type: 'paragraph', text: t }] } });
+  const d = await api('POST', '/api/drafts', { title: 'От агента', post: text('Первая версия') });
+  await page.goto(`${BASE}/?draft=${d.id}`);
+  await page.waitForSelector('.block');
+  await page.waitForTimeout(600);
+  const opened = await page.inputValue('#title');
+  const addr = new URL(page.url()).search;
+  const v2 = await api('PUT', '/api/drafts/' + d.id, { title: 'От агента 2', post: text('Вторая версия'), version: d.version });
+  await page.waitForTimeout(5000); // the editor looks every 4 s
+  const reloaded = await page.inputValue('#title');
+  const undoBack = await page.locator('#btn-undo').isEnabled();
+  const reloadedText = await page.evaluate(() => document.querySelector('#preview').shadowRoot.textContent);
+  await page.fill('#title', 'Моя правка');
+  await api('PUT', '/api/drafts/' + d.id, { title: 'От агента 3', post: text('Третья версия'), version: v2.version });
+  await page.waitForSelector('dialog[open]', { timeout: 8000 }).catch(() => {});
+  const asked = (await page.locator('dialog[open]').textContent().catch(() => '')) || '';
+  await page.locator('dialog[open] button', { hasText: 'Открыть их версию' }).click().catch(() => {});
+  await page.waitForTimeout(600);
+  const theirs = await page.inputValue('#title');
+  check('A draft link opens the draft; an agent\'s new version reloads it or asks when there are unsaved edits',
+    opened === 'От агента' && addr === '?draft=' + d.id && reloaded === 'От агента 2' && /Вторая версия/.test(reloadedText) && undoBack && /Черновик изменился/.test(asked) && theirs === 'От агента 3',
+    JSON.stringify({ opened, addr, reloaded, undoBack, asked: asked.slice(0, 80), theirs }));
+}
+
 // 10. channels: a checked channel shows its title, the draft remembers its channel
 {
   await page.click('#btn-new');
@@ -558,6 +590,196 @@ check('Header fits one row at 1440px', Math.abs(header.pub - header.brand) < 12 
   check('A topic is dropped with another channel; the old remembered channel moves into the draft',
     kept.message_thread_id === 7 && dropped.message_thread_id === undefined && shown === '@legacy_chan' && JSON.stringify(migrated.chat_ids) === '["@legacy_chan"]' && leftover === null,
     JSON.stringify({ kept, dropped, shown, migrated: migrated.chat_ids, leftover }));
+}
+
+// 14. a button's kind is a switch (link / answer / copy); «Опубликовать ▾» holds the rarer sends; a phone has tabs
+{
+  await page.click('#btn-new');
+  await page.waitForTimeout(300);
+  await page.fill('#title', 'Кнопки по типам');
+  await page.evaluate(() => { /** @type {HTMLDetailsElement} */ (document.getElementById('panel-kb')).open = true; });
+  await page.locator('#kb button', { hasText: 'ряд кнопок' }).click();
+  await page.locator('#kb button', { hasText: 'в ряд' }).click();
+  await page.locator('#kb button', { hasText: 'в ряд' }).click();
+  const cards = page.locator('#kb .kb-btn');
+  await cards.nth(0).locator('input[type=url]').fill('https://t.me/telegram');
+  await cards.nth(1).locator('select[aria-label="Что делает кнопка"]').selectOption('callback');
+  await cards.nth(1).locator('input[type=text]').first().fill('Нравится');
+  await cards.nth(1).locator('.cb-answer input[type=text]').fill('Спасибо!');
+  await cards.nth(2).locator('select[aria-label="Что делает кнопка"]').selectOption('copy');
+  await cards.nth(2).locator('input[placeholder="Промокод, адрес, ссылка"]').fill('PROMO2026');
+  await page.click('#btn-save');
+  await page.waitForTimeout(500);
+  const id = await page.evaluate(() => JSON.parse(localStorage.getItem('rs.lastDraft') || 'null'));
+  const d = await page.evaluate((x) => fetch('/api/drafts/' + x).then((r) => r.json()), id);
+  const [b1, b2, b3] = d.payload.reply_markup.inline_keyboard[0];
+  const fieldsShown = await cards.nth(1).textContent();
+  await page.click('#btn-more');
+  const menuOpen = await page.locator('#publish-menu').isVisible();
+  const items = await page.locator('#publish-menu button').allTextContents();
+  await page.keyboard.press('Escape');
+  const menuClosed = await page.locator('#publish-menu').isHidden();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(200);
+  const editorFirst = (await page.locator('.editor').isVisible()) && (await page.locator('.preview-col').isHidden());
+  await page.click('#view-tabs [data-view=preview]');
+  const previewTab = (await page.locator('.editor').isHidden()) && (await page.locator('#preview').isVisible());
+  await page.click('#view-tabs [data-view=edit]');
+  await page.screenshot({ path: 'test-results/ui/buttons-390.png', fullPage: true }).catch(() => {});
+  await page.setViewportSize({ width: 1400, height: 900 });
+  check('Button kinds are a switch, «Опубликовать ▾» menu, phone tabs',
+    b1.url === 'https://t.me/telegram' && b2.text === 'Нравится' && /^b\w+$/.test(b2.callback_data) && b2.url === undefined && d.payload.callbacks[b2.callback_data] === 'Спасибо!'
+      && JSON.stringify(b3.copy_text) === '{"text":"PROMO2026"}' && !/callback_data/.test(fieldsShown)
+      && menuOpen && JSON.stringify(items) === '["Отложить…","Опрос…","Заменить пост…"]' && menuClosed && editorFirst && previewTab,
+    JSON.stringify({ b1, b2, b3, callbacks: d.payload.callbacks, menuOpen, items, menuClosed, editorFirst, previewTab }));
+}
+
+// 18. typing comfort: paste keeps formatting, Ctrl+K edits a link, the table is a grid, checks point at the block
+{
+  await page.click('#btn-new');
+  await page.waitForTimeout(300);
+  await applyJson({ rich_message: { blocks: [{ type: 'paragraph', text: 'x' }, { type: 'details', summary: '', blocks: [{ type: 'paragraph', text: 'внутри' }] }, { type: 'table', cells: [[{ text: 'A', align: 'left', valign: 'top' }, { text: 'B', align: 'left', valign: 'top' }]] }] } });
+  await page.click('#mode-tabs [data-mode=blocks]');
+  await page.waitForTimeout(300);
+  const paste = (sel, data, file) => page.evaluate(([s, d, f]) => {
+    const ed = /** @type {HTMLElement} */ (document.querySelector(s));
+    ed.focus();
+    const r = document.createRange(); r.selectNodeContents(ed); getSelection()?.removeAllRanges(); getSelection()?.addRange(r);
+    const dt = new DataTransfer();
+    for (const [k, v] of Object.entries(d)) dt.setData(k, v);
+    if (f) dt.items.add(new File([Uint8Array.from(atob(f), (c) => c.charCodeAt(0))], 'image.png', { type: 'image/png' }));
+    ed.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+  }, [sel, data, file]);
+  const para = '#pane-blocks > .blocks > .block:nth-child(1) .rte';
+  // Google Docs wraps everything in <b style="font-weight:normal">; pictures, scripts, javascript: and host-less links are dropped
+  await paste(para, { 'text/plain': 'Жирный и курсив\nссылка', 'text/html': '<meta charset="utf-8"><b style="font-weight:normal" id="docs-internal-guid-1"><p><span style="font-weight:700">Жирный</span><span> и </span><span style="font-style:italic">курсив</span><a href="javascript:alert(2)">!</a><a href="https://">?</a></p><p><a href="https://t.me/x"><span>ссылка</span></a><img src="https://example.com/a.png"><script>alert(1)</script></p></b>' });
+  await page.waitForTimeout(400);
+  await showJson();
+  const pasted = (await state()).rich_message.blocks[0].text;
+  await page.click('#mode-tabs [data-mode=blocks]');
+  await page.waitForTimeout(200);
+  // Ctrl+K inside a link opens it for editing
+  await page.evaluate((s) => { const a = document.querySelector(s + ' a'); const r = document.createRange(); r.setStart(a.firstChild, 2); r.collapse(true); a.closest('.rte').focus(); getSelection()?.removeAllRanges(); getSelection()?.addRange(r); }, para);
+  await page.keyboard.press('Control+k');
+  const dlg = page.locator('dialog[open]');
+  const oldUrl = await dlg.locator('input[type=url]').inputValue();
+  const canRemove = await dlg.locator('button', { hasText: 'Убрать ссылку' }).isVisible();
+  await dlg.locator('input[type=url]').fill('https://t.me/y');
+  await dlg.locator('button', { hasText: 'Сохранить' }).click();
+  // a new link at the caret: "https://" alone is refused, like Telegram does
+  await page.evaluate((s) => { const ed = document.querySelector(s); ed.focus(); const r = document.createRange(); r.selectNodeContents(ed); r.collapse(false); getSelection()?.removeAllRanges(); getSelection()?.addRange(r); }, para);
+  await page.keyboard.press('Control+k');
+  await dlg.locator('input[aria-label="Текст ссылки"]').fill(' тут');
+  await dlg.locator('input[type=url]').fill('https://');
+  await dlg.locator('button', { hasText: 'Вставить' }).click();
+  const refused = await dlg.locator('.err').textContent();
+  await dlg.locator('input[type=url]').fill('https://t.me/z');
+  await dlg.locator('button', { hasText: 'Вставить' }).click();
+  await page.waitForTimeout(400);
+  await showJson();
+  const linked = (await state()).rich_message.blocks[0].text;
+  await page.click('#mode-tabs [data-mode=blocks]');
+  await page.waitForTimeout(200);
+  // the table: plain cells, the bar acts on the cell in focus, a spreadsheet pastes into the grid
+  const tableBlock = '#pane-blocks > .blocks > .block:nth-child(3)';
+  const perCellControls = await page.locator(tableBlock + ' td select, ' + tableBlock + ' td input').count();
+  await page.locator(tableBlock + ' td .rte').first().click();
+  await page.locator(tableBlock + ' .cell-bar button', { hasText: 'Заголовок' }).click();
+  await paste(tableBlock + ' tr:nth-child(1) td:nth-child(2) .rte', { 'text/plain': 'Тема\tВедущий\r\nОбзор\tНикита\r\n' });
+  await page.waitForTimeout(400);
+  await showJson();
+  const cells = (await state()).rich_message.blocks[2].cells;
+  await page.click('#mode-tabs [data-mode=blocks]');
+  await page.waitForTimeout(700);
+  // a check names the block in words and jumps to the field
+  const warn = page.locator('#validation li button', { hasText: 'Раскрывашка №2 › Заголовок' });
+  const warnText = await warn.textContent().catch(() => '');
+  await warn.click().catch(() => {});
+  await page.waitForTimeout(200);
+  const flashed = await page.evaluate(() => !!document.querySelector('#pane-blocks [data-field=summary].flash'));
+  const pill = await page.locator('#check-pill').textContent();
+  // a picture pasted into a text field becomes a photo block after it
+  await paste(para, {}, 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==');
+  await page.waitForTimeout(800);
+  await showJson();
+  const afterImg = (await state()).rich_message.blocks;
+  await page.click('#mode-tabs [data-mode=blocks]');
+  await page.waitForTimeout(200);
+  // the palette is grouped and searchable
+  await page.locator('#pane-blocks > .blocks > .add-block').click();
+  const groups = await page.locator('dialog[open] .palette-group h4').allTextContents();
+  await page.locator('dialog[open] input[type=search]').fill('табл');
+  const found = await page.locator('dialog[open] .palette button:visible').allTextContents();
+  await page.locator('dialog[open] button', { hasText: 'Отмена' }).click();
+  await page.screenshot({ path: 'test-results/ui/typing-1400.png', fullPage: true }).catch(() => {});
+  const json = (x) => JSON.stringify(x);
+  check('Paste keeps formatting, Ctrl+K edits links, table grid with spreadsheet paste, checks point at the block',
+    json(pasted) === json([{ type: 'bold', text: 'Жирный' }, ' и ', { type: 'italic', text: 'курсив' }, '!?\n', { type: 'url', text: 'ссылка', url: 'https://t.me/x' }])
+      && oldUrl === 'https://t.me/x' && canRemove && /нет сайта|не похоже/.test(refused || '')
+      && json(linked.slice(-2)) === json([{ type: 'url', text: 'ссылка', url: 'https://t.me/y' }, { type: 'url', text: ' тут', url: 'https://t.me/z' }])
+      && perCellControls === 0 && cells[0][0].is_header === true && cells.length === 2 && cells[0].length === 3 && cells[0][1].text === 'Тема' && cells[1][2].text === 'Никита'
+      && /пустой текст/.test(warnText || '') && flashed && /символ/.test(pill || '')
+      && afterImg[1]?.type === 'photo' && /^upload:paste-/.test(afterImg[1]?.photo?.media || '')
+      && groups.slice(0, 4).join() === 'Текст,Медиа,Структура,Кнопки' && found.length === 1 && /Таблица/.test(found[0]),
+    json({ pasted, oldUrl, canRemove, refused, linked, perCellControls, cells, warnText, flashed, pill, img: afterImg[1], groups, found }));
+}
+
+// 19. a poll goes right after the post from the draft; history shows what changed; quick times for scheduling
+{
+  await page.click('#btn-new');
+  await page.waitForTimeout(300);
+  await page.fill('#title', 'Анонс с опросом');
+  await setChat('@poll_after');
+  await applyJson({ rich_message: { markdown: 'Эфир в четверг\n\nТемы: Bot API' } });
+  await page.evaluate(() => { /** @type {HTMLDetailsElement} */ (document.getElementById('panel-after')).open = true; });
+  await page.check('#poll-after-on');
+  await page.fill('#after input[aria-label="Вопрос опроса"]', 'Придёте?');
+  await page.fill('#after input[aria-label="Вариант 1"]', 'Да');
+  await page.fill('#after input[aria-label="Вариант 2"]', 'Нет');
+  await page.waitForTimeout(400);
+  const pollPreview = await page.evaluate(() => document.querySelector('#preview').shadowRoot.querySelector('.tg-poll')?.textContent || '');
+  const before = (await mockLog()).length;
+  await page.click('#btn-publish');
+  await page.waitForTimeout(900);
+  const sends = (await mockLog()).slice(before).map((c) => c.method).filter((m) => /^send/.test(m));
+  const poll = (await mockLog()).filter((c) => c.method === 'sendPoll').pop()?.body;
+  // «Править» keeps the draft's name; the update shows up in the history as lines removed and added
+  await page.click('#side-tabs [data-tab=posts]');
+  await page.locator('#posts li', { hasText: '@poll_after' }).filter({ hasText: 'Эфир в четверг' }).getByRole('button', { name: 'Править' }).click();
+  await page.waitForTimeout(500);
+  const title = await page.inputValue('#title');
+  await applyJson({ rich_message: { markdown: 'Эфир в пятницу\n\nТемы: Bot API' } });
+  await page.click('#edit-bar >> text=Обновить пост');
+  await page.waitForTimeout(600);
+  await page.click('#edit-bar >> text=История');
+  await page.waitForSelector('dialog[open] >> text=История поста');
+  const added = await page.locator('dialog[open] .diff .add').allTextContents();
+  const removed = await page.locator('dialog[open] .diff .del').allTextContents();
+  await page.locator('dialog[open] li').first().getByRole('button', { name: 'Показать' }).click();
+  const shown = await page.evaluate(() => document.querySelector('dialog[open] rs-preview')?.shadowRoot?.textContent || '');
+  await page.screenshot({ path: 'test-results/ui/history-1400.png' }).catch(() => {});
+  await page.keyboard.press('Escape');
+  await page.click('#side-tabs [data-tab=drafts]');
+  const badge = await page.locator('#drafts li', { hasText: /^Анонс с опросом/ }).first().locator('.badge').textContent().catch(() => '');
+  // the schedule dialog: quick choices fill the time, the time zone and the channel are named
+  await page.click('#btn-new');
+  await page.waitForTimeout(300);
+  await setChat('@later');
+  await page.click('#btn-more');
+  await page.click('#btn-schedule');
+  const dlg = page.locator('dialog[open]');
+  const presetsShown = await dlg.locator('.presets button').allTextContents();
+  await dlg.locator('.presets button', { hasText: 'Завтра в 9:00' }).click();
+  const picked = await dlg.locator('input[type=datetime-local]').inputValue();
+  const dlgText = await dlg.textContent();
+  await page.screenshot({ path: 'test-results/ui/schedule-1400.png' }).catch(() => {});
+  await page.keyboard.press('Escape');
+  check('Poll after the post, history with changes, title kept, schedule presets',
+    /Придёте\?/.test(pollPreview) && sends.join() === 'sendRichMessage,sendPoll' && poll?.question === 'Придёте?'
+      && title === 'Правка: Анонс с опросом' && added.some((x) => /пятницу/.test(x)) && removed.some((x) => /четверг/.test(x)) && /пятницу/.test(shown)
+      && badge === 'опубликован'
+      && presetsShown.includes('Завтра в 9:00') && /T09:00$/.test(picked) && /UTC[+−]\d/.test(dlgText || '') && /@later/.test(dlgText || ''),
+    JSON.stringify({ pollPreview, sends, poll, title, added, removed, shown: shown.slice(0, 80), badge, presetsShown, picked, dlg: (dlgText || '').slice(0, 200) }));
 }
 
 check('No CSP violations or JS errors in the editor', errors.length === 0 && csp.length === 0, [...errors, ...csp].join(' | '));

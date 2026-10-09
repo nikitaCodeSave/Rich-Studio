@@ -48,7 +48,7 @@ async def _send_claimed(queued: dict, now: float) -> None:
         p["id"], status="sent", message_id=res["message_id"], sent_at=int(time.time()), error=None, retry_at=None
     )
     try:
-        warnings = await publisher.after_send(p["id"], p["payload"], res)
+        warnings = await publisher.after_send(p["id"], p["payload"], res, p.get("actor") or "api")
     except Exception as e:
         log.exception("after-send steps failed for %s", p["id"])
         warnings = [f"{type(e).__name__}: {e}"]

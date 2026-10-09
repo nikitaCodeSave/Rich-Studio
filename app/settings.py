@@ -24,6 +24,10 @@ class Settings:
     preview_chat: str = ""
     api_key: str = ""
     api_base: str = "https://api.telegram.org"
+    # where the person opens the studio: agents get links to drafts and previews from it
+    public_url: str = "http://localhost:8080"
+    # upload_media / POST /api/media/fetch may download from local and private addresses (own servers, tests)
+    media_fetch_private: bool = False
     # host names the service answers to (DNS rebinding guard)
     allowed_hosts: set[str] = field(default_factory=lambda: {"localhost", "127.0.0.1", "[::1]", "::1"})
     # getUpdates loop: button clicks, first comments, reactions, poll results
@@ -76,12 +80,14 @@ class Settings:
         s.preview_chat = env.get("TG_PREVIEW_CHAT", "").strip()
         s.api_key = env.get("STUDIO_API_KEY", "").strip()
         s.api_base = env.get("TG_API_BASE", s.api_base).rstrip("/")
+        s.public_url = env.get("STUDIO_URL", s.public_url).strip().rstrip("/") or s.public_url
         s.allowed_hosts |= {h.strip().lower() for h in env.get("ALLOWED_HOSTS", "").split(",") if h.strip()}
         s.updates_on = _flag(env, "TG_UPDATES")
         s.background = _flag(env, "STUDIO_BACKGROUND")
         s.spec_url = env.get("SPEC_URL", s.spec_url)
         s.spec_refresh_hours = float(env.get("SPEC_REFRESH_HOURS", "12"))
         own_server = s.api_base != cls.api_base
+        s.media_fetch_private = env.get("MEDIA_FETCH_PRIVATE", "").strip().lower() in ("1", "true", "yes", "on")
         s.max_upload_mb = float(env.get("MAX_UPLOAD_MB", "2000" if own_server else "50"))
         s.mcp_publish = _flag(env, "MCP_PUBLISH")
         s.schedule_late_min = float(env.get("SCHEDULE_LATE_MIN", "60"))

@@ -30,13 +30,22 @@ export class RsPreview extends LitElement {
     /** @type {ShadowRoot} */ (this.renderRoot).getElementById(id)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
   }
 
+  /** the poll sent right after the post: text only, Lit escapes it */
+  pollAfter(poll) {
+    const options = Array.isArray(poll.options) ? poll.options : [];
+    return html`<div class="tg-comment-label">Опрос сразу после поста</div><div class="tg-msg"><div class="tg-bubble tg-poll">
+<div class="tg-poll-q">${poll.question || 'Вопрос'}</div><div class="tg-poll-kind">${poll.type === 'quiz' ? 'Викторина' : poll.is_anonymous === false ? 'Опрос' : 'Анонимный опрос'}</div>
+${options.map((o) => html`<div class="tg-poll-opt">${(o && typeof o === 'object' ? o.text : o) || '…'}</div>`)}</div></div>`;
+  }
+
   render() {
     const post = this.post;
     const comment = post && post.comment;
+    const poll = post && post.poll_after;
     return html`<link rel="stylesheet" href="/static/vendor/katex/katex.min.css"><link rel="stylesheet" href="/static/tg.css">
 <div class="tg-preview ${this.dark ? 'tg-dark' : ''}" @click=${this.followAnchor}>${post ? RichRender.render(post, { channelTitle: this.channelTitle }) : ''}${comment
   ? html`<div class="tg-comment-label">Первый комментарий в обсуждении</div>${RichRender.render({ rich_message: comment }, {})}`
-  : ''}</div>`;
+  : ''}${poll ? this.pollAfter(poll) : ''}</div>`;
   }
 }
 

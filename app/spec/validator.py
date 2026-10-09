@@ -140,15 +140,45 @@ def url_error(url) -> str | None:
     return None
 
 
+# InlineKeyboardButton fields that only change how a button looks; any other field (a newer one too) is its action
+BUTTON_LOOKS = {"text", "icon_custom_emoji_id", "style", "disabled"}
+
+
 def keyboard_errors(markup) -> list[str]:
     """Buttons under the post whose links Telegram would reject (the whole post fails, not only the button)."""
     rows = markup.get("inline_keyboard") if isinstance(markup, dict) else None
     errors = []
     for ri, row in enumerate(rows if isinstance(rows, list) else []):
         for bi, button in enumerate(row if isinstance(row, list) else []):
-            if isinstance(button, dict) and "url" in button and (bad := url_error(button["url"])):
-                errors.append(f"кнопка «{button.get('text', '')}» (ряд {ri + 1}, №{bi + 1}): {bad}")
+            if not isinstance(button, dict):
+                continue
+            where = f"кнопка «{button.get('text', '')}» (ряд {ri + 1}, №{bi + 1})"
+            if not set(button) - BUTTON_LOOKS:
+                errors.append(f"{where}: не задано, что она делает (ссылка, ответ на нажатие, копирование…)")
+            elif "url" in button and (bad := url_error(button["url"])):
+                if bad == "пустая ссылка":  # often a button meant to be of another kind, with the link field left over
+                    bad += ": впишите адрес или выберите кнопке другой тип (уберите поле url)"
+                errors.append(f"{where}: {bad}")
     return errors
+
+
+def method_errors(spec: Spec, method: str, params: dict, where: str, skip: frozenset = frozenset()) -> list[str]:
+    """Parameters of a Bot API method against the spec: missing required ones and wrong types are errors;
+    fields the spec does not know are left to Telegram (a newer Bot API may have them)."""
+    m = spec.methods.get(method)
+    if not m or not isinstance(params, dict):
+        return []
+    v = Validator(spec)
+    for f in m.get("fields", []):
+        name = f["name"]
+        if name in skip:
+            continue
+        if name not in params:
+            if f["required"]:
+                v.errors.append(f"{where}: нет обязательного поля {name}")
+            continue
+        v.check(params[name], f["types"], f"{where}.{name}")
+    return v.errors
 
 
 MEDIA_REF_RE = re.compile(r"tg://(photo|video|audio|document|animation|voice(?:_note)?)\?id=([\w\-.]+)")

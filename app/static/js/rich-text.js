@@ -4,6 +4,7 @@ import { clone, h, toast } from './dom.js';
 import { changed } from './editor.js';
 import { objectFields } from './forms.js';
 import { RT_LABELS, RT_WRAP } from './labels.js';
+import { htmlToRt, linkError } from './paste.js';
 import { defaultObject, isNewType, rtTypes, T } from './spec.js';
 
 // ---------- rich text field ----------
@@ -26,9 +27,23 @@ export function richTextEditor(obj, key, opts) {
   ed.addEventListener('input', sync);
   ed.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); document.execCommand('insertLineBreak'); }
-    if ((e.ctrlKey || e.metaKey) && ['b', 'i', 'u'].includes(e.key.toLowerCase())) { e.preventDefault(); wrapSelection({ b: 'bold', i: 'italic', u: 'underline' }[e.key.toLowerCase()]); }
+    const k = (e.ctrlKey || e.metaKey) && !e.altKey ? keyOf(e) : '';
+    if (['b', 'i', 'u'].includes(k)) { e.preventDefault(); wrapSelection({ b: 'bold', i: 'italic', u: 'underline' }[k]); }
+    if (k === 'k') { e.preventDefault(); editLink(); }
   });
-  ed.addEventListener('paste', (e) => { e.preventDefault(); document.execCommand('insertText', false, e.clipboardData.getData('text/plain')); });
+  ed.addEventListener('paste', (e) => {
+    e.preventDefault();
+    if (opts.onPaste && opts.onPaste(e)) return;
+    const cb = e.clipboardData;
+    const html = cb.getData('text/html');
+    const files = [...cb.files].filter((f) => /^(image|video|audio)\//.test(f.type));
+    if (files.length && !cb.getData('text/plain')) { ed.dispatchEvent(new CustomEvent('rs-paste-files', { bubbles: true, detail: files })); return; }
+    if (!html) { document.execCommand('insertText', false, cb.getData('text/plain')); return; }
+    const { rt, images } = htmlToRt(html);
+    insertFragment(ed, rtToDom(rt));
+    sync();
+    if (images) toast('Картинки из вставленного текста пропущены: перетащите или вставьте их отдельно, они станут блоками «Фото».');
+  });
   ed.addEventListener('focus', () => { activeRte = { ed, sync }; showToolbar(ed); });
   ed.addEventListener('blur', () => setTimeout(() => { const a = document.activeElement; if (!(a && a.classList && a.classList.contains('rte')) && !toolbar.contains(a) && !toolbar.matches(':hover')) toolbar.classList.remove('on'); }, 150));
   ed.addEventListener('click', (e) => {
@@ -46,7 +61,7 @@ export function showToolbar(ed) {
     btn('Ч', 'Подчёркнутый (Ctrl+U)', () => wrapSelection('underline')), btn('З', 'Зачёркнутый', () => wrapSelection('strikethrough')),
     btn('▒', 'Спойлер', () => wrapSelection('spoiler')), btn('🖍', 'Маркер', () => wrapSelection('marked')),
     btn('</>', 'Код', () => wrapSelection('code')), btn('x₂', 'Нижний индекс', () => wrapSelection('subscript')), btn('x²', 'Верхний индекс', () => wrapSelection('superscript')),
-    btn('🔗', 'Ссылка', () => { const url = prompt('URL ссылки', 'https://'); if (url) wrapSelection('url', url); }),
+    btn('🔗', 'Ссылка (Ctrl+K)', () => editLink()),
     btn('⌫', 'Убрать форматирование', () => clearFormatting()));
   const others = rtTypes().filter((t) => t.const && !RT_WRAP[t.const] && t.const !== 'url');
   const sel = h('select', { title: 'Вставить элемент из спецификации', onmousedown: (e) => e.stopPropagation(), onchange: (e) => {
@@ -70,8 +85,75 @@ export function selectionIn(ed) {
   return ed.contains(r.commonAncestorContainer) ? r : null;
 }
 
+// Ctrl+K arrives as the physical key, so the Russian layout (Ctrl+Л) works too
+function keyOf(e) {
+  const code = /^Key([A-Z])$/.exec(e.code || '');
+  return code ? code[1].toLowerCase() : e.key.toLowerCase();
+}
+
+/** Put nodes where the caret is (or at the end) and leave the caret after them. */
+function insertFragment(ed, frag) {
+  const last = frag.lastChild;
+  const r = selectionIn(ed);
+  if (!r) ed.append(frag);
+  else { r.deleteContents(); r.insertNode(frag); }
+  if (!last) return;
+  const after = document.createRange();
+  after.setStartAfter(last);
+  after.collapse(true);
+  const s = getSelection();
+  s?.removeAllRanges();
+  s?.addRange(after);
+}
+
+/**
+ * Ctrl+K: a new link on the selection or at the caret, or the link the caret is in, to change or remove.
+ */
+export function editLink() {
+  if (!activeRte) return;
+  const target = activeRte;
+  const r = selectionIn(target.ed);
+  const at = r && (r.startContainer.nodeType === 3 ? r.startContainer.parentElement : /** @type {Element} */ (r.startContainer));
+  const found = at && at.closest('a');
+  const a = found && target.ed.contains(found) ? /** @type {HTMLElement} */ (found) : null;
+  // the text is editable when it is plain: a selection with formatting inside keeps its formatting
+  const plainText = a ? !a.querySelector('*') : !r || r.collapsed || !r.cloneContents().querySelector('*');
+  const text = h('input', { type: 'text', value: a ? a.textContent : r ? r.toString() : '', placeholder: 'Текст ссылки', 'aria-label': 'Текст ссылки' });
+  const url = h('input', { type: 'url', value: a ? a.dataset.url || '' : '', placeholder: 'https://…', 'aria-label': 'Адрес' });
+  const err = h('span', { class: 'err small' });
+  const save = () => {
+    const u = url.value.trim();
+    const bad = linkError(u);
+    if (bad) { err.textContent = bad; url.focus(); return; }
+    const t = text.value;
+    if (plainText && !t.trim()) { err.textContent = 'Впишите текст ссылки'; text.focus(); return; }
+    closeDialog();
+    if (a) {
+      a.dataset.url = u; a.title = linkTitle(u);
+      if (plainText && t !== a.textContent) a.textContent = t;
+    } else if (r && !r.collapsed && !(plainText && t !== r.toString())) {
+      const w = wrapEl('url', u); w.append(r.extractContents()); r.insertNode(w);
+    } else {
+      const w = wrapEl('url', u); w.textContent = t;
+      if (r) { r.deleteContents(); r.insertNode(w); } else target.ed.append(w);
+    }
+    target.sync();
+  };
+  const onEnter = (e) => { if (e.key === 'Enter') save(); };
+  text.addEventListener('keydown', onEnter); url.addEventListener('keydown', onEnter);
+  const actions = [h('button', { class: 'ghost', value: 'cancel', text: 'Отмена' })];
+  if (a) actions.unshift(h('button', { class: 'danger', type: 'button', text: 'Убрать ссылку', onclick: () => { closeDialog(); a.replaceWith(...a.childNodes); target.sync(); } }));
+  actions.push(h('button', { type: 'button', class: 'primary', text: a ? 'Сохранить' : 'Вставить', onclick: save }));
+  openDialog([h('h3', { text: a ? 'Ссылка' : 'Новая ссылка' }),
+    plainText ? h('label', { class: 'stack' }, 'Текст', text) : null,
+    h('label', { class: 'stack' }, 'Адрес', url), err], actions);
+  (plainText && !text.value ? text : url).focus();
+}
+
+const linkTitle = (url) => url + ' · Ctrl+K: изменить';
+
 export function wrapEl(kind, url) {
-  if (kind === 'url') return h('a', { 'data-url': url, title: url });
+  if (kind === 'url') return h('a', { 'data-url': url, title: linkTitle(url) });
   const spec = RT_WRAP[kind];
   const [tag, cls] = spec.split('.');
   return h(tag, { class: cls || null });

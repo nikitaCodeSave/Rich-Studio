@@ -26,13 +26,15 @@ EXPECTED_TOOLS = {
     "preview_post",
     "get_draft",
     "list_media",
+    "upload_media",
+    "send_poll",
     "studio_status",
     "reschedule_post",
     "cancel_scheduled_post",
     "get_post",
     "post_history",
 }
-PUBLISHING = {"publish_post", "schedule_post", "edit_post", "reschedule_post", "cancel_scheduled_post"}
+PUBLISHING = {"publish_post", "schedule_post", "edit_post", "reschedule_post", "cancel_scheduled_post", "send_poll"}
 
 
 def rpc(client, method, params=None, rid=1, **kw):
@@ -87,6 +89,135 @@ def test_publish_is_idempotent_and_marked_mcp(client, tg):
     assert len([c for c in tg.calls if c["method"] == "sendRichMessage"]) == 1
     [p] = store.list_posts()
     assert p["actor"] == "mcp" and p["status"] == "sent"
+
+
+def test_upload_media_by_url_and_base64(client, tg, monkeypatch):
+    import base64
+
+    import settings
+
+    _, f, _ = call(
+        client, "upload_media", data_base64=base64.b64encode(b"\x89PNG fake").decode(), filename="обложка.png"
+    )
+    assert f["ref"].startswith("upload:") and f["kind"] == "photo"
+    monkeypatch.setattr(settings.get(), "media_fetch_private", True)  # the mock Telegram is on localhost
+    _, g, _ = call(client, "upload_media", url=settings.get().api_base + "/log", filename="calls.json")
+    assert g["ref"] == "upload:calls.json" and (settings.get().media_dir / "calls.json").read_bytes().startswith(b"[")
+    res, _, text = call(client, "upload_media", url="file:///etc/passwd")
+    assert res["isError"] and "http" in text
+    res, _, text = call(client, "upload_media", data_base64="AAAA")
+    assert res["isError"] and "filename" in text
+    names = {m["name"] for m in call_list(client, "list_media")}
+    assert {"calls.json"} <= names and len(names) == 2
+
+
+def test_fetch_goes_only_to_public_addresses(client, tg):
+    import asyncio
+
+    import pytest
+
+    from errors import StudioError
+    from services import media
+
+    for host in (
+        "127.0.0.1",
+        "10.1.2.3",
+        "192.168.0.10",
+        "169.254.169.254",
+        "::1",
+        "::ffff:127.0.0.1",
+        "0.0.0.0",  # noqa: S104 (an address the fetch must refuse)
+        "100.64.0.1",
+    ):
+        with pytest.raises(StudioError, match="внутренний"):
+            asyncio.run(media._public_only(host, 80))
+    asyncio.run(media._public_only("1.1.1.1", 443))  # a public address passes
+    res, _, text = call(client, "upload_media", url="http://127.0.0.1:8080/api/config")
+    assert res["isError"] and "внутренний" in text
+    assert client.post("/api/media/fetch", json={"url": "http://localhost:8080/"}).status_code == 400
+    assert not media.list_files()
+
+
+def test_fetch_checks_every_redirect_and_leaves_no_partial_file(client, tg, monkeypatch):
+    import httpx
+
+    import settings
+    from services import media
+
+    def handler(request):
+        if request.url.path == "/to-inside":
+            return httpx.Response(302, headers={"location": "http://127.0.0.1/secret"})
+        if request.url.path == "/hop":
+            return httpx.Response(302, headers={"location": "/hop"})
+        return httpx.Response(200, content=b"x" * 3 * 1024 * 1024)
+
+    real_client, real_check = httpx.AsyncClient, media._public_only
+
+    def mocked(**kw):
+        return real_client(transport=httpx.MockTransport(handler), **kw)
+
+    async def check(host, port):
+        if host != "files.example":  # stands for a public host (no DNS in tests)
+            await real_check(host, port)
+
+    monkeypatch.setattr(media.httpx, "AsyncClient", mocked)
+    monkeypatch.setattr(media, "_public_only", check)
+    res, _, text = call(client, "upload_media", url="https://files.example/to-inside")
+    assert res["isError"] and "внутренний" in text
+    res, _, text = call(client, "upload_media", url="https://files.example/hop")
+    assert res["isError"] and "перенаправлений" in text
+    monkeypatch.setattr(settings.get(), "max_upload_mb", 1)
+    res, _, text = call(client, "upload_media", url="https://files.example/big.jpg")
+    assert res["isError"] and "больше" in text
+    assert not list(settings.get().media_dir.iterdir())  # no .part left behind
+
+
+def test_fetch_connects_to_the_address_it_checked(client, tg, monkeypatch):
+    """DNS rebinding: a second lookup answering 127.0.0.1 must not be where the request goes."""
+    import httpx
+
+    from services import media
+
+    answers = iter([["93.184.216.34"], ["127.0.0.1"], ["127.0.0.1"]])
+    lookups, seen = [], []
+
+    async def resolve(host, port):
+        lookups.append(host)
+        return next(answers)
+
+    def handler(request):
+        seen.append((request.url.host, request.headers["host"], request.extensions.get("sni_hostname")))
+        return httpx.Response(200, content=b"img")
+
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(media, "_resolve", resolve)
+    monkeypatch.setattr(
+        media.httpx, "AsyncClient", lambda **kw: real_client(transport=httpx.MockTransport(handler), **kw)
+    )
+    _, f, _ = call(client, "upload_media", url="https://files.example/cover.jpg")
+    assert f["ref"] == "upload:cover.jpg"
+    assert lookups == ["files.example"] and seen == [("93.184.216.34", "files.example", "files.example")]
+
+
+def test_send_poll_through_mcp(client, tg):
+    poll = {"question": "Когда эфир?", "options": ["Утром", "Вечером"]}
+    _, r, _ = call(client, "send_poll", poll=poll, chat_id="@c", idempotency_key="poll-1")
+    assert r["results"][0]["ok"] and tg.last("sendPoll")["body"]["question"] == "Когда эфир?"
+    call(client, "send_poll", poll=poll, chat_id="@c", idempotency_key="poll-1")
+    assert len([c for c in tg.calls if c["method"] == "sendPoll"]) == 1
+
+
+def test_links_to_the_editor(client, tg):
+    _, d, _ = call(client, "save_draft", post=BLOCKS_POST, title="Ссылки")
+    assert d["editor_url"] == f"http://localhost:8080/?draft={d['id']}"
+    assert d["preview_url"] == f"http://localhost:8080/render/draft/{d['id']}"
+    _, shown, _ = call(client, "preview_post", draft_id=d["id"])
+    assert shown["editor_url"] == d["editor_url"]
+    _, got, _ = call(client, "get_draft", draft_id=d["id"])
+    assert got["editor_url"] == d["editor_url"]
+    _, sent, _ = call(client, "publish_post", post=BLOCKS_POST)
+    _, post, _ = call(client, "get_post", post_id=sent["post"]["id"])
+    assert post["editor_url"] == f"http://localhost:8080/?post={sent['post']['id']}"
 
 
 def test_draft_channel_from_save_draft_is_used_by_publish(client, tg):

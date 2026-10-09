@@ -30,11 +30,19 @@
   <button id="btn-check" class="ghost chat-btn" title="Канал этого черновика: выбрать, проверить права бота, темы форума">Канал</button>
   <select id="topic" class="topic-select" title="Тема форума, в которую уйдёт пост" hidden></select>
   <button id="btn-me" class="ghost" title="Отправить пост себе в личку (TG_PREVIEW_CHAT)">Мне в личку</button>
-  <button id="btn-poll" class="ghost" title="Опрос или викторина в канал">Опрос</button>
-  <button id="btn-schedule" class="ghost">Отложить</button>
-  <button id="btn-replace" class="ghost" title="Заменить уже опубликованный пост этим">Заменить пост</button>
-  <button id="btn-publish" class="primary">Опубликовать</button>
+  <span class="split" id="publish-split">
+    <button id="btn-publish" class="primary">Опубликовать</button><button id="btn-more" class="primary more" title="Отложить, опрос, заменить пост" aria-haspopup="menu" aria-expanded="false" aria-controls="publish-menu">▾</button>
+    <span id="publish-menu" class="menu" role="menu" hidden>
+      <button id="btn-schedule" role="menuitem" class="ghost" title="Опубликовать в заданное время">Отложить…</button>
+      <button id="btn-poll" role="menuitem" class="ghost" title="Опрос или викторина в канал">Опрос…</button>
+      <button id="btn-replace" role="menuitem" class="ghost" title="Заменить уже опубликованный пост этим">Заменить пост…</button>
+    </span>
+  </span>
 </header>
+<nav class="tabs view-tabs" id="view-tabs" aria-label="Что показать">
+  <button data-view="edit" class="on">Редактор</button>
+  <button data-view="preview">Предпросмотр</button>
+</nav>
 
 <main class="layout">
   <aside class="side">
@@ -67,6 +75,7 @@
       <button data-mode="json" title="Весь запрос как JSON: любое поле API">JSON</button>
       <span class="grow"></span>
       <span class="muted small" id="mode-hint"></span>
+      <button id="check-pill" class="check-pill" type="button" hidden></button>
     </nav>
     <div id="pane-blocks" class="pane"></div>
     <div id="pane-html" class="pane" hidden>
@@ -93,7 +102,7 @@
       <div id="kb"></div>
     </details>
     <details class="panel" id="panel-after">
-      <summary>После публикации <span class="muted small">(закреп, первый комментарий)</span></summary>
+      <summary>После публикации <span class="muted small">(закреп, первый комментарий, опрос)</span></summary>
       <div id="after"></div>
     </details>
     <details class="panel" id="panel-opts">

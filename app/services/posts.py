@@ -9,7 +9,7 @@ import settings
 import spec
 import store
 import telegram as tg
-from errors import Conflict, MayHaveGone, NotFound, StudioError, Upstream
+from errors import Conflict, Invalid, MayHaveGone, NotFound, StudioError, Upstream
 from telegram.uploads import MissingUpload, collect_uploads
 
 from . import channels, publisher
@@ -91,7 +91,15 @@ def dry_run_report(chats: list, post: dict, warnings: list[str]) -> dict:
         except MissingUpload as e:
             raise StudioError(str(e)) from None
         requests.append({"method": method, "params": params, "chat_title": channels.title_of(chat)})
-    steps = [s for s, on in (("pinChatMessage", post.get("pin")), ("first comment", post.get("comment"))) if on]
+    steps = [
+        s
+        for s, on in (
+            ("pinChatMessage", post.get("pin")),
+            ("first comment", post.get("comment")),
+            ("sendPoll (poll_after)", post.get("poll_after") and "poll" not in post),
+        )
+        if on
+    ]
     return {"dry_run": True, "requests": requests, "after_send": steps, "warnings": warnings}
 
 
@@ -270,6 +278,9 @@ async def unpin(pid: str) -> dict | None:
 
 async def set_buttons(pid: str, reply_markup: dict | None, callbacks: dict | None) -> dict | None:
     """Replace only the buttons (editMessageReplyMarkup); the text is untouched."""
+    bad = spec.keyboard_errors(reply_markup)
+    if bad:  # the same rule as a full send: Telegram would refuse the whole request
+        raise Invalid({"message": "кнопки не прошли проверку", "ok": False, "errors": bad, "warnings": []})
     p = _get(pid)
     if p["status"] not in ("sent", "scheduled"):
         raise StudioError(f"пост в статусе {p['status']}")
