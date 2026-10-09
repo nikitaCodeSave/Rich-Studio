@@ -128,8 +128,10 @@ async def edit_message(post: dict, chat_id, message_id: int, actor: str = "api",
     # if the studio published this message, keep its history in step with the channel
     rec = rec or store.find_sent(params["chat_id"], message_id)
     if rec and rec.get("kind") != "poll":
-        store.add_version(rec["id"], rec["payload"], actor)
-        store.update_post(rec["id"], payload=after_edit(rec["payload"], post))
+        new = after_edit(rec["payload"], post)
+        if new != rec["payload"]:  # a repeated edit is not a new version
+            store.add_version(rec["id"], rec["payload"], actor)
+            store.update_post(rec["id"], payload=new)
     return {"result": result, "unchanged": result is None}
 
 
@@ -226,7 +228,12 @@ async def set_buttons(pid: str, reply_markup: dict | None, callbacks: dict | Non
         params = {"chat_id": publisher.resolve_chat(p["chat_id"]), "message_id": p["message_id"]}
         if payload.get("reply_markup"):
             params["reply_markup"] = payload["reply_markup"]
-        await tg.call("editMessageReplyMarkup", params)
+        try:
+            await tg.call("editMessageReplyMarkup", params)
+        except tg.TelegramError as e:
+            # the same buttons again (e.g. only their answers changed): nothing to do in Telegram
+            if NOT_MODIFIED not in e.description:
+                raise
     return store.update_post(pid, payload=payload)
 
 

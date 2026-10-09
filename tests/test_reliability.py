@@ -53,6 +53,24 @@ def test_edit_that_changes_only_button_answers_is_not_an_error(client, tg):
     assert r.json()["payload"]["callbacks"] == {"like": "Голос учтён"}
 
 
+def test_edit_with_nothing_new_adds_no_version(client, tg):
+    # found on real Telegram: a repeated edit filled the history with copies of the current post
+    post = {**BLOCKS_POST, "reply_markup": BUTTON, "callbacks": {"like": "Спасибо"}}
+    pid = client.post("/api/send", json={"post": post}).json()["post"]["id"]
+    assert client.post(f"/api/posts/{pid}/edit", json=post).status_code == 200
+    assert client.get(f"/api/posts/{pid}/versions").json() == []
+    client.post(f"/api/posts/{pid}/edit", json={**post, "callbacks": {"like": "Голос учтён"}})
+    assert len(client.get(f"/api/posts/{pid}/versions").json()) == 1
+
+
+def test_same_buttons_again_is_not_an_error(client, tg):
+    # real Telegram answers editMessageReplyMarkup with the same buttons by "message is not modified"
+    pid = client.post("/api/send", json={"post": {**BLOCKS_POST, "reply_markup": BUTTON}}).json()["post"]["id"]
+    r = client.post(f"/api/posts/{pid}/buttons", json={"reply_markup": BUTTON, "callbacks": {"like": "Спасибо"}})
+    assert r.status_code == 200, r.text
+    assert r.json()["payload"]["callbacks"] == {"like": "Спасибо"}
+
+
 def test_edit_of_a_post_already_taken_by_the_scheduler_is_refused(client, tg):
     rec = schedule(client, at=int(time.time()) + 3600)
     assert store.claim_post(rec["id"])
