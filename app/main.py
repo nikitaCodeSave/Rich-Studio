@@ -12,7 +12,9 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+from mcp.server.transport_security import TransportSecuritySettings
 
+import mcp_tools
 import settings
 import spec
 import store
@@ -52,7 +54,8 @@ async def lifespan(app):
         tasks = [asyncio.create_task(_spec_loop()), asyncio.create_task(scheduler.loop())]
         if cfg.updates_on:
             tasks.append(asyncio.create_task(updates.loop()))
-    yield
+    async with app.state.mcp.session_manager.run():
+        yield
     for t in tasks:
         t.cancel()
 
@@ -96,6 +99,16 @@ def create_app(cfg: settings.Settings | None = None) -> FastAPI:
         return Response(status_code=204)
 
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
+
+    # MCP for agents at /mcp, behind the same guard (Host, CSRF, X-API-Key) as the REST API
+    app.state.mcp = mcp_tools.build()
+    mcp_app = app.state.mcp.streamable_http_app(
+        streamable_http_path="/mcp",
+        stateless_http=True,
+        json_response=True,
+        transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),  # guard checks Host
+    )
+    app.router.routes.extend(mcp_app.routes)
     return app
 
 

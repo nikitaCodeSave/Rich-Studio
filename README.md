@@ -88,7 +88,17 @@ docker compose up -d --build
 - заголовок `X-Studio-Client` (например, `mcp:claude-code`): записывается в историю постов, во вкладке «Посты» видно, что пост отправил не редактор;
 - `"dry_run": true` в теле `/api/send` и `/api/schedule`: проверка и список запросов, которые уйдут в Telegram, без отправки и без записи в историю.
 
-Следующий шаг при необходимости: MCP-сервер поверх этого API, чтобы агенты вызывали его как инструменты.
+### MCP для Claude и других агентов
+
+Студия сама работает как MCP-сервер по адресу `http://localhost:8080/mcp` (Streamable HTTP). Подключение в Claude Code:
+
+```
+claude mcp add --transport http rich-studio http://localhost:8080/mcp
+# если задан STUDIO_API_KEY:
+claude mcp add --transport http rich-studio http://localhost:8080/mcp --header "X-API-Key: <ключ>"
+```
+
+Инструменты: `bot_api_status`, `describe_type`, `validate_post`, `save_draft`, `list_drafts`, `send_preview_to_me`, `check_channel`, `publish_post` (с `idempotency_key` и `dry_run`), `schedule_post`, `edit_post`, `list_posts`. Публикация помечена как действие с внешним эффектом, так что клиент спросит подтверждение. Посты от агента записываются с отметкой `mcp`. Удаление постов и произвольные методы Bot API (`/api/raw`) через MCP недоступны.
 
 ## Skill для Claude Code
 
