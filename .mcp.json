@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "rich-studio": {
+      "type": "http",
+      "url": "http://localhost:8080/mcp",
+      "headers": { "X-API-Key": "${STUDIO_API_KEY:-}" }
+    }
+  }
+}
