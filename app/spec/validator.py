@@ -1,6 +1,7 @@
 """Structural validation of a rich message against the spec, plus Telegram's size limits."""
 
 import re
+from urllib.parse import urlsplit
 
 from .parse import enum_values
 from .source import Spec
@@ -114,10 +115,40 @@ class Validator:
                 continue
             if f["required"] and f["types"] == ["RichText"] and (v == "" or v == []):
                 self.warnings.append(f"{path}.{k}: пустой текст, Telegram может отклонить блок")
+            if k == "url" and (bad := url_error(v)):
+                # seen only for keyboard buttons (an error there); here Telegram's verdict is unchecked
+                self.warnings.append(f"{path}.{k}: {bad}")
             ev = enum_values(f.get("description", ""))
             if ev and isinstance(v, str) and v not in ev and len(ev) > 1:
                 self.warnings.append(f"{path}.{k}: значение {v!r}, ожидалось одно из {ev}")
             self.check(v, f["types"], f"{path}.{k}")
+
+
+def url_error(url) -> str | None:
+    """Why Telegram would reject a button link: it answers 400 "URL host is empty" to "https://"."""
+    if not isinstance(url, str):
+        return None
+    if not url.strip():
+        return "пустая ссылка"
+    try:
+        parts = urlsplit(url.strip())
+        host = parts.hostname
+    except ValueError:
+        return f"ссылка {url!r} не разбирается"
+    if parts.scheme.lower() in ("http", "https") and not host:
+        return f"в ссылке {url!r} нет адреса сайта"
+    return None
+
+
+def keyboard_errors(markup) -> list[str]:
+    """Buttons under the post whose links Telegram would reject (the whole post fails, not only the button)."""
+    rows = markup.get("inline_keyboard") if isinstance(markup, dict) else None
+    errors = []
+    for ri, row in enumerate(rows if isinstance(rows, list) else []):
+        for bi, button in enumerate(row if isinstance(row, list) else []):
+            if isinstance(button, dict) and "url" in button and (bad := url_error(button["url"])):
+                errors.append(f"кнопка «{button.get('text', '')}» (ряд {ri + 1}, №{bi + 1}): {bad}")
+    return errors
 
 
 MEDIA_REF_RE = re.compile(r"tg://(photo|video|audio|document|animation|voice(?:_note)?)\?id=([\w\-.]+)")

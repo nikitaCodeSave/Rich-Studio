@@ -4,6 +4,7 @@ import { $, h, toast } from './dom.js';
 import { autosave, buildPost, callbacksFor, flushSave, loadPost, updatesLabel } from './editor.js';
 import { resetHistory } from './history.js';
 import { editPost, reschedulePost } from './editing.js';
+import { STATUS_LABELS } from './labels.js';
 import { dirty, editing, S, saveState } from './state.js';
 
 // ---------- posts ----------
@@ -14,7 +15,6 @@ export async function loadPosts() {
   const u = S.updates;
   $('#updates-state').replaceChildren(h('span', { class: u && u.state === 'ok' ? 'ok' : 'w', title: (u && u.error) || '', text: 'Приём событий: ' + updatesLabel() }),
     h('span', { class: 'muted', text: ' · нажатия кнопок, первые комментарии, реакции, итоги опросов' }));
-  const label = { sent: 'опубликован', scheduled: 'отложен', failed: 'ошибка', cancelled: 'отменён', deleted: 'удалён', sending: 'отправляется', missed: 'пропущен' };
   ul.replaceChildren(...S.posts.map((p) => {
     const when = (p.status === 'scheduled' && p.scheduled_at) || p.sent_at || p.created_at;
     const poll = p.kind === 'poll';
@@ -29,7 +29,7 @@ export async function loadPosts() {
     ].filter(Boolean);
     const call = async (method, path, body, ok) => { try { await api(method, path, body); toast(ok, 'ok'); } catch (e) { toast(e.message, 'err'); } loadPosts(); };
     return h('li', { title: p.error || '' },
-      h('span', { class: 'meta' }, h('span', { class: 'status ' + p.status, text: label[p.status] || p.status }), poll ? h('b', { text: 'опрос' }) : null, p.actor && p.actor !== 'ui' ? h('span', { class: 'actor', title: 'Кто отправил: не редактор, а API или агент', text: p.actor }) : null, p.chat_id, p.message_id ? '#' + p.message_id : ''),
+      h('span', { class: 'meta' }, h('span', { class: 'status ' + p.status, text: STATUS_LABELS[p.status] || p.status }), poll ? h('b', { text: 'опрос' }) : null, p.actor && p.actor !== 'ui' ? h('span', { class: 'actor', title: 'Кто отправил: не редактор, а API или агент', text: p.actor }) : null, p.chat_id, p.message_id ? '#' + p.message_id : ''),
       poll && p.poll_question ? h('span', { class: 'small', text: p.poll_question }) : null,
       h('span', { class: 'meta', text: new Date(when * 1000).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' }) + (p.error ? ' · ' + p.error : '') }),
       stats.length ? h('span', { class: 'meta stats', text: stats.join(' · ') }) : null,

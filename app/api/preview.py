@@ -8,10 +8,10 @@ from pathlib import Path
 from fastapi import APIRouter
 from fastapi.responses import HTMLResponse
 
-import spec
 import store
 from errors import NotFound
 from models import Post
+from services import publisher
 
 router = APIRouter()
 TEMPLATE = Path(__file__).resolve().parent.parent / "static" / "render.html"
@@ -30,7 +30,7 @@ def render_page(post: dict, theme: str = "auto", title: str = "Предпрос�
 
 @router.post("/api/validate", tags=["posts"])
 def validate(post: Post):
-    return spec.validate_rich_message(spec.current, post.rich_message)
+    return publisher.check(post.model_dump())
 
 
 @router.post(

@@ -45,10 +45,19 @@ def options(post: dict) -> dict:
     return opts
 
 
+def check(post: dict) -> dict:
+    """Validation report of the text and of the buttons under it; raises nothing."""
+    r = spec.validate_rich_message(spec.current, post["rich_message"])
+    bad_buttons = spec.keyboard_errors(post.get("reply_markup"))
+    if bad_buttons:
+        r = {**r, "ok": False, "errors": r["errors"] + bad_buttons}
+    return r
+
+
 def validate(post: dict) -> dict:
     """Validation report; raises Invalid if the post or its first comment has errors."""
     options(post)
-    r = spec.validate_rich_message(spec.current, post["rich_message"])
+    r = check(post)
     if not r["ok"]:
         raise Invalid({"message": "пост не прошёл проверку", **r})
     if post.get("comment"):

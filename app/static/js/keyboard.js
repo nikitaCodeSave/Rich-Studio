@@ -16,10 +16,10 @@ export function renderKeyboard() {
           h('button', { class: 'ghost small-btn', text: '✕', onclick: () => { row.splice(bi, 1); if (!row.length) S.keyboard.splice(ri, 1); renderKeyboard(); changed(); } })),
         objectFields('InlineKeyboardButton', btn, 3), callbackAnswer(btn)));
     });
-    r.append(h('button', { class: 'ghost small-btn', text: '＋ в ряд', onclick: () => { row.push({ text: 'Кнопка', url: 'https://' }); renderKeyboard(); changed(); } }));
+    r.append(h('button', { class: 'ghost small-btn', text: '＋ в ряд', onclick: () => { row.push({ text: 'Кнопка', url: '' }); renderKeyboard(); changed(); } }));
     box.append(r);
   });
-  box.append(h('button', { class: 'ghost small-btn', text: '＋ ряд кнопок', onclick: () => { S.keyboard.push([{ text: 'Кнопка', url: 'https://' }]); renderKeyboard(); changed(); } }));
+  box.append(h('button', { class: 'ghost small-btn', text: '＋ ряд кнопок', onclick: () => { S.keyboard.push([{ text: 'Кнопка', url: '' }]); renderKeyboard(); changed(); } }));
 }
 
 // what the bot answers when a callback button is pressed (handled by the studio's update loop)

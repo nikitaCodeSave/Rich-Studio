@@ -26,14 +26,14 @@ export const isNewType = (name) => (S.spec.changes || []).some((c) => (c.items |
 export function defaultFor(types, fieldName) {
   const t = types[0];
   if (t === 'RichText') return '';
-  if (t === 'String') return { url: 'https://', date_time_format: 'wDT' }[fieldName] ?? '';
+  if (t === 'String') return { date_time_format: 'wDT' }[fieldName] ?? '';
   if (t === 'Integer') return { size: 2, zoom: 15, unix_time: Math.floor(Date.now() / 1000) + 86400 }[fieldName] ?? 0;
   if (t === 'Float') return 0;
   if (t === 'Boolean' || t === 'True') return false;
   if (t === 'Array of InputRichBlock') return [{ type: 'paragraph', text: '' }];
   if (t === 'Array of InputRichBlockListItem') return [{ blocks: [{ type: 'paragraph', text: '' }] }, { blocks: [{ type: 'paragraph', text: '' }] }];
   if (t === 'Array of Array of RichBlockTableCell') return [[cell('Колонка 1', true), cell('Колонка 2', true)], [cell(''), cell('')]];
-  if (t === 'Array of RichMessageButton') return [{ text: 'Кнопка', url: 'https://' }];
+  if (t === 'Array of RichMessageButton') return [{ text: 'Кнопка', url: '' }];
   if (t.startsWith('Array of')) return [];
   if (t === 'Location') return { latitude: 55.7522, longitude: 37.6156 };
   return defaultObject(t);
