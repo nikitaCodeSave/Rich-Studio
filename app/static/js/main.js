@@ -78,7 +78,10 @@ function bindActions() {
   $('#btn-schedule').onclick = () => {
     const d = new Date(Date.now() + 3600e3 - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
     const inp = h('input', { type: 'datetime-local', value: d });
-    openDialog([h('h3', { text: 'Отложить публикацию' }), h('p', { class: 'muted small', text: 'Пост отправит сервис в указанное время, поэтому контейнер должен работать в этот момент.' }), inp],
+    const e = editing.value;
+    openDialog([h('h3', { text: 'Отложить публикацию' }),
+      ...(e ? [h('p', { class: 'err small', text: `Это отложит НОВЫЙ пост. Чтобы изменить пост ${e.message_id ? '#' + e.message_id : ''} в ${e.chat_id}, нажмите «Обновить пост» над редактором.` })] : []),
+      h('p', { class: 'muted small', text: 'Пост отправит сервис в указанное время, поэтому контейнер должен работать в этот момент.' }), inp],
       [h('button', { class: 'ghost', value: 'cancel', text: 'Отмена' }), h('button', { type: 'button', text: 'Запланировать', onclick: async () => {
         const at = Math.floor(new Date(inp.value).getTime() / 1000);
         closeDialog();
