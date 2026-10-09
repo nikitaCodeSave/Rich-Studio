@@ -123,6 +123,8 @@ interface PostRow {
   comment_status: string | null;
   reactions: Json | null;
   clicks: Json | null;
+  /** callback_data → the text on its button */
+  buttons: Record<string, string>;
   poll_results: Json | null;
   poll_question: string | null;
   /** first line of the text (or the poll question), empty when the post has none */

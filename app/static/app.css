@@ -209,6 +209,8 @@ label.stack input { width: 100%; }
 .panel > :not(summary) { margin-top: 8px; }
 .kb-row { display: flex; gap: 6px; align-items: flex-start; margin-bottom: 6px; flex-wrap: wrap; }
 .kb-row > .obj { flex: 1 1 240px; }
+/* a button card is narrow: short labels leave room for «Ответ на нажатие» */
+.kb-btn .field { grid-template-columns: 72px minmax(0, 1fr) auto; }
 
 .validation { margin-top: 12px; font-size: 13px; }
 .validation .ok { color: var(--ok); }

@@ -182,7 +182,7 @@ await page.click('#side-tabs [data-tab=posts]');
 await page.waitForTimeout(500);
 const statsText = await page.locator('#posts li').first().textContent();
 check('Pin, first comment and callback answer work end to end',
-  commentShown === 1 && !sentRich.body.pin && !sentRich.body.comment && !!pinned && answer && answer.body.text === 'Спасибо, учтено' && /нажатия: like 1/.test(statsText) && /ждёт пересылки/.test(statsText),
+  commentShown === 1 && !sentRich.body.pin && !sentRich.body.comment && !!pinned && answer && answer.body.text === 'Спасибо, учтено' && /нажатия: 👍 1/.test(statsText) && /ждёт пересылки/.test(statsText),
   JSON.stringify({ commentShown, pinned: !!pinned, answer: answer && answer.body, statsText }));
 
 // 11. poll dialog (in the «Опубликовать ▾» menu)

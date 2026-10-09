@@ -11,7 +11,7 @@
 | `app/metrics.py` | счётчики, задержки p50/p95 и пульс фоновых циклов в памяти процесса; его можно звать из любого слоя | не пишет на диск |
 | `app/errors.py` | `StudioError` (400), `NotFound`, `Invalid` (422), `Upstream` (502); `telegram.TelegramError` с кодом 400 → 422, прочие → 502 | |
 | `app/models.py` | тела запросов (pydantic), описания полей на русском для /docs | |
-| `app/api/*.py` | роутеры: разобрать запрос → вызвать сервис → вернуть результат | не ходят в Telegram напрямую, кроме `raw` и `check` |
+| `app/api/*.py` | роутеры: разобрать запрос → вызвать сервис → вернуть результат | не ходят в Telegram напрямую, кроме `raw` (проверка канала идёт через `services.channels`) |
 | `app/mcp_tools/` | MCP-сервер на `/mcp`: курированные инструменты для агентов поверх сервисов, тот же guard и ключ API | не дублирует логику сервисов; удаление постов и `/api/raw` сюда не выносятся; страница предпросмотра `ui://` собирается из `static/` (`preview_app.py`), а не пишется отдельно |
 | `app/services/publisher.py` | отправка, шаги после отправки, рассылка в несколько каналов, валидация, время | не импортирует FastAPI |
 | `app/services/posts.py` | что можно сделать с постом: опубликовать, предпросмотр, отложить, заменить, закрепить, кнопки, удалить, опросы | |
@@ -20,7 +20,10 @@
 | `app/services/updates.py` | getUpdates: нажатия, первый комментарий, реакции, опросы; `STATUS` | |
 | `app/services/health.py` | отчёт о состоянии: проверки `ok/warn/fail` с подсказкой `action` | только читает |
 | `app/services/housekeeping.py` | раз в 5 минут пишет смену статуса проверок в журнал, раз в час уборка | не удаляет сделанное человеком без `VERSIONS_KEEP` / `MEDIA_UNUSED_DAYS` |
-| `app/services/media.py` | имена загрузок, путь внутри папки media | |
+| `app/services/media.py` | имена загрузок, путь внутри папки media, загрузка по ссылке (только публичные адреса, каждый редирект проверяется), `used` и удаление ненужных файлов | |
+| `app/services/listing.py` | как пост выглядит в списках: первая строка, миниатюра, ссылка t.me, подписи кнопок к нажатиям | только читает |
+| `app/services/idempotency.py` | `run`: ключ повтора для всего, что публикует в канал (см. политику ошибок ниже) | |
+| `app/services/backup.py` | бэкап: zip с базой и файлами, ежедневная копия базы | |
 | `app/telegram/` | транспорт к Bot API, `upload:` → `attach://`, проверка прав бота | не меняет payload, кроме `upload:` |
 | `app/store/` | SQLite: соединения, миграции (`PRAGMA user_version`), черновики, посты, каналы | |
 | `app/spec/` | загрузка и кэш api.json, сводка для редактора, diff версий, валидатор, перевод блоков из ответа Telegram в отправляемые (`convert.py`) | |
@@ -56,4 +59,4 @@
 - `npm run test:render` — `tests/render_unit.mjs`: очистка HTML/Markdown в render.js на враждебных примерах (script, on*, javascript:, svg, mXSS), без студии. Новая дыра в санитайзере → сначала пример сюда.
 - `npm run test:parity` — `tests/render_parity.mjs`: предпросмотр каждого примера из `tests/telegram_parse/captured.json` совпадает с предпросмотром блоков, которые для него вернул настоящий Telegram. Новый пример: добавить в `cases.json` и записать `scripts/capture_telegram_parse.py` (нужен токен и чат, сообщения сразу удаляются). Осознанное расхождение помечается `known_gap` с причиной.
 - `npm run lint` — ESLint для `app/static` и тестов на JS: ловит неопределённые имена и забытые импорты, которые браузер покажет только при клике.
-- Перед изменением: `ruff check . && ruff format --check . && mypy && pytest && npm run lint`.
+- Перед изменением и перед PR: `make check` (ruff, формат, mypy, `lint-imports`, pytest, ESLint, tsc, `test:render`, `test:parity`, `test:shots`).

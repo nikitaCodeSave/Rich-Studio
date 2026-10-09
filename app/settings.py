@@ -38,7 +38,8 @@ class Settings:
     spec_refresh_hours: float = 12.0
     # Bot API accepts uploads up to 50 MB; a self-hosted Bot API server (TG_API_BASE) up to 2000 MB
     max_upload_mb: float = 50.0
-    # MCP tools that post to a channel (publish_post, schedule_post, edit_post); off = agents only draft and preview
+    # MCP tools that post to a channel (publish_post, schedule_post, send_poll, edit_post, reschedule_post,
+    # cancel_scheduled_post); off = agents only draft and preview
     mcp_publish: bool = True
     # a scheduled post later than this (the service or the computer was off) is not sent but marked "missed";
     # 0 = send however late

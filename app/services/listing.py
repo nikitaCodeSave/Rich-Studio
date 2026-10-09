@@ -89,6 +89,18 @@ def thumb(payload: dict) -> str | None:
     return None
 
 
+def button_texts(payload: dict) -> dict[str, str]:
+    """callback_data → the text on its button, so clicks read «🔔 Приду 7» instead of a generated key."""
+    rm = payload.get("reply_markup") if isinstance(payload, dict) else None
+    rows = rm.get("inline_keyboard") if isinstance(rm, dict) else None
+    out: dict[str, str] = {}
+    for row in rows if isinstance(rows, list) else []:
+        for b in row if isinstance(row, list) else []:
+            if isinstance(b, dict) and isinstance(b.get("callback_data"), str) and isinstance(b.get("text"), str):
+                out.setdefault(b["callback_data"], b["text"])
+    return out
+
+
 def link(chat_id, message_id) -> str | None:
     """t.me link to the message: by @username, or t.me/c/... for a numeric -100 id (members only)."""
     if not message_id:
@@ -112,6 +124,7 @@ def list_posts(limit: int = 100, status: str | None = None, chat: str | None = N
         payload = p.pop("payload", None) or {}
         p["title"] = title(payload)
         p["thumb"] = thumb(payload)
+        p["buttons"] = button_texts(payload)
         p["link"] = link(p["chat_id"], p["message_id"])
         p["pinned"] = bool(p.get("pinned"))
         out.append(p)
