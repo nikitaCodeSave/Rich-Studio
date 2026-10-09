@@ -15,6 +15,7 @@ check-py:
 
 check-js:
 	npx eslint .
+	npx tsc -p .
 	npm run --silent test:render
 
 fmt:

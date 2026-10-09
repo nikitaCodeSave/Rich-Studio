@@ -122,7 +122,7 @@ claude mcp add --transport http rich-studio http://localhost:8080/mcp --header "
 pip install -r requirements-dev.txt
 pytest                          # 105 тестов API на подставном Telegram, без сети и токена
 ruff check . && ruff format --check . && mypy   # линтер, формат, типы (настройки в pyproject.toml)
-npm ci && npm run lint          # ESLint для редактора (eslint.config.js); Node нужен только для проверок
+npm ci && npm run lint && npm run typecheck   # ESLint и проверка типов редактора; Node нужен только для проверок
 npm run test:render             # 33 проверки очистки HTML в предпросмотре (Playwright, без студии)
 ```
 

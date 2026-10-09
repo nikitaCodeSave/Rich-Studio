@@ -2,8 +2,10 @@
 import { $ } from './dom.js';
 
 // ---------- state ----------
+/** @type {EditorState} */
 export const S = {
-  spec: null, config: {}, draftId: null, format: 'blocks', mode: 'blocks',
+  // boot() in main.js loads the spec before anything renders, so modules may treat it as present
+  spec: /** @type {SpecSummary} */ (/** @type {unknown} */ (null)), config: {}, draftId: null, format: 'blocks', mode: 'blocks',
   buf: { blocks: [], html: '', markdown: '' }, media: [], flags: {}, keyboard: [], options: {},
   extra: { pin: false, comment: '', commentObj: null, callbacks: {} }, updates: null,
   uploads: [], posts: [], drafts: [], dark: matchMedia('(prefers-color-scheme: dark)').matches, dirty: false,

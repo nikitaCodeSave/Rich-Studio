@@ -7,6 +7,7 @@ import { RT_LABELS, RT_WRAP } from './labels.js';
 import { defaultObject, isNewType, rtTypes, T } from './spec.js';
 
 // ---------- rich text field ----------
+/** @type {{ ed: HTMLElement, sync: () => void } | null} */
 let activeRte = null;
 export const toolbar = h('div', { class: 'toolbar' });
 document.body.append(toolbar);
@@ -64,7 +65,7 @@ addEventListener('scroll', () => { if (activeRte && toolbar.classList.contains('
 
 export function selectionIn(ed) {
   const s = getSelection();
-  if (!s.rangeCount) return null;
+  if (!s || !s.rangeCount) return null;
   const r = s.getRangeAt(0);
   return ed.contains(r.commonAncestorContainer) ? r : null;
 }
@@ -83,7 +84,7 @@ export function wrapSelection(kind, url) {
   const w = wrapEl(kind, url);
   w.append(r.extractContents());
   r.insertNode(w);
-  getSelection().removeAllRanges();
+  getSelection()?.removeAllRanges();
   activeRte.sync();
 }
 

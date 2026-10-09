@@ -42,6 +42,7 @@ export function showPoll() {
   const go = async (scheduled) => {
     let poll;
     try { poll = build(); } catch (e) { toast('Доп. параметры: ' + e.message, 'err'); return; }
+    /** @type {Json} */
     const body = { poll, pin: P.pin, ...target() };
     if (scheduled) { if (!when.value) { toast('Укажите время', 'err'); return; } body.at = Math.floor(new Date(when.value).getTime() / 1000); }
     if (!scheduled && !confirm('Отправить опрос в ' + targetLabel() + '?')) return;

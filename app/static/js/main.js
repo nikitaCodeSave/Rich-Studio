@@ -64,7 +64,7 @@ function bindActions() {
     const sent = S.posts.filter((p) => ['sent', 'scheduled'].includes(p.status));
     const mid = h('input', { type: 'number', placeholder: 'message_id' });
     openDialog([h('h3', { text: 'Заменить опубликованный пост' }),
-      sent.length ? h('ul', { class: 'list' }, sent.slice(0, 15).map((p) => h('li', { onclick: () => { closeDialog(); replacePost(p); } }, h('span', { text: `${p.chat_id} #${p.message_id || '—'} · ${p.status}` }), h('span', { class: 'meta', text: new Date((p.sent_at || p.scheduled_at) * 1000).toLocaleString('ru-RU') })))) : h('p', { class: 'muted', text: 'Через студию ещё ничего не публиковалось.' }),
+      sent.length ? h('ul', { class: 'list' }, sent.slice(0, 15).map((p) => h('li', { onclick: () => { closeDialog(); replacePost(p); } }, h('span', { text: `${p.chat_id} #${p.message_id || '—'} · ${p.status}` }), h('span', { class: 'meta', text: new Date((p.sent_at || p.scheduled_at || p.created_at) * 1000).toLocaleString('ru-RU') })))) : h('p', { class: 'muted', text: 'Через студию ещё ничего не публиковалось.' }),
       h('p', { class: 'muted small', text: 'Или любой пост бота по message_id (видно в ссылке на пост: t.me/канал/ID):' }), mid],
       [h('button', { class: 'ghost', value: 'cancel', text: 'Отмена' }), h('button', { type: 'button', text: 'Заменить по id', onclick: async () => {
         const id = parseInt(mid.value, 10); if (!id) return;

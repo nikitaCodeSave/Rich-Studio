@@ -14,7 +14,7 @@ export async function loadPosts() {
     h('span', { class: 'muted', text: ' · нажатия кнопок, первые комментарии, реакции, итоги опросов' }));
   const label = { sent: 'опубликован', scheduled: 'отложен', failed: 'ошибка', cancelled: 'отменён', deleted: 'удалён', sending: 'отправляется' };
   ul.replaceChildren(...S.posts.map((p) => {
-    const when = p.status === 'scheduled' ? p.scheduled_at : p.sent_at || p.created_at;
+    const when = (p.status === 'scheduled' && p.scheduled_at) || p.sent_at || p.created_at;
     const poll = p.kind === 'poll';
     const sent = p.status === 'sent';
     const pr = p.poll_results;
