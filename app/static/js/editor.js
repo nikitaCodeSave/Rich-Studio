@@ -145,13 +145,10 @@ export function renderOptions() {
 
 // ---------- preview & validation ----------
 export function renderPreview() {
-  const p = $('#preview');
-  p.classList.toggle('tg-dark', dark.value);
-  const post = buildPost();
-  p.replaceChildren(RichRender.render(post, { channelTitle: chats()[0] || S.config.default_chat || 'Канал' }));
-  if (post.comment) {
-    p.append(h('div', { class: 'tg-comment-label', text: 'Первый комментарий в обсуждении' }), RichRender.render({ rich_message: post.comment }, {}));
-  }
+  const p = /** @type {import('./components/rs-preview.js').RsPreview} */ ($('#preview'));
+  p.dark = dark.value;
+  p.channelTitle = chats()[0] || S.config.default_chat || 'Канал';
+  p.post = buildPost();
 }
 
 export const validate = debounce(async () => {
