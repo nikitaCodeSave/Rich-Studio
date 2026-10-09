@@ -31,7 +31,10 @@ def resolve_chat(chat_id) -> int | str:
     return c
 
 
-def targets(chat_id, chat_ids) -> list:
+def targets(chat_id, chat_ids, draft_id: str | None = None) -> list:
+    """Where a post goes: the chats given, else the ones its draft is meant for, else TG_DEFAULT_CHAT."""
+    if not chat_ids and chat_id in (None, "") and draft_id:
+        chat_ids = (store.get_draft(draft_id) or {}).get("chat_ids")
     if chat_ids:
         return [resolve_chat(c) for c in dict.fromkeys(chat_ids)]
     return [resolve_chat(chat_id)]

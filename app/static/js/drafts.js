@@ -1,11 +1,17 @@
 // Drafts list, open, save, new.
 import { api } from './api.js';
+import { showTarget } from './channels.js';
 import { closeDialog, openDialog } from './dialogs.js';
 import { $, h, store, toast } from './dom.js';
 import { draftPayload, flushSave, loadPost } from './editor.js';
 import { followDraft } from './editing.js';
 import { resetHistory } from './history.js';
-import { dirty, editing, S, saveState } from './state.js';
+import { chats, dirty, editing, S, saveState } from './state.js';
+
+// the draft's own channels; one without them goes to the default channel
+function setChannels(ids) {
+  /** @type {HTMLInputElement} */ ($('#chat')).value = ids && ids.length ? ids.join(', ') : S.config.default_chat || '';
+}
 
 // ---------- drafts ----------
 export async function loadDrafts() {
@@ -24,8 +30,10 @@ export async function openDraft(id) {
   const d = await api('GET', '/api/drafts/' + id);
   S.draftId = d.id; S.draftVersion = d.version;
   $('#title').value = d.title || '';
+  setChannels(d.chat_ids);
   await followDraft(d);
   loadPost(d.payload);
+  showTarget();
   resetHistory();
   dirty.value = false; saveState.value = 'сохранено';
   store.set('lastDraft', id);
@@ -41,7 +49,7 @@ export function saveDraft(silent, overwrite) {
 }
 
 async function doSave(silent, overwrite) {
-  const body = { title: $('#title').value.trim() || 'Пост ' + new Date().toLocaleDateString('ru-RU'), post: draftPayload(), post_id: editing.value ? editing.value.id : null };
+  const body = { title: $('#title').value.trim() || 'Пост ' + new Date().toLocaleDateString('ru-RU'), post: draftPayload(), post_id: editing.value ? editing.value.id : null, chat_ids: chats() };
   let d;
   try {
     // the version this tab started from: if another tab or an agent saved since, the server answers 409
@@ -79,7 +87,9 @@ export async function newDraft() {
   await flushSave().catch(() => {});
   S.draftId = null; S.draftVersion = null; editing.value = null;
   $('#title').value = '';
+  setChannels(null);
   loadPost({ rich_message: { blocks: [{ type: 'heading', size: 1, text: 'Заголовок' }, { type: 'paragraph', text: 'Текст поста' }] } });
+  showTarget();
   resetHistory();
   saveState.value = '';
   loadDrafts();

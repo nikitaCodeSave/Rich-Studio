@@ -52,9 +52,15 @@ MIGRATIONS: list[str] = [
          replaced_at integer not null, actor text);
        create index if not exists post_versions_by_post on post_versions(post_id);
        alter table drafts add column post_id text;""",
+    # 6: channels with their titles and forum topics; the channels a draft is meant for
+    """create table if not exists channels(
+         chat_id text primary key, chat_num integer, title text, username text, type text,
+         is_forum integer not null default 0, topics text, can_post integer, rights text,
+         checked_at integer, created_at integer not null);
+       alter table drafts add column chat_ids text;""",
 ]
 
-JSON_FIELDS = ("payload", "reactions", "clicks", "poll_results")
+JSON_FIELDS = ("payload", "reactions", "clicks", "poll_results", "chat_ids", "topics", "rights")
 
 
 @contextlib.contextmanager

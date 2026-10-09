@@ -56,7 +56,7 @@ async def send(
 ) -> dict:
     _not_an_edit_copy(draft_id, as_new)
     report = publisher.validate(post)
-    chats = publisher.targets(chat_id, chat_ids)
+    chats = publisher.targets(chat_id, chat_ids, draft_id)
     if dry_run:
         return dry_run_report(chats, post, report["warnings"])
     results, warnings = await publisher.publish(chats, post, draft_id, actor=actor)
@@ -186,10 +186,10 @@ def schedule(
     report = publisher.validate(post)
     when = publisher.parse_at(at)
     if dry_run:
-        return {**dry_run_report(publisher.targets(chat_id, chat_ids), post, report["warnings"]), "at": when}
+        return {**dry_run_report(publisher.targets(chat_id, chat_ids, draft_id), post, report["warnings"]), "at": when}
     recs = [
         store.add_post(c, post, draft_id, "scheduled", scheduled_at=when, actor=actor)
-        for c in publisher.targets(chat_id, chat_ids)
+        for c in publisher.targets(chat_id, chat_ids, draft_id)
     ]
     return recs[0] if len(recs) == 1 else {**recs[0], "all": recs}
 

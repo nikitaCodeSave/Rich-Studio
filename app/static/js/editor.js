@@ -1,6 +1,7 @@
 // The post being edited: change tracking, build/load, modes, options, preview, validation.
 import { api } from './api.js';
 import { $, $$, clone, debounce, h, toast } from './dom.js';
+import { channelTitle } from './channels.js';
 import { saveDraft } from './drafts.js';
 import { renderBlocksPane } from './forms.js';
 import { recordHistory } from './history.js';
@@ -150,7 +151,7 @@ export function renderPreview() {
   const post = buildPost();
   const fresh = checkParse(post);
   p.dark = dark.value;
-  p.channelTitle = chats()[0] || S.config.default_chat || 'Канал';
+  p.channelTitle = channelTitle(chats()[0] || S.config.default_chat) || 'Канал';
   p.post = fresh && showParsed.value ? { ...post, rich_message: { blocks: fresh.blocks } } : post;
 }
 

@@ -20,11 +20,30 @@ export const S = {
   spec: /** @type {SpecSummary} */ (/** @type {unknown} */ (null)), config: {}, draftId: null, draftVersion: null, conflict: false, format: 'blocks', mode: 'blocks',
   buf: { blocks: [], html: '', markdown: '' }, media: [], flags: {}, keyboard: [], options: {},
   extra: { pin: false, comment: '', commentObj: null, callbacks: {} }, updates: null,
-  uploads: [], posts: [], drafts: [],
+  uploads: [], posts: [], drafts: [], channels: [],
 };
 
 export const chats = () => $('#chat').value.split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean);
 export const chat = () => chats()[0];
 // body fields for one or several channels
 export const target = () => { const c = chats(); return c.length > 1 ? { chat_ids: c } : { chat_id: c[0] }; };
-export const targetLabel = () => { const c = chats(); return c.length ? c.join(', ') : S.config.default_chat; };
+/** @param {string | undefined} id */
+export function channelOf(id) {
+  if (!id) return null;
+  return S.channels.find((c) => c.chat_id === id || String(c.chat_num) === id || (c.username && '@' + c.username === id)) || null;
+}
+/** The channel's title for the preview, the header and confirmations; the id itself while nobody checked it. */
+export function channelTitle(id) {
+  const c = channelOf(id);
+  return (c && c.title) || id || '';
+}
+/** Where the post goes, as the person reads it: titles, and the forum topic when there is one. */
+export const targetLabel = () => {
+  const c = chats();
+  const ids = c.length ? c : [S.config.default_chat].filter(Boolean);
+  if (!ids.length) return '';
+  const tid = S.options.message_thread_id;
+  const one = ids.length === 1 ? channelOf(ids[0]) : null;
+  const topic = tid !== undefined ? ((one && one.topics.find((t) => t.id === tid)) || { name: '№' + tid }).name : '';
+  return ids.map((id) => { const t = channelTitle(id); return t === id ? id : `«${t}» (${id})`; }).join(', ') + (topic ? `, тема «${topic}»` : '');
+};

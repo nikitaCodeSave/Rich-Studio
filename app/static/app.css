@@ -35,6 +35,12 @@ code { background: var(--soft); padding: 0 4px; border-radius: 4px; font-size: 1
 .brand { font-weight: 700; color: var(--accent); margin-right: 4px; }
 .title-input { width: 190px; flex: 0 1 170px; min-width: 100px; font-weight: 600; }
 .chat-input { width: 150px; flex: 0 1 150px; text-overflow: ellipsis; min-width: 100px; }
+.chat-btn { flex: 0 0 auto; max-width: 190px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.topic-select { flex: 0 0 auto; max-width: 150px; font-size: 12px; }
+.channels { display: flex; flex-direction: column; gap: 8px; max-height: 60vh; overflow: auto; }
+.channel { border: 1px solid var(--border); border-radius: 8px; padding: 8px; display: flex; flex-direction: column; gap: 4px; }
+.channel.on { border-color: var(--accent); }
+.channel .topics .row { margin: 2px 0; }
 .top button { padding: 5px 9px; font-size: 13px; white-space: nowrap; }
 .top .grow { min-width: 0; }
 #save-state { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

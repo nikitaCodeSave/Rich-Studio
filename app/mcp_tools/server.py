@@ -24,7 +24,7 @@ import telegram as tg
 from errors import Conflict, NotFound, StudioError
 from mcp_tools import preview_app
 from models import Post
-from services import health, idempotency, media, posts, publisher, updates
+from services import channels, health, idempotency, media, posts, publisher, updates
 
 ACTOR = "mcp"
 
@@ -32,7 +32,8 @@ INSTRUCTIONS = """Rich Studio: write, check, preview and publish rich posts for 
 Order: bot_api_status (what is new; refresh_bot_api if the user asks for the newest) → save_draft (returns validation:
 fix every error and save again) → preview_post with draft_id (the user sees the post as in Telegram right in the chat)
 → publish_post or schedule_post with draft_id and the version preview_post returned, only after the user explicitly confirmed that exact post
-and channel. Pass the post JSON once, to save_draft; later calls take draft_id. validate_post checks without saving.
+and channel. Channels: list_channels gives titles and forum topics; name the channel by its title when asking, pass
+chat_ids to save_draft so the draft (and the editor) knows where it goes. Pass the post JSON once, to save_draft; later calls take draft_id. validate_post checks without saving.
 To continue the user's work: list_drafts → get_draft → save_draft with draft_id and version (the editor shows it).
 To change a published post: list_posts → get_post (read it first) → edit_post (post or draft_id + version; a draft
 with post_id is an edit of that post and can only go out through edit_post); post_history shows earlier versions.
@@ -60,7 +61,10 @@ VersionArg = Annotated[
     int | None,
     Field(description="version из save_draft/get_draft: если черновик успели изменить, будет ошибка, а не другой пост"),
 ]
-ChatArg = Annotated[str | None, Field(description="@канал или числовой id; пусто — канал по умолчанию")]
+ChatArg = Annotated[
+    str | None,
+    Field(description="@канал или числовой id (list_channels); пусто — каналы черновика, иначе канал по умолчанию"),
+]
 ChatsArg = Annotated[list[str] | None, Field(description="Несколько каналов сразу вместо chat_id")]
 KeyArg = Annotated[
     str | None,
@@ -220,6 +224,13 @@ def build() -> MCPServer:
                 description="version из get_draft: если пользователь успел изменить черновик, будет ошибка, а не перезапись"
             ),
         ] = None,
+        chat_ids: Annotated[
+            list[str] | None,
+            Field(
+                description="Каналы черновика (list_channels): редактор откроет его с ними, publish_post без chat_id "
+                "уйдёт туда. Без поля у существующего черновика остаются прежние"
+            ),
+        ] = None,
     ) -> dict:
         """Сохранить черновик и сразу проверить его (validation: ошибки исправить и сохранить снова). Он появится
         в редакторе, предпросмотр по адресу preview_path; дальше preview_post и publish_post принимают draft_id.
@@ -227,8 +238,9 @@ def build() -> MCPServer:
         old = store.get_draft(draft_id) if draft_id else None
         if draft_id and not old:
             raise NotFound(f"черновика {draft_id} нет")
+        chats = chat_ids if chat_ids is not None else (old or {}).get("chat_ids")
         d = store.save_draft(
-            draft_id, title or (old or {}).get("title") or "", _post(post), version, (old or {}).get("post_id")
+            draft_id, title or (old or {}).get("title") or "", _post(post), version, (old or {}).get("post_id"), chats
         )
         if d is None:
             raise Conflict("черновик изменили после get_draft: прочитайте его заново и перенесите правки")
@@ -236,6 +248,7 @@ def build() -> MCPServer:
             "id": d["id"],
             "title": d["title"],
             "version": d["version"],
+            "chat_ids": d["chat_ids"],
             "preview_path": f"/render/draft/{d['id']}",
             "validation": spec.validate_rich_message(spec.current, d["payload"]["rich_message"]),
         }
@@ -306,8 +319,15 @@ def build() -> MCPServer:
 
     @tool(TELEGRAM_READ)
     async def check_channel(chat_id: ChatArg = None) -> dict:
-        """Бот админ канала и может публиковать?"""
-        return await tg.check_chat(publisher.resolve_chat(chat_id))
+        """Бот админ канала и может публиковать? Канал запоминается с названием и появляется в list_channels."""
+        return await channels.check(publisher.resolve_chat(chat_id))
+
+    @tool(READ)
+    async def list_channels() -> list:
+        """Каналы студии: chat_id, название (title), форум ли (is_forum) и его темы (topics: id = message_thread_id),
+        права бота при последней проверке, is_default. Называйте пользователю канал по названию; тема форума
+        задаётся в post.options.message_thread_id."""
+        return channels.listing()
 
     @tool(PUBLIC)
     async def publish_post(
@@ -319,8 +339,9 @@ def build() -> MCPServer:
         draft_id: DraftArg = None,
         version: VersionArg = None,
     ) -> dict:
-        """Опубликовать пост в канал. Только после явного подтверждения пользователя для этого поста и канала.
-        Пост или draft_id с version; опубликованный из черновика пост связан с ним, как из редактора."""
+        """Опубликовать пост в канал. Только после явного подтверждения пользователя для этого поста и канала
+        (назовите канал по названию из list_channels). Пост или draft_id с version; без chat_id пост уходит в каналы
+        черновика, а если их нет, в канал по умолчанию. Опубликованный из черновика пост связан с ним."""
         p, _ = _source(post, draft_id, version, publish=not dry_run)
         if dry_run:
             return await posts.send(p, chat_id, chat_ids, dry_run=True)

@@ -3,19 +3,18 @@
 from fastapi import APIRouter, Body, Depends
 
 import store
-import telegram as tg
 from errors import NotFound
 from models import ButtonsReq, EditReq, PinReq, PollReq, Post, PublishReq, RescheduleReq, ScheduleReq, SendReq
-from services import idempotency, posts, publisher
+from services import channels, idempotency, posts, publisher
 
 from .deps import actor, idempotency_key
 
 router = APIRouter(tags=["telegram"])
 
 
-@router.get("/api/check", summary="Бот админ канала? Есть права на публикацию?")
+@router.get("/api/check", summary="Бот админ канала? Есть права на публикацию? Канал запоминается с названием")
 async def check(chat_id: str | None = None):
-    return await tg.check_chat(publisher.resolve_chat(chat_id))
+    return await channels.check(publisher.resolve_chat(chat_id))
 
 
 @router.post("/api/send", summary="Опубликовать пост (sendRichMessage)")

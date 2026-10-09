@@ -1,6 +1,7 @@
 """SQLite storage for drafts and posts (published or scheduled)."""
 
 from . import backup, idempotency, stats
+from .channels import delete_channel, get_channel, list_channels, save_channel
 from .db import conn, init
 from .drafts import delete_draft, drafts_using, get_draft, list_drafts, save_draft
 from .meta import get_meta, set_meta
@@ -35,6 +36,7 @@ __all__ = [
     "cancel_scheduled",
     "claim_post",
     "conn",
+    "delete_channel",
     "delete_draft",
     "drafts_using",
     "due_posts",
@@ -42,11 +44,13 @@ __all__ = [
     "find_poll",
     "find_post",
     "find_sent",
+    "get_channel",
     "get_draft",
     "get_meta",
     "get_post",
     "idempotency",
     "init",
+    "list_channels",
     "list_drafts",
     "list_posts",
     "list_versions",
@@ -55,6 +59,7 @@ __all__ = [
     "replace_scheduled",
     "reschedule",
     "retry_later",
+    "save_channel",
     "save_draft",
     "set_meta",
     "stats",

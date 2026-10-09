@@ -28,6 +28,8 @@ await page.goto(BASE);
 await page.waitForSelector('.block');
 const state = () => page.evaluate(() => JSON.parse(document.querySelector('#src-json').value));
 const showJson = () => page.click('#mode-tabs [data-mode=json]');
+// the draft's channels live in a hidden field; the header button and the «Каналы» dialog edit it
+const setChat = (v) => page.evaluate((x) => { const i = /** @type {HTMLInputElement} */ (document.querySelector('#chat')); i.value = x; i.dispatchEvent(new Event('input')); }, v);
 const applyJson = async (post) => { await showJson(); await page.fill('#src-json', JSON.stringify(post)); await page.click('#json-apply'); await page.waitForTimeout(400); };
 
 // 1. hostile HTML does not execute and is cleaned up in the preview
@@ -148,12 +150,12 @@ check('Render page draws under CSP', rpErrors.length === 0 && await rp.locator('
 
 // 9. several channels from the header field
 await applyJson({ rich_message: { html: '<p>Кросспост</p>' } });
-await page.fill('#chat', '@chan_a, @chan_b');
+await setChat('@chan_a, @chan_b');
 await page.click('#btn-publish');
 await page.waitForTimeout(800);
 const sentTo = (await mockLog()).filter((c) => c.method === 'sendRichMessage').slice(-2).map((c) => c.body.chat_id);
 check('Publishing to two channels from one draft', JSON.stringify(sentTo) === '["@chan_a","@chan_b"]', JSON.stringify(sentTo));
-await page.fill('#chat', '@my_channel');
+await setChat('@my_channel');
 
 // 10. pin + first comment + callback answer, then a click arrives through getUpdates
 await applyJson({ rich_message: { html: '<p>Голосуем</p>' }, reply_markup: { inline_keyboard: [[{ text: '👍', callback_data: 'like' }]] } });
@@ -448,6 +450,37 @@ check('Header fits one row at 1440px', Math.abs(header.pub - header.brand) < 12 
     /так же/.test(same) && showsTelegram === 1 && visual === 1 && Array.isArray(blocks) && blocks.some((b) => b.type === 'mathematical_expression') && sourceKept === captured['md-math'].source
       && /изменился/.test(stale) && /иначе/.test(diff) && /Telegram:/.test(diff),
     JSON.stringify({ same, showsTelegram, visual, blocks, sourceKept, stale, diff }).slice(0, 900));
+}
+
+// 8. channels: a checked channel shows its title, the draft remembers its channel
+{
+  await page.click('#btn-new');
+  await page.waitForTimeout(400);
+  await page.fill('#title', 'Канал черновика');
+  await page.click('#btn-check');
+  await page.locator('dialog[open] input[placeholder="@канал, @другой"]').fill('@kept_chan');
+  await page.keyboard.press('Tab');
+  await page.waitForTimeout(500);
+  await page.locator('dialog[open] .channel', { hasText: '@kept_chan' }).locator('button', { hasText: 'Проверить' }).click();
+  await page.waitForTimeout(600);
+  const dialogText = await page.locator('dialog[open] .channels').textContent();
+  await page.keyboard.press('Escape');
+  await page.click('#btn-save');
+  await page.waitForTimeout(500);
+  const keptId = await page.evaluate(() => localStorage.getItem('rs.lastDraft'));
+  const header = await page.evaluate(() => document.querySelector('#preview').shadowRoot.textContent);
+  const label = await page.locator('#btn-check').textContent();
+  await page.click('#btn-new');
+  await page.waitForTimeout(300);
+  const fresh = await page.inputValue('#chat');
+  await page.click('#side-tabs [data-tab=drafts]');
+  await page.locator('#drafts li', { hasText: 'Канал черновика' }).first().click();
+  await page.waitForTimeout(500);
+  const reopened = await page.inputValue('#chat');
+  const stored = await page.evaluate((id) => fetch('/api/drafts/' + JSON.parse(id)).then((r) => r.json()), keptId);
+  check('A checked channel shows its title and the draft keeps its channel',
+    /Тест/.test(dialogText) && /публикация/.test(dialogText) && /Тест/.test(header) && label === 'Тест ▾' && fresh === '@test' && reopened === '@kept_chan' && JSON.stringify(stored.chat_ids) === '["@kept_chan"]',
+    JSON.stringify({ dialogText: dialogText.slice(0, 120), label, fresh, reopened, stored: stored.chat_ids }));
 }
 
 check('No CSP violations or JS errors in the editor', errors.length === 0 && csp.length === 0, [...errors, ...csp].join(' | '));

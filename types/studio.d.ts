@@ -77,6 +77,23 @@ interface DraftRow {
   updated_at: number;
   /** the post this draft edits, if any */
   post_id: string | null;
+  /** the channels the draft is meant for; null: the default channel */
+  chat_ids: string[] | null;
+}
+
+/** GET /api/channels item */
+interface Channel {
+  chat_id: string;
+  chat_num?: number | null;
+  title: string | null;
+  username?: string | null;
+  type?: string | null;
+  is_forum: boolean;
+  topics: { id: number; name: string }[];
+  can_post?: number | null;
+  rights?: Json | null;
+  checked_at: number | null;
+  is_default: boolean;
 }
 
 /** GET /api/posts/{id}/versions item */
@@ -159,6 +176,7 @@ interface EditorState {
   uploads: Upload[];
   posts: PostRow[];
   drafts: DraftRow[];
+  channels: Channel[];
 }
 
 /** one entry of GET /api/health `checks` */

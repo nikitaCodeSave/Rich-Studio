@@ -18,6 +18,7 @@ EXPECTED_TOOLS = {
     "list_drafts",
     "send_preview_to_me",
     "check_channel",
+    "list_channels",
     "publish_post",
     "schedule_post",
     "edit_post",
@@ -86,6 +87,18 @@ def test_publish_is_idempotent_and_marked_mcp(client, tg):
     assert len([c for c in tg.calls if c["method"] == "sendRichMessage"]) == 1
     [p] = store.list_posts()
     assert p["actor"] == "mcp" and p["status"] == "sent"
+
+
+def test_draft_channel_from_save_draft_is_used_by_publish(client, tg):
+    _, d, _ = call(client, "save_draft", post=BLOCKS_POST, title="Анонс", chat_ids=["@agent_chan"])
+    assert d["chat_ids"] == ["@agent_chan"]
+    _, again, _ = call(client, "save_draft", post=BLOCKS_POST, draft_id=d["id"], version=d["version"])
+    assert again["chat_ids"] == ["@agent_chan"]  # kept when not passed
+    res, _, _ = call(client, "publish_post", draft_id=d["id"], version=again["version"])
+    assert not res.get("isError"), res
+    assert tg.last("sendRichMessage")["body"]["chat_id"] == "@agent_chan"
+    call(client, "check_channel", chat_id="@agent_chan")
+    assert [c["title"] for c in call_list(client, "list_channels") if c["chat_id"] == "@agent_chan"] == ["Тест"]
 
 
 def test_publish_dry_run_and_validation_errors(client, tg):
