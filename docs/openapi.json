@@ -46,8 +46,51 @@
     "title": "ButtonsReq",
     "type": "object"
    },
+   "ChannelReq": {
+    "properties": {
+     "chat_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "integer"
+       }
+      ],
+      "description": "@канал или числовой id",
+      "title": "Chat Id"
+     }
+    },
+    "required": [
+     "chat_id"
+    ],
+    "title": "ChannelReq",
+    "type": "object"
+   },
    "DraftReq": {
     "properties": {
+     "chat_ids": {
+      "anyOf": [
+       {
+        "items": {
+         "anyOf": [
+          {
+           "type": "string"
+          },
+          {
+           "type": "integer"
+          }
+         ]
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Каналы, для которых черновик: публикация из него без chat_id уходит туда. Без поля остаются прежние, [] — канал по умолчанию",
+      "title": "Chat Ids"
+     },
      "post": {
       "additionalProperties": true,
       "title": "Post",
@@ -537,6 +580,41 @@
     "title": "SendReq",
     "type": "object"
    },
+   "Topic": {
+    "properties": {
+     "id": {
+      "description": "message_thread_id темы: число в ссылке t.me/c/<канал>/<тема>/<сообщение>",
+      "title": "Id",
+      "type": "integer"
+     },
+     "name": {
+      "default": "",
+      "title": "Name",
+      "type": "string"
+     }
+    },
+    "required": [
+     "id"
+    ],
+    "title": "Topic",
+    "type": "object"
+   },
+   "TopicsReq": {
+    "properties": {
+     "topics": {
+      "items": {
+       "$ref": "#/components/schemas/Topic"
+      },
+      "title": "Topics",
+      "type": "array"
+     }
+    },
+    "required": [
+     "topics"
+    ],
+    "title": "TopicsReq",
+    "type": "object"
+   },
    "ValidationError": {
     "properties": {
      "ctx": {
@@ -586,6 +664,152 @@
  },
  "openapi": "3.1.0",
  "paths": {
+  "/api/channels": {
+   "get": {
+    "operationId": "list_channels_api_channels_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Каналы студии с названиями, темами форума и правами бота",
+    "tags": [
+     "channels"
+    ]
+   },
+   "post": {
+    "operationId": "check_channel_api_channels_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ChannelReq"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Добавить канал или проверить его заново: название, форум, права бота",
+    "tags": [
+     "channels"
+    ]
+   }
+  },
+  "/api/channels/{chat_id}": {
+   "delete": {
+    "operationId": "remove_channel_api_channels__chat_id__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "chat_id",
+      "required": true,
+      "schema": {
+       "title": "Chat Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Убрать канал из списка (в Telegram ничего не меняется)",
+    "tags": [
+     "channels"
+    ]
+   }
+  },
+  "/api/channels/{chat_id}/topics": {
+   "put": {
+    "operationId": "set_topics_api_channels__chat_id__topics_put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "chat_id",
+      "required": true,
+      "schema": {
+       "title": "Chat Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/TopicsReq"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Темы форума вручную: Bot API не умеет их перечислять",
+    "tags": [
+     "channels"
+    ]
+   }
+  },
   "/api/check": {
    "get": {
     "operationId": "check_api_check_get",
@@ -627,7 +851,7 @@
       "description": "Validation Error"
      }
     },
-    "summary": "Бот админ канала? Есть права на публикацию?",
+    "summary": "Бот админ канала? Есть права на публикацию? Канал запоминается с названием",
     "tags": [
      "telegram"
     ]

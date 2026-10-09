@@ -5,7 +5,7 @@ import { autosave, buildPost, callbacksFor, flushSave, loadPost, updatesLabel } 
 import { resetHistory } from './history.js';
 import { editPost, reschedulePost } from './editing.js';
 import { STATUS_LABELS } from './labels.js';
-import { dirty, editing, S, saveState } from './state.js';
+import { chatLabel, dirty, editing, S, saveState } from './state.js';
 
 // ---------- posts ----------
 export async function loadPosts() {
@@ -35,7 +35,7 @@ export async function loadPosts() {
       h('div', { class: 'post-head' },
         p.thumb ? h('img', { class: 'thumb', src: p.thumb, alt: '', loading: 'lazy' }) : null,
         h('span', { class: 'post-title' + (p.title ? '' : ' muted'), text: p.title || 'Без текста' })),
-      h('span', { class: 'meta' }, h('span', { class: 'status ' + p.status, text: STATUS_LABELS[p.status] || p.status }), poll ? h('b', { text: 'опрос' }) : null, p.actor && p.actor !== 'ui' ? h('span', { class: 'actor', title: 'Кто отправил: не редактор, а API или агент', text: p.actor }) : null, p.chat_id,
+      h('span', { class: 'meta' }, h('span', { class: 'status ' + p.status, text: STATUS_LABELS[p.status] || p.status }), poll ? h('b', { text: 'опрос' }) : null, p.actor && p.actor !== 'ui' ? h('span', { class: 'actor', title: 'Кто отправил: не редактор, а API или агент', text: p.actor }) : null, h('span', { class: 'chan', title: 'Канал', text: chatLabel(p.chat_id) }),
         p.link ? h('a', { href: p.link, target: '_blank', rel: 'noopener', title: 'Открыть в Telegram', text: num }) : num),
       h('span', { class: 'meta', text: new Date(when * 1000).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' }) }),
       p.error ? h('span', { class: 'small post-error', text: (p.status === 'failed' ? 'Не вышел: ' : '') + p.error }) : null,

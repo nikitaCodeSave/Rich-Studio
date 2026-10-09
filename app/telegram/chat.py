@@ -16,6 +16,7 @@ async def check_chat(chat_id) -> dict:
             "title": chat.get("title"),
             "type": chat.get("type"),
             "username": chat.get("username"),
+            "is_forum": bool(chat.get("is_forum")),
         },
         "status": member.get("status"),
         "rights": rights,
