@@ -91,7 +91,7 @@ async def call(method: str, params: dict | None = None, timeout: float = 60) -> 
         ms = int((time.monotonic() - started) * 1000)
         text = e.description if isinstance(e, TelegramError) else str(e)
         code = e.code if isinstance(e, TelegramError) else None
-        metrics.telegram_call(method, False, text, None if method in QUIET else ms)
+        metrics.telegram_call(method, False, text, None if method in QUIET else ms, code)
         log.warning(
             "%s failed: %s",
             method,

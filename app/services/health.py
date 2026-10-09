@@ -59,6 +59,15 @@ def disk() -> dict:
     return _check("disk", "ok", text)
 
 
+# 400 is Telegram refusing that one request (a field in the post, a late button click): the post shows it and the
+# "posts" check counts it. Only these 400s are about the studio's setup, like 401/403, 429, 5xx and no connection.
+SETUP_400 = ("chat not found", "rights", "admin")
+
+
+def _about_the_studio(err: dict) -> bool:
+    return err.get("code") != 400 or any(s in err["error"].lower() for s in SETUP_400)
+
+
 def telegram() -> dict:
     cfg = settings.get()
     if not cfg.bot_token:
@@ -75,7 +84,7 @@ def telegram() -> dict:
             "этого бота читает другой процесс или стоит вебхук: остановите его или задайте TG_UPDATES=off",
             details=details,
         )
-    if err and (last["ok_at"] is None or err["at"] > last["ok_at"]):
+    if err and _about_the_studio(err) and (last["ok_at"] is None or err["at"] > last["ok_at"]):
         return _check(
             "telegram",
             "warn",

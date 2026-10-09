@@ -576,3 +576,28 @@ def test_post_being_sent_right_now_is_not_a_problem(client, monkeypatch):
     monkeypatch.setattr(scheduler, "in_flight", set())
     assert flagged()
     store.update_post(p["id"], status="failed", error="test")
+
+
+def test_telegram_check_ignores_a_rejected_post_but_not_a_setup_problem(client, monkeypatch):
+    """A 400 about the post itself (a bad field, a late button click) is shown on the post, not as a studio problem."""
+    import asyncio
+
+    from telegram import client as tgc
+
+    async def refuse(method, params, timeout):
+        raise tgc.TelegramError(refusal, 400)
+
+    monkeypatch.setattr(tgc, "_call", refuse)
+    for refusal, status in (
+        ("Bad Request: poll members_only is available only in channels", "ok"),
+        ("Bad Request: query is too old and response timeout expired", "ok"),
+        ("Bad Request: chat not found", "warn"),
+        ("Bad Request: not enough rights to send messages", "warn"),
+    ):
+        metrics.reset()
+        with pytest.raises(tgc.TelegramError):
+            asyncio.run(tgc.call("sendRichMessage", {"chat_id": "@c"}))
+        assert health.telegram()["status"] == status, refusal
+    metrics.reset()
+    metrics.telegram_call("sendRichMessage", False, "Forbidden: bot was kicked", code=403)
+    assert health.telegram()["status"] == "warn"

@@ -64,7 +64,9 @@ def beat(loop: str, interval: float, error: str | None = None) -> None:
         entry["last_error"] = {"at": int(now), "error": error[:300]}
 
 
-def telegram_call(method: str, ok: bool, error: str | None = None, ms: int | None = None) -> None:
+def telegram_call(
+    method: str, ok: bool, error: str | None = None, ms: int | None = None, code: int | None = None
+) -> None:
     method = _key(telegram_ms, method)
     telegram[f"{method} {'ok' if ok else 'error'}"] += 1
     if ms is not None:
@@ -72,7 +74,7 @@ def telegram_call(method: str, ok: bool, error: str | None = None, ms: int | Non
     if ok:
         telegram_last["ok_at"] = time.time()
     else:
-        telegram_last["error"] = {"at": time.time(), "method": method, "error": (error or "")[:300]}
+        telegram_last["error"] = {"at": time.time(), "method": method, "error": (error or "")[:300], "code": code}
 
 
 def problem(level: str, logger: str, message: str, request_id: str | None = None, event: str | None = None) -> None:
