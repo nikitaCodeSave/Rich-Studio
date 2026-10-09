@@ -84,7 +84,7 @@ async def call(method: str, params: dict | None = None, timeout: float = 60) -> 
         ms = int((time.monotonic() - started) * 1000)
         text = e.description if isinstance(e, TelegramError) else str(e)
         code = e.code if isinstance(e, TelegramError) else None
-        metrics.telegram_call(method, False, text)
+        metrics.telegram_call(method, False, text, None if method in QUIET else ms)
         log.warning(
             "%s failed: %s",
             method,
@@ -92,10 +92,12 @@ async def call(method: str, params: dict | None = None, timeout: float = 60) -> 
             extra={"event": "telegram.error", "method": method, "ms": ms, "code": code, "chat_id": chat},
         )
         raise
-    if method not in QUIET:
-        ms = int((time.monotonic() - started) * 1000)
+    ms = int((time.monotonic() - started) * 1000)
+    if method in QUIET:  # a long poll lasts as long as Telegram has nothing to say: not a latency
+        metrics.telegram_call(method, True)
+    else:
         log.info("%s ok", method, extra={"event": "telegram.call", "method": method, "ms": ms, "chat_id": chat})
-    metrics.telegram_call(method, True)
+        metrics.telegram_call(method, True, ms=ms)
     return result
 
 

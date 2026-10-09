@@ -5,12 +5,16 @@ logger, msg and the fields passed as `extra=`. Rotation keeps at most LOG_MAX_MB
 The bot token never reaches either output: every line is scrubbed after formatting.
 """
 
+import contextlib
+import contextvars
 import json
 import logging
 import logging.handlers
 import re
+import secrets
 import time
 from collections import deque
+from collections.abc import Iterator
 from pathlib import Path
 
 import metrics
@@ -27,6 +31,42 @@ LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 
 _installed: list[logging.Handler] = []
 _file: Path | None = None
+
+
+# One id per unit of work (an HTTP request, a round of a background loop), on every line it logs: Bot API
+# calls, errors and the access line of the same request share it, and `GET /api/logs?q=<id>` shows them together.
+request_id: contextvars.ContextVar[str | None] = contextvars.ContextVar("request_id", default=None)
+_ID = re.compile(r"[A-Za-z0-9._:-]{1,64}")
+_TRACEPARENT = re.compile(r"00-([0-9a-f]{32})-[0-9a-f]{16}-[0-9a-f]{2}")
+
+
+def new_id(prefix: str = "") -> str:
+    return prefix + secrets.token_hex(8)
+
+
+def incoming_id(x_request_id: str | None, traceparent: str | None) -> str:
+    """The caller's id if it sent a sane one (X-Request-ID, or the trace id of a W3C traceparent), else a new one."""
+    if x_request_id and _ID.fullmatch(x_request_id):
+        return x_request_id
+    if traceparent and (m := _TRACEPARENT.fullmatch(traceparent.strip().lower())) and set(m.group(1)) != {"0"}:
+        return m.group(1)
+    return new_id()
+
+
+@contextlib.contextmanager
+def bind(rid: str) -> Iterator[str]:
+    token = request_id.set(rid)
+    try:
+        yield rid
+    finally:
+        request_id.reset(token)
+
+
+class _WithRequestId(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        if not hasattr(record, "request_id") and (rid := request_id.get()):
+            record.request_id = rid
+        return True
 
 
 def scrub(text: str) -> str:
@@ -59,7 +99,7 @@ class _CountProblems(logging.Handler):
         super().__init__(logging.WARNING)
 
     def emit(self, record: logging.LogRecord) -> None:
-        metrics.problem(record.levelname, record.name, scrub(record.getMessage()))
+        metrics.problem(record.levelname, record.name, scrub(record.getMessage()), getattr(record, "request_id", None))
 
 
 class _Forward(logging.Handler):
@@ -106,6 +146,7 @@ def setup() -> Path | None:
             handlers.append(f)
             _file = path
     for h in handlers:
+        h.addFilter(_WithRequestId())  # handler filters see records of child loggers too
         root.addHandler(h)
         _installed.append(h)
     # httpx logs every request at INFO (getUpdates every 25 s); our telegram.call lines already say it all

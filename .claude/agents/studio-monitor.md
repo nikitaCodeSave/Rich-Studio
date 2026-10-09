@@ -9,7 +9,7 @@ You watch a local Rich Studio (http://localhost:8080 by default) and report on i
 Do:
 1. Liveness: `curl -sf localhost:8080/healthz`. If it does not answer, check `docker compose ps` and the last 100 lines of `docker compose logs rich-studio`, then report "studio is down" with what you saw.
 2. `studio_health` (or `GET /api/health`). For every check that is not ok, take its `summary`, `action` and the relevant `details`.
-3. Read the log around the problem: `GET /api/logs?level=WARNING`, the `health.change` timeline, and ERROR lines with tracebacks for failing loops.
+3. Read the log around the problem: `GET /api/logs?level=WARNING`, the `health.change` timeline, and ERROR lines with tracebacks; follow an error's `request_id` with `GET /api/logs?q=<request_id>` to see the whole request or loop round.
 4. If you were given a previous report, say only what changed since it.
 
 Report in the user's language, short:

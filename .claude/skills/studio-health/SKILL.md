@@ -16,17 +16,20 @@ With the `rich-studio` MCP tools: `studio_health`, then `studio_logs` (default l
 ```bash
 S=localhost:8080
 curl -sf $S/healthz || echo "studio is not running"                 # liveness, no key needed
+curl -s $S/readyz                                                      # readiness: 503 + names of failing checks
 curl -s $S/api/health | jq '{status, problems}'                        # the verdict: ok | warn | fail and why
 curl -s $S/api/health | jq '.checks[] | select(.status!="ok")'         # each problem with `action` and details
 curl -s "$S/api/logs?level=WARNING&limit=50" | jq -c '.lines[] | {ts, logger, msg, event}'
 curl -s "$S/api/logs?level=INFO&q=health.change" | jq -c '.lines[] | {ts, check, status, msg}'   # timeline of incidents
 curl -s "$S/api/logs?logger=rich-studio.telegram&level=WARNING" | jq -c '.lines[]'               # Bot API failures
-curl -s "$S/api/logs?level=ERROR&limit=5" | jq -r '.lines[] | .msg, .exc'                         # tracebacks
+curl -s "$S/api/logs?level=ERROR&limit=5" | jq -r '.lines[] | .request_id, .msg, .exc'            # tracebacks
+curl -s "$S/api/logs?q=<request_id>" | jq -c '.lines[]'          # everything one request or loop round did
+curl -s $S/api/health | jq '.metrics | {http_latency, telegram_latency}'   # p50/p95/max per endpoint and Bot API method
 ```
 
 If the API does not answer but Docker is there: `docker compose ps` and `docker compose logs --tail 100 rich-studio`. The JSON log is also on disk: `./data/logs/studio.log` (rotated copies `.1`, `.2`, …).
 
-Log lines are JSON: `ts`, `level`, `logger`, `msg`, plus the event fields. Events: `http` (method, path, status, ms, client), `telegram.call` / `telegram.error` (method, ms, code, chat_id), `health.change` (check, status, action), `cleanup`, `backup.daily`, `start`, `stop`. The log never contains the bot token or post text.
+Log lines are JSON: `ts`, `level`, `logger`, `msg`, plus the event fields. Events: `http` (method, path, status, ms, client), `telegram.call` / `telegram.error` (method, ms, code, chat_id), `health.change` (check, status, action), `cleanup`, `backup.daily`, `start`, `stop`. Every line logged during a request or a background round has `request_id` (also the `X-Request-ID` response header; `scheduler-…`, `spec-…`, `backup-…`, `housekeeping-…` for loop rounds, `update-<update_id>` for Telegram updates). Follow an error to everything around it with `q=<request_id>`. When you call the studio yourself, send your own `X-Request-ID` to find your calls later. The log never contains the bot token or post text.
 
 ## 2. What each check means
 
@@ -50,7 +53,7 @@ Log lines are JSON: `ts`, `level`, `logger`, `msg`, plus the event fields. Event
 - `warn`: group by what the user has to do (look at the channel, reschedule, free space) and what can wait.
 - `ok` with `problems: []`: say so in one line; do not dump the report.
 - Look at the `health.change` timeline to say since when something is wrong and whether it already recovered.
-- Counters in `metrics` (requests by 2xx/4xx/5xx, Bot API calls ok/error by method) are since the process start; compare with `uptime_s`.
+- Counters in `metrics` (requests by 2xx/4xx/5xx, Bot API calls ok/error by method) are since the process start; compare with `uptime_s`. A `p95_ms` of a Bot API method far above its `p50_ms` means a slow or flaky network to Telegram, not a studio bug.
 
 ## 4. Rules
 

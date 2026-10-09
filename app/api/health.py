@@ -3,6 +3,7 @@
 from typing import Literal
 
 from fastapi import APIRouter, Query
+from fastapi.responses import JSONResponse
 
 import logs
 from services import health
@@ -16,6 +17,13 @@ router = APIRouter(tags=["service"])
 )
 def health_report():
     return health.report()
+
+
+@router.get("/readyz", include_in_schema=False)
+def ready():
+    """Readiness, unlike /healthz (liveness): 503 while any check fails. Public, so it says only which checks."""
+    failing = [c["name"] for c in health.report()["checks"] if c["status"] == "fail"]
+    return JSONResponse({"ready": not failing, "failing": failing}, status_code=503 if failing else 200)
 
 
 @router.get("/api/logs", summary="Журнал студии (строки JSON), новые в конце; без токена и текста постов")

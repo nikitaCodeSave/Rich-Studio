@@ -95,6 +95,102 @@ def test_logs_endpoint_filters_by_level_logger_and_text(client, log_file):
     assert client.get("/api/logs?level=LOUD").status_code == 422
 
 
+# ---------- one id per unit of work ----------
+def test_request_id_ties_together_every_line_of_a_request(client, tg, log_file):
+    r = client.post("/api/send", json={"post": BLOCKS_POST})
+    rid = r.headers["X-Request-ID"]
+    assert re.fullmatch(r"[0-9a-f]{16}", rid)
+    lines = client.get("/api/logs", params={"q": rid}).json()["lines"]
+    assert {x["event"] for x in lines} == {"telegram.call", "http"}
+    assert all(x["request_id"] == rid for x in lines)
+    assert client.get("/api/drafts").headers["X-Request-ID"] != rid  # a new one per request
+
+
+def test_callers_id_is_kept_and_a_traceparent_is_understood(client, log_file):
+    assert client.get("/api/drafts", headers={"X-Request-ID": "agent-42"}).headers["X-Request-ID"] == "agent-42"
+    trace = "4bf92f3577b34da6a3ce929d0e0e4736"
+    tp = f"00-{trace}-00f067aa0ba902b7-01"
+    assert client.get("/api/drafts", headers={"traceparent": tp}).headers["X-Request-ID"] == trace
+    bad = client.get("/api/drafts", headers={"X-Request-ID": "x" * 65 + "\n"}).headers["X-Request-ID"]
+    assert re.fullmatch(r"[0-9a-f]{16}", bad)  # never echo an unsafe header back
+    zero = "00-" + "0" * 32 + "-00f067aa0ba902b7-01"
+    assert client.get("/api/drafts", headers={"traceparent": zero}).headers["X-Request-ID"] != "0" * 32
+
+
+def test_background_rounds_and_updates_get_their_own_id(client, tg, log_file):
+    import asyncio
+
+    from services import scheduler
+
+    pid = store.add_post("@test_channel", BLOCKS_POST, status="scheduled", scheduled_at=int(time.time()) - 5)["id"]
+    with logs.bind(logs.new_id("scheduler-")):
+        asyncio.run(scheduler.run_due_posts())
+    call = next(x for x in logs.read() if x.get("event") == "telegram.call")
+    assert call["request_id"].startswith("scheduler-") and store.get_post(pid)["status"] == "sent"
+    logging.getLogger("rich-studio.updates").warning("outside any request")
+    assert "request_id" not in logs.read("WARNING")[-1]
+
+
+def test_each_incoming_update_is_logged_under_its_update_id(client, tg, log_file, monkeypatch):
+    import asyncio
+
+    from services import updates
+
+    rounds = iter([[{"update_id": 7001, "message": {}}]])
+
+    async def get_updates(method, params=None, timeout=60):
+        try:
+            return next(rounds)
+        except StopIteration:
+            raise asyncio.CancelledError from None  # stop the loop after one round
+
+    async def boom(u):
+        raise RuntimeError("bad update")
+
+    monkeypatch.setattr(updates.tg, "call", get_updates)
+    monkeypatch.setattr(updates, "handle_update", boom)
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(updates.loop())
+    err = next(x for x in logs.read("ERROR") if "update 7001 failed" in x["msg"])
+    assert err["request_id"] == "update-7001" and "bad update" in err["exc"]
+
+
+def test_problems_in_the_report_point_to_their_request(client, log_file, monkeypatch):
+    from errors import StudioError
+    from services import posts
+
+    async def broken(*a, **kw):
+        logging.getLogger("rich-studio.test").error("send broke")
+        raise StudioError("нет")
+
+    monkeypatch.setattr(posts, "send", broken)
+    r = client.post("/api/send", json={"post": BLOCKS_POST}, headers={"X-Request-ID": "trace-me"})
+    assert r.status_code == 400 and r.headers["X-Request-ID"] == "trace-me"
+    err = next(r for r in health.report()["recent_problems"] if r["message"] == "send broke")
+    assert err["request_id"] == "trace-me"
+
+
+def test_latency_is_kept_per_endpoint_template(client, tg, log_file):
+    for _ in range(3):
+        pid = client.post("/api/send", json={"post": BLOCKS_POST}).json()["post"]["id"]
+    client.get(f"/api/posts/{pid}/versions")
+    lat = health.report()["metrics"]["http_latency"]
+    assert lat["POST /api/send"]["n"] == 3
+    assert "GET /api/posts/{pid}/versions" in lat and not any(pid in k for k in lat)
+    tl = health.report()["metrics"]["telegram_latency"]["sendRichMessage"]
+    assert tl["n"] == 3 and tl["p50_ms"] <= tl["p95_ms"] <= tl["max_ms"]
+
+
+def test_readiness_is_public_and_says_only_which_checks_fail(client, log_file, monkeypatch):
+    monkeypatch.setattr(settings.get(), "api_key", "secret")
+    r = client.get("/readyz")
+    assert r.status_code == 200 and r.json() == {"ready": True, "failing": []}
+    monkeypatch.setitem(health.CHECKS, "disk", lambda: health._check("disk", "fail", "свободно 0.1 ГБ"))
+    r = client.get("/readyz")
+    assert r.status_code == 503 and r.json() == {"ready": False, "failing": ["disk"]}
+    assert client.get("/api/health").status_code == 401  # the details stay behind the key
+
+
 # ---------- health ----------
 def test_health_of_a_fresh_studio_is_ok_where_it_matters(client, log_file):
     rep = client.get("/api/health").json()
@@ -102,7 +198,14 @@ def test_health_of_a_fresh_studio_is_ok_where_it_matters(client, log_file):
     for name in ("database", "telegram", "scheduler", "posts", "sends", "storage", "log", "loops"):
         assert _check(rep, name)["status"] == "ok", _check(rep, name)
     assert rep["status"] in ("ok", "warn") and isinstance(rep["problems"], list)
-    assert set(rep["metrics"]) == {"uptime_s", "requests", "telegram_calls", "log_problems"}
+    assert set(rep["metrics"]) == {
+        "uptime_s",
+        "requests",
+        "telegram_calls",
+        "log_problems",
+        "http_latency",
+        "telegram_latency",
+    }
 
 
 def test_health_names_what_needs_a_person_and_what_to_do(client, log_file):

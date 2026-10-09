@@ -157,7 +157,8 @@ docker compose up -d --build
 | `POST /api/poll`, `POST /api/posts/{id}/stop-poll` | опрос или викторина (сразу или с `at`), закрыть опрос |
 | `GET /api/updates` | состояние приёма событий от Telegram |
 | `GET /api/health` | состояние студии: проверки `ok/warn/fail` с подсказкой, что делать, счётчики, последние ошибки |
-| `GET /api/logs?level=&limit=&since=&logger=&q=` | журнал студии (строки JSON) с фильтрами |
+| `GET /api/logs?level=&limit=&since=&logger=&q=` | журнал студии (строки JSON) с фильтрами; `q=<request_id>` — всё, что сделал один запрос |
+| `GET /healthz`, `GET /readyz` | жив ли процесс; готова ли студия работать (503 и имена сбойных проверок), обе без ключа |
 | `GET /api/export` | бэкап: zip с базой и файлами |
 | `POST /api/media`, `GET /api/media`, `POST /api/media/cleanup`, `DELETE /api/media/{name}` | загрузка файлов; `used` у файла, удаление всех ненужных; удаление файла, нужного отложенному посту или черновику, даёт 409 (`?force=true` удаляет всё равно) |
 | `POST /api/raw/{method}` | любой метод Bot API как есть |
@@ -268,7 +269,7 @@ claude mcp add --transport http rich-studio http://localhost:8080/mcp --header "
 
 Студия следит за собой сама. Журнал пишется в `./data/logs/studio.log` строками JSON (запросы к API, вызовы Bot API, сбои, смены состояния) и не растёт больше 20 МБ: файл до `LOG_MAX_MB` (5) и `LOG_FILES` (3) старых копий. Вывод контейнера ограничен 3 × 10 МБ в `docker-compose.yml`. Токена и текста постов в журнале нет.
 
-`GET /api/health` отвечает, что сломано и что делать: база, место на диске, связь с Telegram, фоновые циклы, застрявшая очередь, не ушедшие и «могли уйти» посты, бэкап, размер данных, ошибки за час. Раз в 5 минут студия сравнивает отчёт с прошлым и пишет каждую смену в журнал, так что видно, когда сломалось и когда починилось.
+`GET /api/health` отвечает, что сломано и что делать: база, место на диске, связь с Telegram, фоновые циклы, застрявшая очередь, не ушедшие и «могли уйти» посты, бэкап, размер данных, ошибки за час. Раз в 5 минут студия сравнивает отчёт с прошлым и пишет каждую смену в журнал, так что видно, когда сломалось и когда починилось. У каждого ответа есть заголовок `X-Request-ID`, и этот же id стоит на всех строках журнала того запроса (можно прислать свой или `traceparent`). Задержки p50/p95 по каждому эндпоинту и методу Bot API — в `metrics` отчёта.
 
 Для Claude Code: skill `studio-health` объясняет каждую проверку, субагент `studio-monitor` только читает и коротко докладывает (попросите «проверь студию» или запустите `/loop 30m` с ним). Через MCP то же дают `studio_health` и `studio_logs`. Устройство и планы: [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md).
 
@@ -289,7 +290,7 @@ claude mcp add --transport http rich-studio http://localhost:8080/mcp --header "
 
 ```
 pip install -r requirements-dev.txt
-pytest                          # 201 тест API и MCP на подставном Telegram, без сети и токена
+pytest                          # 208 тестов API и MCP на подставном Telegram, без сети и токена
 ruff check . && ruff format --check . && mypy   # линтер, формат, типы (настройки в pyproject.toml)
 npm ci && npm run lint && npm run typecheck   # ESLint и проверка типов редактора; Node нужен только для проверок
 npm run test:render             # 33 проверки очистки HTML в предпросмотре (Playwright, без студии)

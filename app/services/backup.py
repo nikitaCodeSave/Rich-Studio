@@ -7,6 +7,7 @@ import time
 import zipfile
 from pathlib import Path
 
+import logs
 import metrics
 import settings
 import store
@@ -58,11 +59,12 @@ def daily_snapshot() -> Path | None:
 async def loop() -> None:
     while True:
         error = None
-        try:
-            if made := await asyncio.to_thread(daily_snapshot):
-                log.info("database copy: %s", made.name, extra={"event": "backup.daily", "file": made.name})
-        except Exception as e:
-            log.exception("daily backup failed")
-            error = f"{type(e).__name__}: {e}"
+        with logs.bind(logs.new_id("backup-")):
+            try:
+                if made := await asyncio.to_thread(daily_snapshot):
+                    log.info("database copy: %s", made.name, extra={"event": "backup.daily", "file": made.name})
+            except Exception as e:
+                log.exception("daily backup failed")
+                error = f"{type(e).__name__}: {e}"
         metrics.beat("backup", CHECK_INTERVAL, error)
         await _sleep(CHECK_INTERVAL)

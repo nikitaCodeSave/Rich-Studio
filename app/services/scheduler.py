@@ -4,6 +4,7 @@ import asyncio
 import logging
 import time
 
+import logs
 import metrics
 import settings
 import store
@@ -72,10 +73,11 @@ async def run_due_posts() -> int:
 async def loop() -> None:
     while True:
         error = None
-        try:
-            await run_due_posts()
-        except Exception as e:
-            log.exception("scheduler iteration failed")
-            error = f"{type(e).__name__}: {e}"
+        with logs.bind(logs.new_id("scheduler-")):
+            try:
+                await run_due_posts()
+            except Exception as e:
+                log.exception("scheduler iteration failed")
+                error = f"{type(e).__name__}: {e}"
         metrics.beat("scheduler", INTERVAL, error)
         await asyncio.sleep(INTERVAL)

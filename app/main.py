@@ -34,48 +34,62 @@ SPEC_CHECK_INTERVAL = 1800  # seconds; Spec.refresh itself skips while the copy 
 log = logging.getLogger("rich-studio")
 access = logging.getLogger("rich-studio.http")
 # polled by Docker and by agents; a line per call would bury everything else
-NOT_LOGGED = ("/healthz", "/api/health", "/api/logs", "/static/", "/favicon.ico")
+NOT_LOGGED = ("/healthz", "/readyz", "/api/health", "/api/logs", "/static/", "/favicon.ico")
 
 
 async def _spec_loop():
     while True:
         error = None
-        try:
-            await spec.current.refresh()
-        except Exception as e:
-            log.exception("spec refresh failed")
-            error = f"{type(e).__name__}: {e}"
+        with logs.bind(logs.new_id("spec-")):
+            try:
+                await spec.current.refresh()
+            except Exception as e:
+                log.exception("spec refresh failed")
+                error = f"{type(e).__name__}: {e}"
         metrics.beat("spec", SPEC_CHECK_INTERVAL, error)
         await asyncio.sleep(SPEC_CHECK_INTERVAL)
 
 
-async def _access_log(request: Request, call_next):
-    """One line per API call: method, path, status, time, who called (X-Studio-Client). No query, no body."""
+def _route(request: Request) -> str:
+    """The route template (/api/posts/{pid}/edit), so latencies group by endpoint, not by id."""
+    route = request.scope.get("route")
+    return getattr(route, "path", None) or "other"
+
+
+async def _observe(request: Request, call_next):
+    """Request id on every line of the request and in X-Request-ID; one access line: method, path, status, time,
+    who called (X-Studio-Client). No query, no body."""
+    rid = logs.incoming_id(request.headers.get("x-request-id"), request.headers.get("traceparent"))
     started = time.monotonic()
     status = 500
-    try:
-        response = await call_next(request)
-        status = response.status_code
-        return response
-    finally:
-        metrics.requests[f"{status // 100}xx"] += 1
-        path = request.url.path
-        if not path.startswith(NOT_LOGGED):
-            access.log(
-                logging.WARNING if status >= 500 else logging.INFO,
-                "%s %s %s",
-                request.method,
-                path,
-                status,
-                extra={
-                    "event": "http",
-                    "method": request.method,
-                    "path": path,
-                    "status": status,
-                    "ms": int((time.monotonic() - started) * 1000),
-                    "client": request.headers.get("x-studio-client") or None,
-                },
-            )
+    with logs.bind(rid):
+        try:
+            response = await call_next(request)
+            status = response.status_code
+            response.headers["X-Request-ID"] = rid
+            return response
+        finally:
+            path = request.url.path
+            ms = int((time.monotonic() - started) * 1000)
+            if not path.startswith(("/static/", "/media/")):
+                metrics.http_observe(request.method, _route(request), status, ms)
+            if not path.startswith(NOT_LOGGED):
+                access.log(
+                    logging.WARNING if status >= 500 else logging.INFO,
+                    "%s %s %s",
+                    request.method,
+                    path,
+                    status,
+                    extra={
+                        "event": "http",
+                        "method": request.method,
+                        "path": path,
+                        "route": _route(request),
+                        "status": status,
+                        "ms": ms,
+                        "client": request.headers.get("x-studio-client") or None,
+                    },
+                )
 
 
 @contextlib.asynccontextmanager
@@ -137,7 +151,7 @@ def create_app(cfg: settings.Settings | None = None) -> FastAPI:
         ),
     )
     app.middleware("http")(guard)
-    app.middleware("http")(_access_log)  # added last = runs first: also sees what the guard refused
+    app.middleware("http")(_observe)  # added last = runs first: also sees what the guard refused
     app.add_exception_handler(StudioError, _studio_error)
     app.add_exception_handler(tg.TelegramError, _telegram_error)
     app.add_exception_handler(tg.NoAnswer, _no_answer)
