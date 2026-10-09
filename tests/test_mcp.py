@@ -18,6 +18,7 @@ EXPECTED_TOOLS = {
     "schedule_post",
     "edit_post",
     "list_posts",
+    "preview_post",
 }
 
 
@@ -93,3 +94,25 @@ def test_mcp_is_behind_the_api_key(client, monkeypatch):
     assert client.post("/mcp", json=body, headers=HEADERS).status_code == 401
     r = client.post("/mcp", json=body, headers={**HEADERS, "X-API-Key": "secret"})
     assert r.status_code == 200 and json.loads(r.text)["result"]["tools"]
+
+
+def test_preview_app(client, tg):
+    """preview_post is bound to a self-contained ui:// page that renders the post with render.js."""
+    tools = {t["name"]: t for t in rpc(client, "tools/list")["result"]["tools"]}
+    uri = tools["preview_post"]["_meta"]["ui"]["resourceUri"]
+    assert uri == "ui://rich-studio/preview"
+    assert tools["preview_post"]["annotations"]["readOnlyHint"] is True
+    page = rpc(client, "resources/read", {"uri": uri})["result"]["contents"][0]
+    assert page["mimeType"] == "text/html;profile=mcp-app"
+    html = page["text"]
+    assert "RichRender" in html and "ui/initialize" in html
+    assert "src=" not in html.split("<body>")[0]  # nothing loads from the network
+    assert html.count("</script") == html.count("<script")  # inlined code cannot close its tag early
+
+    res, data, _ = call(client, "preview_post", post=BLOCKS_POST)
+    assert not res.get("isError")
+    assert data["post"]["rich_message"] == BLOCKS_POST["rich_message"]
+    assert data["validation"]["ok"] is True
+    res, data, _ = call(client, "preview_post", post={"rich_message": {}})
+    assert data["validation"]["errors"]
+    assert not tg.calls

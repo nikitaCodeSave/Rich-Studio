@@ -10,6 +10,7 @@ import json
 from collections.abc import Awaitable, Callable
 from typing import Annotated, Any
 
+from mcp.server.apps import Apps
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
@@ -19,13 +20,15 @@ import spec
 import store
 import telegram as tg
 from errors import StudioError
+from mcp_tools import preview_app
 from models import Post
 from services import idempotency, posts, publisher
 
 ACTOR = "mcp"
 
 INSTRUCTIONS = """Rich Studio: write, check, preview and publish rich posts for the user's Telegram channel.
-Order: bot_api_status (what is new) → validate_post (fix every error) → save_draft and/or send_preview_to_me
+Order: bot_api_status (what is new) → validate_post (fix every error) → preview_post (the user sees the post
+as in Telegram right in the chat) → save_draft and/or send_preview_to_me
 → publish_post or schedule_post only after the user explicitly confirmed that exact post and channel.
 A post is {"rich_message": InputRichMessage with exactly one of html|markdown|blocks, "reply_markup"?,
 "options"?, "pin"?, "comment"?, "callbacks"?}; it reaches the Bot API unchanged. describe_type gives exact
@@ -71,7 +74,24 @@ def _errors_as_tool_errors(fn: Callable[..., Awaitable[Any]]) -> Callable[..., A
 
 
 def build() -> MCPServer:
-    server = MCPServer(name="rich-studio", title="Rich Studio", instructions=INSTRUCTIONS)
+    apps = Apps()
+    apps.add_html_resource(
+        preview_app.URI,
+        preview_app.html(),
+        title="Предпросмотр поста",
+        description="Пост так, как его покажет Telegram",
+        prefers_border=False,
+    )
+
+    @apps.tool(resource_uri=preview_app.URI, annotations=READ)
+    @_errors_as_tool_errors
+    async def preview_post(post: PostArg) -> dict:
+        """Показать пост пользователю прямо в чате так, как его отрисует Telegram, вместе с ошибками проверки.
+        Ничего не отправляет. Файлы upload:<имя> в чате не загружаются."""
+        p = _post(post)
+        return {"post": p, "validation": spec.validate_rich_message(spec.current, p["rich_message"])}
+
+    server = MCPServer(name="rich-studio", title="Rich Studio", instructions=INSTRUCTIONS, extensions=[apps])
 
     def tool(annotations: ToolAnnotations):
         def register(fn):
