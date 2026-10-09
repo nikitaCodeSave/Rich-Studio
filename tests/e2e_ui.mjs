@@ -41,10 +41,10 @@ const evil = [
 await page.click('#mode-tabs [data-mode=html]');
 await page.fill('#src-html', evil);
 await page.waitForTimeout(700);
-await page.evaluate(() => document.querySelectorAll('#preview a, #preview .tg-btn').forEach((a) => a.click()));
+await page.evaluate(() => document.querySelector('#preview').shadowRoot.querySelectorAll('a, .tg-btn').forEach((a) => a.click()));
 await page.waitForTimeout(500);
 const leftovers = await page.evaluate(() => {
-  const p = document.querySelector('#preview');
+  const p = document.querySelector('#preview').shadowRoot;
   const bad = [];
   p.querySelectorAll('*').forEach((n) => {
     if (n.namespaceURI !== 'http://www.w3.org/1999/xhtml') bad.push('svg:' + n.localName);
@@ -53,13 +53,14 @@ const leftovers = await page.evaluate(() => {
     }
     if (['iframe', 'form', 'area', 'style', 'script'].includes(n.localName)) bad.push(n.localName);
   });
+  if (!p.querySelector('.tg-bubble')) bad.push('no preview rendered');
   return bad;
 });
 check('XSS: hostile HTML is neutralised in the preview', alerts === 0 && leftovers.length === 0, leftovers.join(', '));
 const rtUrl = { rich_message: { blocks: [{ type: 'paragraph', text: { type: 'url', text: 'клик', url: 'javascript:alert(10)' } }] } };
 await applyJson(rtUrl);
 await page.click('#mode-tabs [data-mode=blocks]');
-const href = await page.evaluate(() => document.querySelector('#preview a') && document.querySelector('#preview a').getAttribute('href'));
+const href = await page.evaluate(() => document.querySelector('#preview').shadowRoot.querySelector('a')?.getAttribute('href'));
 check('XSS: javascript: URL in a blocks link is dropped', !href, String(href));
 
 // 2. clicking another mode tab does not lose the blocks after autosave + reload
@@ -199,7 +200,7 @@ check('Poll dialog sends a channel poll', pb && pb.question === 'Когда эф
   JSON.stringify(pb) + ' | ' + pollRow);
 
 // 12a. undo/redo for the whole post: buttons and Ctrl+Z outside text fields
-const previewText = () => page.locator('#preview').textContent();
+const previewText = () => page.locator('#preview .tg-preview').textContent();
 await applyJson({ rich_message: { blocks: [{ type: 'paragraph', text: 'Версия один' }] } });
 await page.waitForTimeout(500);
 await applyJson({ rich_message: { blocks: [{ type: 'paragraph', text: 'Версия два' }] } });
@@ -218,6 +219,17 @@ await page.waitForTimeout(400);
 const afterButtonUndo = await previewText();
 check('Undo and redo restore the whole post', undoEnabled && redoEnabled && /Версия один/.test(afterUndo) && /Версия два/.test(afterRedo) && /Версия один/.test(afterButtonUndo) && await page.locator('#save-state').textContent() === 'есть изменения',
   JSON.stringify({ undoEnabled, redoEnabled, afterUndo, afterRedo, afterButtonUndo }));
+
+// 12b. <rs-preview> keeps the post in a shadow root; in-post anchor links still scroll to their target
+const filler = Array.from({ length: 40 }, (_, i) => ({ type: 'paragraph', text: 'Строка ' + i }));
+await applyJson({ rich_message: { blocks: [{ type: 'paragraph', text: { type: 'anchor_link', anchor_name: 'end', text: 'вниз' } }, ...filler, { type: 'anchor', name: 'end' }, { type: 'paragraph', text: 'Конец' }] } });
+await page.waitForTimeout(300);
+const scrollBefore = await page.evaluate(() => document.querySelector('.preview-col').scrollTop);
+await page.locator('#preview a.tg-link').click();
+await page.waitForTimeout(800);
+const scrollAfter = await page.evaluate(() => document.querySelector('.preview-col').scrollTop);
+const isolated = await page.evaluate(() => !!document.querySelector('#preview').shadowRoot && !document.querySelector('.tg-bubble') && !location.hash);
+check('Preview is isolated in a shadow root and anchor links scroll inside it', isolated && scrollAfter > scrollBefore + 100, JSON.stringify({ isolated, scrollBefore, scrollAfter }));
 
 // 12. MCP App: the ui:// preview page renders a preview_post result inside a sandboxed host frame
 const mcp = async (method, params) => (await (await fetch(BASE + '/mcp', {

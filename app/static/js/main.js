@@ -12,6 +12,7 @@ import { bindCode, snippetBar } from './code.js';
 import { closeDialog, openDialog } from './dialogs.js';
 import { $, $$, act, debounce, h, store, toast } from './dom.js';
 import { effect } from '../vendor/signals-core.js';
+import './components/rs-preview.js';
 import { loadDrafts, newDraft, openDraft, saveDraft } from './drafts.js';
 import { autosave, buildPost, changed, loadPost, renderPreview, setMode } from './editor.js';
 import { canRedo, canUndo, redo, undo } from './history.js';

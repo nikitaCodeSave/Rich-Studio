@@ -148,7 +148,7 @@ app/telegram/      клиент Bot API без преобразований (+ m
 app/store/         SQLite: черновики, посты, миграции
 app/spec/          спецификация Bot API: загрузка, отчёт об изменениях, проверка постов
 app/static/        редактор (js/, ES-модули без сборки), рендер предпросмотра (render.js, tg.css), заготовки (snippets.js)
-app/static/vendor  KaTeX 0.16.11, markdown-it 14.1.0, @preact/signals-core 1.14.4 (MIT), чтобы работало без CDN
+app/static/vendor  KaTeX 0.16.11, markdown-it 14.1.0, @preact/signals-core 1.14.4 (MIT), Lit 3.3.3 (BSD-3), чтобы работало без CDN
 app/bundled/       встроенная копия спецификации Bot API 10.3
 examples/          примеры постов (HTML и JSON-блоки)
 skill/             skill для Claude Code
