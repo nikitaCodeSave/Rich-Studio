@@ -1,12 +1,14 @@
 """Publishing and managing posts in channels."""
 
-from fastapi import APIRouter, Body
+from fastapi import APIRouter, Body, Depends
 
 import store
 import telegram as tg
 from errors import NotFound
-from models import ButtonsReq, EditReq, PinReq, PollReq, Post, ScheduleReq, SendReq
-from services import posts, publisher
+from models import ButtonsReq, EditReq, PinReq, PollReq, Post, PublishReq, ScheduleReq, SendReq
+from services import idempotency, posts, publisher
+
+from .deps import actor, idempotency_key
 
 router = APIRouter(tags=["telegram"])
 
@@ -17,8 +19,16 @@ async def check(chat_id: str | None = None):
 
 
 @router.post("/api/send", summary="Опубликовать пост (sendRichMessage)")
-async def send(req: SendReq):
-    return await posts.send(req.post.model_dump(), req.chat_id, req.chat_ids, req.draft_id)
+async def send(req: PublishReq, who: str = Depends(actor), key: str | None = Depends(idempotency_key)):
+    post = req.post.model_dump()
+    if req.dry_run:  # nothing is sent, so there is nothing to deduplicate
+        return await posts.send(post, req.chat_id, req.chat_ids, dry_run=True)
+    return await idempotency.run(
+        key,
+        "send",
+        req.model_dump(),
+        lambda: posts.send(post, req.chat_id, req.chat_ids, req.draft_id, actor=who),
+    )
 
 
 @router.post("/api/preview-send", summary="Отправить пост себе в личку (TG_PREVIEW_CHAT)")
@@ -32,13 +42,24 @@ async def edit(req: EditReq):
 
 
 @router.post("/api/schedule", summary="Отложить публикацию")
-def schedule(req: ScheduleReq):
-    return posts.schedule(req.post.model_dump(), req.at, req.chat_id, req.chat_ids, req.draft_id)
+async def schedule(req: ScheduleReq, who: str = Depends(actor), key: str | None = Depends(idempotency_key)):
+    if req.dry_run:
+        return posts.schedule(req.post.model_dump(), req.at, req.chat_id, req.chat_ids, dry_run=True)
+
+    async def action():
+        return posts.schedule(req.post.model_dump(), req.at, req.chat_id, req.chat_ids, req.draft_id, actor=who)
+
+    return await idempotency.run(key, "schedule", req.model_dump(), action)
 
 
 @router.post("/api/poll", summary="Опрос или викторина в канал (sendPoll), сразу или отложенно")
-async def send_poll(req: PollReq):
-    return await posts.send_poll(req.poll, req.chat_id, req.chat_ids, req.at, req.pin)
+async def send_poll(req: PollReq, who: str = Depends(actor), key: str | None = Depends(idempotency_key)):
+    return await idempotency.run(
+        key,
+        "poll",
+        req.model_dump(),
+        lambda: posts.send_poll(req.poll, req.chat_id, req.chat_ids, req.at, req.pin, actor=who),
+    )
 
 
 @router.post("/api/posts/{pid}/stop-poll", summary="Закрыть опрос и сохранить итоги")

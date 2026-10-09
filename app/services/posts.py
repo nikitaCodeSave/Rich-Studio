@@ -6,7 +6,8 @@ Functions take plain dicts and return what the API returns; they never import Fa
 import settings
 import store
 import telegram as tg
-from errors import NotFound, StudioError, Upstream
+from errors import MayHaveGone, NotFound, StudioError, Upstream
+from telegram.uploads import MissingUpload, collect_uploads
 
 from . import publisher
 from .updates import poll_results
@@ -26,20 +27,44 @@ def _sent(pid: str) -> dict:
     return p
 
 
-async def send(post: dict, chat_id=None, chat_ids=None, draft_id: str | None = None) -> dict:
+async def send(
+    post: dict, chat_id=None, chat_ids=None, draft_id: str | None = None, actor: str = "api", dry_run: bool = False
+) -> dict:
     report = publisher.validate(post)
-    results, warnings = await publisher.publish(publisher.targets(chat_id, chat_ids), post, draft_id)
+    chats = publisher.targets(chat_id, chat_ids)
+    if dry_run:
+        return dry_run_report(chats, post, report["warnings"])
+    results, warnings = await publisher.publish(chats, post, draft_id, actor=actor)
     first = next((r for r in results if r["ok"]), None)
     if not first:
-        raise Upstream(
-            {"message": "ни в один канал не отправлено", "errors": [f"{r['chat_id']}: {r['error']}" for r in results]}
-        )
+        detail = {
+            "message": "ни в один канал не отправлено",
+            "errors": [f"{r['chat_id']}: {r['error']}" for r in results],
+        }
+        if any(publisher.MAY_HAVE_GONE in r["error"] for r in results):
+            raise MayHaveGone(detail)
+        raise Upstream(detail)
     return {
         "post": first["post"],
         "message": first["message"],
         "results": results,
         "warnings": report["warnings"] + warnings,
     }
+
+
+def dry_run_report(chats: list, post: dict, warnings: list[str]) -> dict:
+    """Everything a send would do, without Telegram and without a record in the history."""
+    media_dir = settings.get().media_dir
+    requests = []
+    for chat in chats:
+        method, params = publisher.request(chat, post)
+        try:
+            collect_uploads(params, {}, media_dir)
+        except MissingUpload as e:
+            raise StudioError(str(e)) from None
+        requests.append({"method": method, "params": params})
+    steps = [s for s, on in (("pinChatMessage", post.get("pin")), ("first comment", post.get("comment"))) if on]
+    return {"dry_run": True, "requests": requests, "after_send": steps, "warnings": warnings}
 
 
 async def preview(post: dict, chat_id=None) -> dict:
@@ -83,11 +108,16 @@ async def edit_message(post: dict, chat_id, message_id: int) -> dict:
     return {"result": result}
 
 
-def schedule(post: dict, at, chat_id=None, chat_ids=None, draft_id: str | None = None) -> dict:
-    publisher.validate(post)
+def schedule(
+    post: dict, at, chat_id=None, chat_ids=None, draft_id: str | None = None, actor: str = "api", dry_run: bool = False
+) -> dict:
+    report = publisher.validate(post)
     when = publisher.parse_at(at)
+    if dry_run:
+        return {**dry_run_report(publisher.targets(chat_id, chat_ids), post, report["warnings"]), "at": when}
     recs = [
-        store.add_post(c, post, draft_id, "scheduled", scheduled_at=when) for c in publisher.targets(chat_id, chat_ids)
+        store.add_post(c, post, draft_id, "scheduled", scheduled_at=when, actor=actor)
+        for c in publisher.targets(chat_id, chat_ids)
     ]
     return recs[0] if len(recs) == 1 else {**recs[0], "all": recs}
 
@@ -159,7 +189,7 @@ async def set_buttons(pid: str, reply_markup: dict | None, callbacks: dict | Non
 
 
 # ---------- polls ----------
-async def send_poll(poll: dict, chat_id=None, chat_ids=None, at=None, pin: bool = False) -> dict:
+async def send_poll(poll: dict, chat_id=None, chat_ids=None, at=None, pin: bool = False, actor: str = "api") -> dict:
     poll = dict(poll)
     if "chat_id" in poll:
         raise StudioError("chat_id задаётся не в poll")
@@ -170,11 +200,11 @@ async def send_poll(poll: dict, chat_id=None, chat_ids=None, at=None, pin: bool 
     if at is not None:
         when = publisher.parse_at(at)
         recs = [
-            store.add_post(c, post, None, "scheduled", scheduled_at=when, kind="poll")
+            store.add_post(c, post, None, "scheduled", scheduled_at=when, kind="poll", actor=actor)
             for c in publisher.targets(chat_id, chat_ids)
         ]
         return {"scheduled": recs}
-    results, warnings = await publisher.publish(publisher.targets(chat_id, chat_ids), post, kind="poll")
+    results, warnings = await publisher.publish(publisher.targets(chat_id, chat_ids), post, kind="poll", actor=actor)
     return {"results": results, "warnings": warnings}
 
 

@@ -25,7 +25,15 @@ class Invalid(StudioError):
     status = 422
 
 
+class Conflict(StudioError):
+    status = 409
+
+
 class Upstream(StudioError):
-    """Telegram could not be reached; the action may or may not have happened."""
+    """Telegram failed or could not be reached."""
 
     status = 502
+
+
+class MayHaveGone(Upstream):
+    """A network error during a send: the post may be in the channel. Never retried automatically."""

@@ -15,7 +15,7 @@ import settings
 import spec
 import store
 import telegram as tg
-from errors import Invalid, StudioError, Upstream
+from errors import Invalid, MayHaveGone, StudioError
 
 RESERVED_PARAMS = {"chat_id", "rich_message", "reply_markup", "message_id"}
 MAY_HAVE_GONE = "Пост мог уйти в канал, проверьте перед повтором"
@@ -85,12 +85,18 @@ def parse_at(at: int | str) -> int:
 
 async def send(chat_id, post: dict) -> dict:
     """One Bot API call: sendPoll for polls, sendRichMessage for everything else."""
+    method, params = request(chat_id, post)
+    return await tg.call(method, params)
+
+
+def request(chat_id, post: dict) -> tuple[str, dict]:
+    """The Bot API method and parameters a send makes, exactly as they go to Telegram."""
     if "poll" in post:
-        return await tg.call("sendPoll", {**post["poll"], "chat_id": chat_id})
+        return "sendPoll", {**post["poll"], "chat_id": chat_id}
     params = {**options(post), "chat_id": chat_id, "rich_message": post["rich_message"]}
     if post.get("reply_markup"):
         params["reply_markup"] = post["reply_markup"]
-    return await tg.call("sendRichMessage", params)
+    return "sendRichMessage", params
 
 
 async def after_send(pid: str, post: dict, res: dict) -> list[str]:
@@ -120,7 +126,7 @@ async def after_send(pid: str, post: dict, res: dict) -> list[str]:
     return warnings
 
 
-async def publish(chats: list, post: dict, draft_id: str | None = None, kind: str = "rich"):
+async def publish(chats: list, post: dict, draft_id: str | None = None, kind: str = "rich", actor: str = "api"):
     """Send to every chat; one failing channel does not stop the others. Returns (results, warnings)."""
     out: list[dict] = []
     warnings: list[str] = []
@@ -137,10 +143,10 @@ async def publish(chats: list, post: dict, draft_id: str | None = None, kind: st
         except Exception as e:
             err = f"{type(e).__name__}: {e}. {MAY_HAVE_GONE}"
             if len(chats) == 1:
-                raise Upstream(err) from e
+                raise MayHaveGone(err) from e
             out.append({"chat_id": chat, "ok": False, "error": err})
             continue
-        rec = store.add_post(chat, post, draft_id, "sent", res["message_id"], kind=kind)
+        rec = store.add_post(chat, post, draft_id, "sent", res["message_id"], kind=kind, actor=actor)
         w = await after_send(rec["id"], post, res)
         warnings += [f"{chat}: {x}" for x in w] if len(chats) > 1 else w
         out.append({"chat_id": chat, "ok": True, "post": store.get_post(rec["id"]), "message": res})

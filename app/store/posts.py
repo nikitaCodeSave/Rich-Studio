@@ -19,13 +19,14 @@ def add_post(
     scheduled_at: int | None = None,
     error: str | None = None,
     kind: str = "rich",
+    actor: str | None = None,
 ) -> dict:
     pid = uuid.uuid4().hex[:12]
     now = int(time.time())
     with conn() as c:
         c.execute(
-            """insert into posts(id,draft_id,chat_id,message_id,payload,status,scheduled_at,sent_at,error,created_at,kind)
-                     values(?,?,?,?,?,?,?,?,?,?,?)""",
+            """insert into posts(id,draft_id,chat_id,message_id,payload,status,scheduled_at,sent_at,error,created_at,kind,actor)
+                     values(?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 pid,
                 draft_id,
@@ -38,6 +39,7 @@ def add_post(
                 error,
                 now,
                 kind,
+                actor,
             ),
         )
     return get_post(pid)  # type: ignore[return-value]
@@ -65,7 +67,7 @@ def list_posts(limit: int = 100) -> list[dict]:
     with conn() as c:
         rows = c.execute(
             """select id, draft_id, chat_id, message_id, status, scheduled_at, sent_at, error, created_at,
-                                   kind, pinned, comment_status, reactions, clicks, poll_results,
+                                   kind, actor, pinned, comment_status, reactions, clicks, poll_results,
                                    json_extract(payload, '$.poll.question') as poll_question
                             from posts order by coalesce(scheduled_at, sent_at, created_at) desc limit ?""",
             (limit,),
