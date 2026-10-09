@@ -7,6 +7,7 @@ POST /push queues an update that the studio will receive through getUpdates.
 
 import asyncio
 import json
+import time
 
 from fastapi import FastAPI, Request
 
@@ -14,9 +15,27 @@ TRUE_METHODS = {
     "deleteMessage",
     "pinChatMessage",
     "unpinChatMessage",
-    "editMessageReplyMarkup",
     "answerCallbackQuery",
 }
+
+
+NOT_MODIFIED = {
+    "ok": False,
+    "error_code": 400,
+    "description": "Bad Request: message is not modified: specified new message content and "
+    "reply markup are exactly the same as a current content and reply markup of the message",
+}
+
+
+def _message(message_id, **extra) -> dict:
+    """A Message the way real Telegram returns it (not the full rich_message, which Telegram rewrites into blocks)."""
+    return {
+        "message_id": message_id,
+        "from": {"id": 42, "is_bot": True, "first_name": "Bot", "username": "studio_test_bot"},
+        "chat": {"id": -1001, "type": "channel", "title": "Тест"},
+        "date": int(time.time()),
+        **extra,
+    }
 
 
 def _content(body: dict) -> dict:
@@ -81,7 +100,7 @@ class FakeTelegram:
             }
         if method in ("sendRichMessage", "sendPoll"):
             self.next_id += 1
-            res: dict = {"message_id": self.next_id, "chat": {"id": -1001}}
+            res = _message(self.next_id)
             self.messages[(body.get("chat_id"), self.next_id)] = _content(body)
             if method == "sendPoll":
                 res["poll"] = {"id": f"poll{self.next_id}", "question": body.get("question")}
@@ -90,14 +109,18 @@ class FakeTelegram:
             # like Telegram: the edited Message for channel posts, 400 when nothing would change
             key = (body.get("chat_id"), body.get("message_id"))
             if self.messages.get(key) == _content(body):
-                return {
-                    "ok": False,
-                    "error_code": 400,
-                    "description": "Bad Request: message is not modified: specified new message content and "
-                    "reply markup are exactly the same as a current content and reply markup of the message",
-                }
+                return NOT_MODIFIED
             self.messages[key] = _content(body)
-            return {"ok": True, "result": {"message_id": body.get("message_id"), "chat": {"id": -1001}}}
+            return {"ok": True, "result": _message(body.get("message_id"), edit_date=int(time.time()))}
+        if method == "editMessageReplyMarkup":
+            # the same "not modified" as editMessageText when the buttons are the same
+            key = (body.get("chat_id"), body.get("message_id"))
+            old = self.messages.get(key)
+            if old is not None and old.get("reply_markup") == body.get("reply_markup"):
+                return NOT_MODIFIED
+            if old is not None:
+                old["reply_markup"] = body.get("reply_markup")
+            return {"ok": True, "result": _message(body.get("message_id"), edit_date=int(time.time()))}
         if method == "stopPoll":
             return {
                 "ok": True,
