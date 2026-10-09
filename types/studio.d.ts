@@ -114,6 +114,4 @@ interface EditorState {
   uploads: Upload[];
   posts: PostRow[];
   drafts: DraftRow[];
-  dark: boolean;
-  dirty: boolean;
 }

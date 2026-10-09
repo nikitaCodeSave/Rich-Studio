@@ -198,6 +198,27 @@ const pollRow = await page.locator('#posts li').first().textContent();
 check('Poll dialog sends a channel poll', pb && pb.question === 'Когда эфир?' && pb.members_only === true && JSON.stringify(pb.country_codes) === '["RU","KZ"]' && pb.options.length === 2 && /опрос/.test(pollRow) && await page.locator('dialog[open]').count() === 0,
   JSON.stringify(pb) + ' | ' + pollRow);
 
+// 12a. undo/redo for the whole post: buttons and Ctrl+Z outside text fields
+const previewText = () => page.locator('#preview').textContent();
+await applyJson({ rich_message: { blocks: [{ type: 'paragraph', text: 'Версия один' }] } });
+await page.waitForTimeout(500);
+await applyJson({ rich_message: { blocks: [{ type: 'paragraph', text: 'Версия два' }] } });
+await page.waitForTimeout(700);
+await page.evaluate(() => /** @type {HTMLElement} */ (document.activeElement).blur());
+const undoEnabled = await page.locator('#btn-undo').isEnabled();
+await page.keyboard.press('Control+z');
+await page.waitForTimeout(400);
+const afterUndo = await previewText();
+const redoEnabled = await page.locator('#btn-redo').isEnabled();
+await page.click('#btn-redo');
+await page.waitForTimeout(400);
+const afterRedo = await previewText();
+await page.click('#btn-undo');
+await page.waitForTimeout(400);
+const afterButtonUndo = await previewText();
+check('Undo and redo restore the whole post', undoEnabled && redoEnabled && /Версия один/.test(afterUndo) && /Версия два/.test(afterRedo) && /Версия один/.test(afterButtonUndo) && await page.locator('#save-state').textContent() === 'есть изменения',
+  JSON.stringify({ undoEnabled, redoEnabled, afterUndo, afterRedo, afterButtonUndo }));
+
 // 12. MCP App: the ui:// preview page renders a preview_post result inside a sandboxed host frame
 const mcp = async (method, params) => (await (await fetch(BASE + '/mcp', {
   method: 'POST',

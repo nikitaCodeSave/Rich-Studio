@@ -1,5 +1,11 @@
 // Editor state shared by all modules, and the target channels typed in the header.
+import { signal } from '../vendor/signals-core.js';
 import { $ } from './dom.js';
+
+// ---------- signals: state the page reacts to on its own (effects in main.js) ----------
+export const dirty = signal(false);
+export const saveState = signal(''); // text next to the Save button
+export const dark = signal(matchMedia('(prefers-color-scheme: dark)').matches);
 
 // ---------- state ----------
 /** @type {EditorState} */
@@ -8,7 +14,7 @@ export const S = {
   spec: /** @type {SpecSummary} */ (/** @type {unknown} */ (null)), config: {}, draftId: null, format: 'blocks', mode: 'blocks',
   buf: { blocks: [], html: '', markdown: '' }, media: [], flags: {}, keyboard: [], options: {},
   extra: { pin: false, comment: '', commentObj: null, callbacks: {} }, updates: null,
-  uploads: [], posts: [], drafts: [], dark: matchMedia('(prefers-color-scheme: dark)').matches, dirty: false,
+  uploads: [], posts: [], drafts: [],
 };
 
 export const chats = () => $('#chat').value.split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean);
