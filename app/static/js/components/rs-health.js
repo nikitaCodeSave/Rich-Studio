@@ -1,11 +1,13 @@
 // <rs-health>: the studio's own health in the header, from GET /api/health. A dot when all is well,
-// a dot and the number of problems otherwise; the page fetches the report and opens the details on `details`.
+// a dot and the number of problems otherwise, red without a number when the studio does not answer, grey when it
+// wants the key; the page fetches the report and opens the details on `details`.
 import { css, html, LitElement } from '../../vendor/lit-core.min.js';
 
-const WORD = { ok: 'в порядке', warn: 'требует внимания', fail: 'есть сбой', down: 'не отвечает' };
+const WORD = { ok: 'в порядке', warn: 'требует внимания', fail: 'есть сбой', down: 'не отвечает', locked: 'просит ключ API' };
 
 export class RsHealth extends LitElement {
-  static properties = { report: { attribute: false }, down: { type: Boolean } };
+  // `state`: '' while `report` is current, 'down' when the studio did not answer, 'locked' on 401
+  static properties = { report: { attribute: false }, state: { type: String } };
 
   static styles = css`
     :host { display: inline-flex; }
@@ -24,16 +26,16 @@ export class RsHealth extends LitElement {
     super();
     /** @type {HealthReport | null} */
     this.report = null;
-    this.down = false;
+    this.state = '';
   }
 
   render() {
     const r = this.report;
-    const status = this.down ? 'down' : r ? r.status : 'unknown';
-    const problems = !this.down && r ? r.problems : [];
-    const title = r || this.down
-      ? 'Студия ' + WORD[status] + (problems.length ? ':\n' + problems.join('\n') : '') + '\nПодробнее по нажатию'
-      : 'Состояние студии проверяется';
+    const status = this.state || (r ? r.status : 'unknown');
+    const problems = !this.state && r ? r.problems : [];
+    const title = status === 'unknown'
+      ? 'Состояние студии проверяется'
+      : 'Студия ' + WORD[status] + (problems.length ? ':\n' + problems.join('\n') : '') + '\nПодробнее по нажатию';
     return html`<button class=${status} title=${title} aria-label=${'Состояние студии: ' + (WORD[status] || 'проверяется')}
   @click=${() => this.dispatchEvent(new CustomEvent('details', { bubbles: true, composed: true }))}>
   <span class="dot"></span>${problems.length ? html`<span>${problems.length}</span>` : ''}
