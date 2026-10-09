@@ -67,13 +67,15 @@ async function doSave(silent, overwrite) {
   return d;
 }
 
+const capitalize = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+
 // the same draft was saved elsewhere (another tab, an agent) or deleted: the person decides, nothing is overwritten
 function draftConflict(detail) {
   if (S.conflict) return;
   S.conflict = true;
   const theirs = detail && detail.current;
   const d = openDialog([h('h3', { text: 'Черновик изменился' }),
-    h('p', { text: (detail && detail.message || 'черновик изменили в другом месте') + '. Ваши правки в этой вкладке пока не сохранены.' })],
+    h('p', { text: capitalize((detail && detail.message) || 'черновик изменили в другом месте') + '. Ваши правки в этой вкладке пока не сохранены.' })],
   [theirs ? h('button', { class: 'ghost', text: 'Открыть их версию', onclick: () => { closeDialog(d); openDraft(theirs.id); } }) : null,
     h('button', { text: theirs ? 'Сохранить мою поверх' : 'Сохранить мою как новый', onclick: () => {
       closeDialog(d);

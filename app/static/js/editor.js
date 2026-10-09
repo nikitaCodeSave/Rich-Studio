@@ -6,6 +6,7 @@ import { saveDraft } from './drafts.js';
 import { renderBlocksPane } from './forms.js';
 import { recordHistory } from './history.js';
 import { renderKeyboard } from './keyboard.js';
+import { plural } from './labels.js';
 import { renderMedia } from './media.js';
 import { chats, dark, dirty, parsed, S, saveState, showParsed } from './state.js';
 
@@ -204,7 +205,7 @@ export const validate = debounce(async () => {
   try {
     const r = await api('POST', '/api/validate', buildPost());
     const st = r.stats || {};
-    const statLine = h('span', { class: 'muted small', text: ` · ${st.chars ?? 0} символов` + (st.blocks ? ` · ${st.blocks} блоков` : '') + (st.media ? ` · ${st.media} медиа` : '') + ` · проверено по ${r.spec_version}` });
+    const statLine = h('span', { class: 'muted small', text: ' · ' + plural(st.chars ?? 0, 'символ', 'символа', 'символов') + (st.blocks ? ' · ' + plural(st.blocks, 'блок', 'блока', 'блоков') : '') + (st.media ? ` · ${st.media} медиа` : '') + ` · проверено по ${r.spec_version}` });
     box.replaceChildren(...[
       r.ok ? h('span', { class: 'ok', text: '✓ Пост проходит проверку' }) : h('b', { class: 'e', text: 'Ошибки' }), statLine,
       r.errors.length ? h('ul', {}, r.errors.map((e) => h('li', { class: 'e', text: e }))) : null,

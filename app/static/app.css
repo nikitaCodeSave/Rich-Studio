@@ -146,6 +146,8 @@ textarea.code { width: 100%; min-height: 380px; font: 13px/1.5 ui-monospace, SFM
 .toolbar button { background: none; border: 0; color: var(--text); padding: 3px 7px; font-size: 13px; border-radius: 5px; }
 .toolbar button:hover { background: var(--soft); }
 .toolbar select { font-size: 12px; padding: 2px 4px; }
+/* one row on a phone: two rows would cover the block above */
+@media (max-width: 600px) { .toolbar { flex-wrap: nowrap; overflow-x: auto; max-width: calc(100vw - 12px); } .toolbar button { flex: none; } }
 
 .table-ed { overflow-x: auto; }
 .table-ed table { border-collapse: collapse; }
