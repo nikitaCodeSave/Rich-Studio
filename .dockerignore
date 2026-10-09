@@ -1,6 +1,6 @@
 .env
 data/
 **/__pycache__
-skill/
+.claude/
 node_modules/
 **/AGENTS.md

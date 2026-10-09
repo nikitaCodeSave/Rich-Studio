@@ -39,7 +39,7 @@
 - [ ] `ruff check`, `ruff format --check`, `mypy`, `pytest`, `npm run lint`, `npm run test:render` зелёные.
 
 ## 7. Документация и скилл
-- [ ] Новая возможность описана в README и, если ею будут пользоваться агенты, в `skill/telegram-rich-posts/SKILL.md`.
+- [ ] Новая возможность описана в README и, если ею будут пользоваться агенты, в `.claude/skills/telegram-rich-posts/SKILL.md`.
 - [ ] OpenAPI-описание маршрута (summary, описания полей) на русском и понятно агенту без чтения кода.
 
 ## 8. Размер изменения

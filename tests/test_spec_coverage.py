@@ -47,3 +47,15 @@ def test_a_new_block_in_the_spec_is_reported():
     types["InputRichBlock"]["subtypes"].append("InputRichBlockHologram")
     found = {(g["part"], g["name"]) for g in gaps(types)}
     assert found == {("labels", "hologram"), ("preview", "hologram")}
+
+
+def test_skill_is_where_claude_code_finds_it():
+    """Claude Code loads project skills only from .claude/skills/<name>/SKILL.md, with a matching name."""
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    skill = root / ".claude" / "skills" / "telegram-rich-posts" / "SKILL.md"
+    head = skill.read_text("utf-8").split("---")[1]
+    assert re.search(r"^name: telegram-rich-posts$", head, re.M)
+    assert re.search(r"^description: .{20,}", head, re.M)

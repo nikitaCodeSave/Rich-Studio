@@ -244,7 +244,7 @@ claude mcp add --transport http rich-studio http://localhost:8080/mcp --header "
 
 ## Skill для Claude Code
 
-`skill/telegram-rich-posts/SKILL.md`: сначала проверяет актуальную версию Bot API и что изменилось, содержит шпаргалку по блокам, тегам и ограничениям каналов и работает через API студии (проверка → предпросмотр → публикация только после вашего подтверждения). Установка вручную: скопируйте папку в `~/.claude/skills/` (или `.claude/skills/` в проекте).
+`.claude/skills/telegram-rich-posts/SKILL.md`: сначала проверяет актуальную версию Bot API и что изменилось, содержит шпаргалку по блокам, тегам и ограничениям каналов и работает через API студии (проверка → предпросмотр → публикация только после вашего подтверждения). Claude Code, запущенный в папке студии, находит его сам (`/telegram-rich-posts` или просто попросите написать пост). Чтобы он работал и в других проектах, скопируйте папку в `~/.claude/skills/`.
 
 ## Безопасность
 
@@ -294,7 +294,7 @@ app/static/        редактор (js/, ES-модули без сборки), 
 app/static/vendor  KaTeX 0.16.11, markdown-it 14.1.0, @preact/signals-core 1.14.4 (MIT), Lit 3.3.3 (BSD-3), чтобы работало без CDN
 app/bundled/       встроенная копия спецификации Bot API 10.3
 examples/          примеры постов (HTML и JSON-блоки)
-skill/             skill для Claude Code
+.claude/skills/    skill для Claude Code (+ хук форматирования в .claude/hooks)
 tests/             тесты API (pytest) и браузера (Playwright)
 docs/              устройство кода (ARCHITECTURE.md), контракт API (openapi.json), чек-лист ревью, картинки для README
 ```
