@@ -231,6 +231,19 @@ const scrollAfter = await page.evaluate(() => document.querySelector('.preview-c
 const isolated = await page.evaluate(() => !!document.querySelector('#preview').shadowRoot && !document.querySelector('.tg-bubble') && !location.hash);
 check('Preview is isolated in a shadow root and anchor links scroll inside it', isolated && scrollAfter > scrollBefore + 100, JSON.stringify({ isolated, scrollBefore, scrollAfter }));
 
+// 12c. the spec can be refreshed on demand; a failed download is reported, not hidden (the dev studio has no network spec)
+await page.click('#spec-refresh');
+await page.waitForSelector('.toast.err');
+const refreshToast = await page.locator('.toast.err').last().textContent();
+const badgeWarn = await page.locator('#spec-badge.warn').count();
+await page.click('#spec-badge');
+await page.waitForSelector('dialog[open]');
+const specDialog = await page.locator('dialog[open]').textContent();
+await page.locator('dialog[open] button:has-text("Закрыть")').click();
+check('Spec refresh button reports the result and what the editor lacks',
+  /Не удалось скачать спецификацию/.test(refreshToast) && badgeWarn === 1 && /Последняя проверка: .*скачать не удалось/.test(specDialog) && /знают все блоки/.test(specDialog),
+  JSON.stringify({ refreshToast, badgeWarn, specDialog: specDialog.slice(0, 300) }));
+
 // 12. MCP App: the ui:// preview page renders a preview_post result inside a sandboxed host frame
 const mcp = async (method, params) => (await (await fetch(BASE + '/mcp', {
   method: 'POST',

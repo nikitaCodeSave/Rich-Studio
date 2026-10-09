@@ -8,6 +8,7 @@ from test_api import BLOCKS_POST
 HEADERS = {"Accept": "application/json, text/event-stream", "MCP-Protocol-Version": "2025-06-18"}
 EXPECTED_TOOLS = {
     "bot_api_status",
+    "refresh_bot_api",
     "describe_type",
     "validate_post",
     "save_draft",
@@ -110,6 +111,30 @@ def test_mcp_publish_off_leaves_only_drafts_and_preview(monkeypatch):
     monkeypatch.setattr(settings.get(), "mcp_publish", False)
     names = {t.name for t in asyncio.run(mcp_tools.build().list_tools())}
     assert names == EXPECTED_TOOLS - {"publish_post", "schedule_post", "edit_post"}
+
+
+def test_refresh_bot_api_reports_failure_and_keeps_the_spec(client, monkeypatch):
+    import httpx
+
+    import spec.source
+
+    class Offline:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def __aenter__(self):
+            raise httpx.ConnectError("offline")
+
+        async def __aexit__(self, *a):
+            return False
+
+    monkeypatch.setattr(spec.source.httpx, "AsyncClient", Offline)
+    _, before, _ = call(client, "bot_api_status")
+    res, data, _ = call(client, "refresh_bot_api")
+    assert not res.get("isError") and data["updated"] is False and "offline" in data["error"]
+    assert data["version"] == before["version"]
+    _, after, _ = call(client, "bot_api_status")
+    assert after["gaps"] == [] and "offline" in after["last_check"]["error"]
 
 
 def test_tools_that_reach_telegram_say_so(client):

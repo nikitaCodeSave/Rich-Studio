@@ -16,6 +16,7 @@ import httpx
 
 import settings
 
+from .coverage import gaps
 from .diff import TRACK_METHODS, TRACK_PREFIXES, diff_specs
 from .parse import check_spec_shape, enum_values, type_const, version_tuple
 
@@ -28,6 +29,8 @@ class Spec:
         self.source = ""
         self.loaded_at = 0.0
         self.changes: list = []
+        # the last download attempt, shown in the editor: {"at": unix time, "error": str | None}
+        self.last_check: dict | None = None
 
     # ---------- loading ----------
     def _cache_file(self) -> Path:
@@ -57,6 +60,11 @@ class Spec:
             and self.source == "remote"
         ):
             return {"updated": False, "version": self.version, "reason": "fresh"}
+        report = await self._download()
+        self.last_check = {"at": int(time.time()), "error": report.get("error")}
+        return report
+
+    async def _download(self) -> dict:
         try:
             async with httpx.AsyncClient(timeout=30) as client:
                 r = await client.get(settings.get().spec_url)
@@ -86,7 +94,7 @@ class Spec:
                 0, {"from": old.get("version"), "to": new.get("version"), "at": int(time.time()), "items": diff}
             )
             self._save_changes()
-        return {"updated": changed, "version": self.version, "changes": diff}
+        return {"updated": changed, "version": self.version, "changes": diff, "gaps": gaps(self.types)}
 
     def _changes_file(self) -> Path:
         return settings.get().data_dir / "spec_changes.json"
@@ -176,4 +184,7 @@ class Spec:
             "types": out_types,
             "methods": methods,
             "changes": self.changes[:10],
+            # what labels.js and render.js do not know yet in this version
+            "gaps": gaps(self.types),
+            "last_check": self.last_check,
         }

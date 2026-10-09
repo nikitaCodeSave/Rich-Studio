@@ -849,3 +849,28 @@ def test_updates_offset_survives_a_restart(monkeypatch):
     with pytest.raises(asyncio.CancelledError):
         asyncio.run(updates.loop())
     assert calls[0]["offset"] == 500
+
+
+def test_spec_refresh_on_demand_reports_gaps_and_failures(client, monkeypatch):
+    import httpx
+
+    import spec as specmod
+
+    summary = client.get("/api/spec").json()
+    assert summary["gaps"] == []  # the bundled spec is fully covered (test_spec_coverage.py)
+
+    class Offline:
+        def __init__(self, **kw):
+            pass
+
+        async def __aenter__(self):
+            raise httpx.ConnectError("offline")
+
+        async def __aexit__(self, *a):
+            pass
+
+    monkeypatch.setattr(specmod.source.httpx, "AsyncClient", Offline)
+    r = client.post("/api/spec/refresh").json()
+    assert r["updated"] is False and "offline" in r["error"]
+    check = client.get("/api/spec").json()["last_check"]
+    assert check["at"] > 0 and "offline" in check["error"]

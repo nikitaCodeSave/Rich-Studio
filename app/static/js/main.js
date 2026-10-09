@@ -19,7 +19,7 @@ import { canRedo, canUndo, redo, undo } from './history.js';
 import { addMediaEntry, loadUploads, upload } from './media.js';
 import { showPoll } from './poll.js';
 import { loadPosts, replacePost } from './posts.js';
-import { showSpec, updateBadge } from './spec-dialog.js';
+import { refreshSpec, showSpec, updateBadge } from './spec-dialog.js';
 import { chat, dark, dirty, S, saveState, target, targetLabel } from './state.js';
 
 const isTextField = (el) => el instanceof HTMLElement && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName));
@@ -116,6 +116,11 @@ function bindActions() {
   side.addEventListener('dragover', (e) => e.preventDefault());
   side.addEventListener('drop', (e) => { e.preventDefault(); if (e.dataTransfer.files.length) upload([...e.dataTransfer.files]); });
   $('#spec-badge').onclick = showSpec;
+  $('#spec-refresh').onclick = async () => {
+    const b = $('#spec-refresh');
+    b.disabled = true; b.classList.add('spin');
+    try { const r = await refreshSpec(); toast(r.text, r.ok ? 'ok' : 'err'); } catch (e) { toast(e.message, 'err'); } finally { b.disabled = false; b.classList.remove('spin'); }
+  };
   $('#btn-poll').onclick = showPoll;
 }
 

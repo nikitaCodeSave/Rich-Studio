@@ -21,7 +21,6 @@ def bundled(tmp_path, monkeypatch):
     path = tmp_path / "api.json"
     path.write_text(json.dumps(BUNDLED), "utf-8")
     monkeypatch.setattr(update_spec, "BUNDLED", path)
-    monkeypatch.setattr(update_spec.subprocess, "run", lambda *a, **k: type("R", (), {"stdout": "coverage"})())
     return path
 
 
@@ -44,12 +43,18 @@ def test_newer_version_is_written_as_downloaded(bundled, monkeypatch, capsys):
     new = json.loads(json.dumps(BUNDLED))
     new["version"] = "Bot API 99.0"
     new["methods"]["sendBrandNewThing"] = {"name": "sendBrandNewThing", "description": ["new"], "fields": []}
+    new["types"]["InputRichBlockHologram"] = {
+        "name": "InputRichBlockHologram",
+        "fields": [{"name": "type", "types": ["String"], "required": True, "description": "always “hologram”"}],
+    }
+    new["types"]["InputRichBlock"]["subtypes"].append("InputRichBlockHologram")
     body = json.dumps(new, indent=1).encode()
     serve(monkeypatch, body)
     assert update_spec.main() == update_spec.UPDATED
     assert bundled.read_bytes() == body
     out = capsys.readouterr().out
     assert "Bot API 99.0" in out and "method_added: sendBrandNewThing" in out
+    assert "block hologram (InputRichBlockHologram): BLOCK_LABELS" in out and "renderBlock" in out
 
 
 @pytest.mark.parametrize(
