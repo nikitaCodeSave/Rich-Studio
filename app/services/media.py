@@ -159,16 +159,22 @@ FETCH_REDIRECTS = 5
 FETCH_DEADLINE = 300  # seconds for the whole download, however slowly the server answers
 
 
-async def _public_only(host: str, port: int) -> None:
-    """Refuse a host that resolves to the studio itself, the local network or any other non-public address."""
-    if settings.get().media_fetch_private:
-        return
+async def _resolve(host: str, port: int) -> list[str]:
     try:
         infos = await asyncio.get_running_loop().getaddrinfo(host, port, type=socket.SOCK_STREAM)
     except OSError:
         raise StudioError(f"не удалось скачать: адрес {host} не найден") from None
-    for *_, addr in infos:
-        ip = ipaddress.ip_address(str(addr[0]).split("%")[0])
+    return [str(addr[0]).split("%")[0] for *_, addr in infos]
+
+
+async def _public_only(host: str, port: int) -> str | None:
+    """The address to connect to: the host resolved once, refused when any of its addresses is the studio itself,
+    the local network or another non-public one. None with MEDIA_FETCH_PRIVATE (connect by name as usual)."""
+    if settings.get().media_fetch_private:
+        return None
+    addrs = await _resolve(host, port)
+    for a in addrs:
+        ip = ipaddress.ip_address(a)
         if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
             ip = ip.ipv4_mapped
         if not ip.is_global or ip.is_multicast:
@@ -176,6 +182,17 @@ async def _public_only(host: str, port: int) -> None:
                 f"url: {host} — локальный или внутренний адрес, студия туда не ходит "
                 "(свой сервер в локальной сети: MEDIA_FETCH_PRIVATE=1)"
             )
+    return addrs[0]
+
+
+def _pinned(url: str, ip: str | None) -> tuple[httpx.URL, dict, dict]:
+    """The request goes to the checked address, never to a second DNS answer (DNS rebinding): the URL carries
+    the IP, Host and TLS SNI/certificate check keep the name."""
+    u = httpx.URL(url)
+    if ip is None:
+        return u, {}, {}
+    ext = {"sni_hostname": u.host} if u.scheme == "https" else {}
+    return u.copy_with(host=ip), {"Host": u.netloc.decode("ascii")}, ext
 
 
 async def fetch(url: str, filename: str | None = None) -> dict:
@@ -185,13 +202,17 @@ async def fetch(url: str, filename: str | None = None) -> dict:
     part = media_dir() / f".{name}.part"
     size = 0
     try:
-        async with asyncio.timeout(FETCH_DEADLINE), httpx.AsyncClient(timeout=60, follow_redirects=False) as client:
+        async with (
+            asyncio.timeout(FETCH_DEADLINE),
+            httpx.AsyncClient(timeout=60, follow_redirects=False, trust_env=False) as client,
+        ):
             for _ in range(FETCH_REDIRECTS + 1):
                 parts = urlsplit(url)
                 if parts.scheme not in ("http", "https") or not parts.hostname:
                     raise StudioError("url: нужна ссылка http(s)")
-                await _public_only(parts.hostname, parts.port or (443 if parts.scheme == "https" else 80))
-                async with client.stream("GET", url) as r:
+                ip = await _public_only(parts.hostname, parts.port or (443 if parts.scheme == "https" else 80))
+                target, headers, ext = _pinned(url, ip)
+                async with client.stream("GET", target, headers=headers, extensions=ext) as r:
                     if r.is_redirect and r.headers.get("location"):
                         url = urljoin(url, r.headers["location"])
                         continue

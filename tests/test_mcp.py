@@ -171,6 +171,33 @@ def test_fetch_checks_every_redirect_and_leaves_no_partial_file(client, tg, monk
     assert not list(settings.get().media_dir.iterdir())  # no .part left behind
 
 
+def test_fetch_connects_to_the_address_it_checked(client, tg, monkeypatch):
+    """DNS rebinding: a second lookup answering 127.0.0.1 must not be where the request goes."""
+    import httpx
+
+    from services import media
+
+    answers = iter([["93.184.216.34"], ["127.0.0.1"], ["127.0.0.1"]])
+    lookups, seen = [], []
+
+    async def resolve(host, port):
+        lookups.append(host)
+        return next(answers)
+
+    def handler(request):
+        seen.append((request.url.host, request.headers["host"], request.extensions.get("sni_hostname")))
+        return httpx.Response(200, content=b"img")
+
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(media, "_resolve", resolve)
+    monkeypatch.setattr(
+        media.httpx, "AsyncClient", lambda **kw: real_client(transport=httpx.MockTransport(handler), **kw)
+    )
+    _, f, _ = call(client, "upload_media", url="https://files.example/cover.jpg")
+    assert f["ref"] == "upload:cover.jpg"
+    assert lookups == ["files.example"] and seen == [("93.184.216.34", "files.example", "files.example")]
+
+
 def test_send_poll_through_mcp(client, tg):
     poll = {"question": "Когда эфир?", "options": ["Утром", "Вечером"]}
     _, r, _ = call(client, "send_poll", poll=poll, chat_id="@c", idempotency_key="poll-1")
