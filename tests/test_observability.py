@@ -431,6 +431,15 @@ def test_log_files_zero_still_rotates_and_stray_files_are_ignored(fresh_data, mo
     logs.setup()
 
 
+def test_copy_rotated_away_while_reading_is_skipped(log_file, monkeypatch):
+    # the writer thread rotates while /api/health or /api/logs walks the list: a listed copy can vanish
+    logging.getLogger("rich-studio.test").info("kept")
+    gone = log_file.with_name(log_file.name + ".1")
+    monkeypatch.setattr(logs, "files", lambda: [gone, log_file])
+    assert logs.disk_bytes() == log_file.stat().st_size
+    assert logs.read("INFO", limit=1)[0]["msg"] == "kept"
+
+
 def test_log_is_readable_only_by_its_owner(log_file):
     logging.getLogger("rich-studio.test").info("x")
     assert os.stat(log_file).st_mode & 0o777 == 0o600
@@ -576,3 +585,50 @@ def test_post_being_sent_right_now_is_not_a_problem(client, monkeypatch):
     monkeypatch.setattr(scheduler, "in_flight", set())
     assert flagged()
     store.update_post(p["id"], status="failed", error="test")
+
+
+@pytest.mark.parametrize(
+    ("refusal", "status"),
+    [
+        ("Bad Request: poll members_only is available only in channels", "ok"),
+        ("Bad Request: query is too old and response timeout expired", "ok"),
+        ("Bad Request: can't parse entities: unsupported start tag", "ok"),
+        ("Bad Request: chat not found", "warn"),
+        ("Bad Request: not enough rights to send messages", "warn"),
+        ("Bad Request: group chat was upgraded to a supergroup chat", "warn"),
+        ("Bad Request: message thread not found", "warn"),
+        ("Bad Request: TOPIC_CLOSED", "warn"),
+        ("Bad Request: PEER_ID_INVALID", "warn"),
+        ("Bad Request: chat_id is empty", "warn"),
+        ("Bad Request: CHAT_WRITE_FORBIDDEN", "warn"),
+    ],
+)
+def test_telegram_check_ignores_a_rejected_post_but_not_a_setup_problem(client, monkeypatch, refusal, status):
+    """A 400 about the post itself (a bad field, a late button click) is shown on the post, not as a studio problem."""
+    import asyncio
+
+    from telegram import client as tgc
+
+    async def refuse(method, params, timeout):
+        raise tgc.TelegramError(refusal, 400)
+
+    monkeypatch.setattr(tgc, "_call", refuse)
+    metrics.reset()
+    with pytest.raises(tgc.TelegramError):
+        asyncio.run(tgc.call("sendRichMessage", {"chat_id": "@c"}))
+    assert health.telegram()["status"] == status
+
+
+def test_refused_post_or_long_poll_does_not_hide_a_setup_error(client):
+    metrics.reset()
+    metrics.telegram_call("sendRichMessage", False, "Forbidden: bot was kicked from the channel chat", code=403)
+    metrics.telegram_call("sendRichMessage", False, "Bad Request: members_only is available only in channels", code=400)
+    assert "kicked" in health.telegram()["summary"]  # the refused post did not overwrite it
+    metrics.telegram_call("getUpdates", True, quiet=True)
+    assert health.telegram()["status"] == "warn"  # the long poll works, but the bot is still out of the channel
+    metrics.telegram_call("sendRichMessage", True, ms=5)
+    assert health.telegram()["status"] == "ok"
+    metrics.telegram_call("getUpdates", False, "ConnectError", quiet=True)
+    assert health.telegram()["status"] == "warn"
+    metrics.telegram_call("getUpdates", True, quiet=True)  # the connection is back: its own error clears
+    assert health.telegram()["status"] == "ok"
