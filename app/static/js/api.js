@@ -4,10 +4,18 @@ import { store } from './dom.js';
 // the key also goes into a same-site cookie, so <img src=/media/...> and /render pages work behind it
 export function setKeyCookie(k) { document.cookie = 'rs_key=' + encodeURIComponent(k) + '; path=/; SameSite=Strict'; }
 
-export async function api(method, path, body, raw) {
+function authHeaders() {
   const headers = { 'X-Studio-Client': 'ui' };
   const key = store.get('apiKey', '');
   if (key) headers['X-API-Key'] = key;
+  return headers;
+}
+
+/** GET for background polling: never asks for the key, the caller decides what a 401 means. */
+export function probe(path) { return fetch(path, { headers: authHeaders() }); }
+
+export async function api(method, path, body, raw) {
+  const headers = authHeaders();
   let payload;
   if (body instanceof FormData) payload = body;
   else if (body !== undefined) { headers['Content-Type'] = 'application/json'; payload = JSON.stringify(body); }

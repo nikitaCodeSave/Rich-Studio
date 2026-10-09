@@ -143,3 +143,25 @@ interface EditorState {
   posts: PostRow[];
   drafts: DraftRow[];
 }
+
+/** one entry of GET /api/health `checks` */
+interface HealthCheck {
+  name: string;
+  status: 'ok' | 'warn' | 'fail';
+  summary: string;
+  action?: string;
+  details?: Json;
+}
+
+/** GET /api/health */
+interface HealthReport {
+  status: 'ok' | 'warn' | 'fail';
+  version: string;
+  bot_api: string;
+  time: string;
+  checked_at: number;
+  problems: string[];
+  checks: HealthCheck[];
+  metrics: Json;
+  recent_problems: Json[];
+}

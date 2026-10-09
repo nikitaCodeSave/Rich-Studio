@@ -301,6 +301,53 @@ const header = await page.evaluate(() => {
 });
 check('Header fits one row at 1440px', Math.abs(header.pub - header.brand) < 12 && header.right <= header.width, JSON.stringify(header));
 
+// 13b. the health badge in the header follows /api/health and opens the list of checks
+{
+  await page.waitForFunction(() => { const b = document.querySelector('#health')?.shadowRoot?.querySelector('button'); return b && !b.classList.contains('unknown'); }, null, { timeout: 8000 }).catch(() => {});
+  const want = await page.evaluate(async () => (await fetch('/api/health')).json());
+  const badge = await page.evaluate(() => { const b = document.querySelector('#health').shadowRoot.querySelector('button'); return { cls: b.className, text: b.textContent.trim(), title: b.title }; });
+  await page.click('#health');
+  const dlg = await page.waitForSelector('dialog.dlg', { timeout: 3000 }).then((d) => d.textContent()).catch(() => '');
+  await page.keyboard.press('Escape');
+  check('Health badge shows /api/health and lists the checks',
+    badge.cls === want.status && badge.text === (want.problems.length ? String(want.problems.length) : '') && want.problems.every((p) => badge.title.includes(p))
+      && want.checks.every((c) => dlg.includes(c.name)), JSON.stringify({ badge, status: want.status, dlg: dlg.slice(0, 200) }));
+}
+
+// 13c. the badge with problems, a studio that does not answer, and one that wants the key (no prompt from polling)
+{
+  const read = () => page.evaluate(() => { const b = document.querySelector('#health').shadowRoot.querySelector('button'); return { cls: b.className, text: b.textContent.trim() }; });
+  const poll = () => page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  const settle = (cls) => page.waitForFunction((c) => document.querySelector('#health').shadowRoot.querySelector('button').className === c, cls, { timeout: 5000 }).catch(() => {});
+  let prompts = 0;
+  const onDialog = (d) => { prompts++; d.dismiss(); };
+  page.on('dialog', onDialog);
+  await page.route('**/api/health', async (route) => {
+    const r = await (await route.fetch()).json();
+    r.status = 'warn'; r.problems = ['posts: 1 постов требуют внимания', 'backup: свежей копии нет'];
+    route.fulfill({ json: r });
+  });
+  await poll(); await settle('warn');
+  const warn = await read();
+  await page.unroute('**/api/health');
+  await page.route('**/api/health', (route) => route.abort());
+  await poll(); await settle('down');
+  const down = await read();
+  await page.click('#health');
+  const downDlg = await page.waitForSelector('dialog.dlg', { timeout: 3000 }).then((d) => d.textContent()).catch(() => '');
+  await page.keyboard.press('Escape');
+  await page.unroute('**/api/health');
+  await page.route('**/api/health', (route) => route.fulfill({ status: 401, json: { detail: 'нужен ключ' } }));
+  await poll(); await settle('locked');
+  const locked = await read();
+  await page.unroute('**/api/health');
+  page.off('dialog', onDialog);
+  await poll(); await settle('ok');
+  check('Health badge: problems counted, down shows no stale report, 401 never prompts',
+    warn.cls === 'warn' && warn.text === '2' && down.cls === 'down' && down.text === '' && /не ответила/.test(downDlg) && !/в порядке/.test(downDlg)
+      && locked.cls === 'locked' && prompts === 0, JSON.stringify({ warn, down, downDlg: downDlg.slice(0, 120), locked, prompts }));
+}
+
 // 14. a new post becomes a draft without Ctrl+S; a draft saved elsewhere meanwhile is not overwritten
 {
   await page.click('#btn-new');

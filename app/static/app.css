@@ -172,6 +172,7 @@ dialog::backdrop { background: rgba(0,0,0,.4); }
 .dlg-body h3 { margin: 0; }
 .dlg-actions { display: flex; gap: 8px; justify-content: flex-end; }
 .changes li { margin-bottom: 3px; }
+.changes.health { list-style: none; padding-left: 0; }
 #toasts { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 100; }
 .toast { background: var(--panel); border: 1px solid var(--border); border-left: 4px solid var(--accent); padding: 8px 12px; border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.15); max-width: 380px; white-space: pre-wrap; }
 .toast.err { border-left-color: var(--err); } .toast.ok { border-left-color: var(--ok); }
