@@ -6,3 +6,5 @@
 - Найденный баг — сначала падающий тест (`test_regressions.py`), потом исправление.
 - `render_unit.mjs`: враждебные примеры для санитайзера, запуск `npm run test:render`, студия не нужна.
 - `e2e_ui.mjs`: проверки в браузере против `make mock` + `make dev`.
+- `test_spec_coverage.py`: подписи и предпросмотр покрывают все блоки и inline-типы из `app/bundled/api.json`; сообщение об ошибке перечисляет, что добавить.
+- `test_openapi_contract.py`: схема API совпадает с `docs/openapi.json`; после намеренного изменения `make openapi`.

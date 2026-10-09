@@ -2,7 +2,7 @@
 # Инструменты запускаются тем же Python, куда ставили requirements-dev.txt.
 PY ?= python3
 
-.PHONY: check check-py check-js fmt test e2e mock dev
+.PHONY: check check-py check-js fmt test openapi e2e mock dev
 
 check: check-py check-js
 
@@ -24,6 +24,10 @@ fmt:
 
 test:
 	$(PY) -m pytest -q
+
+# После намеренного изменения API: обновить docs/openapi.json и закоммитить его.
+openapi:
+	UPDATE_OPENAPI=1 $(PY) -m pytest -q tests/test_openapi_contract.py
 
 # Студия на подставном Telegram: http://localhost:8080, без токена и сети.
 mock:

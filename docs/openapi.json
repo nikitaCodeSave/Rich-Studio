@@ -1,0 +1,1609 @@
+{
+ "components": {
+  "schemas": {
+   "Body_media_upload_api_media_post": {
+    "properties": {
+     "file": {
+      "contentMediaType": "application/octet-stream",
+      "title": "File",
+      "type": "string"
+     }
+    },
+    "required": [
+     "file"
+    ],
+    "title": "Body_media_upload_api_media_post",
+    "type": "object"
+   },
+   "ButtonsReq": {
+    "properties": {
+     "callbacks": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Callbacks"
+     },
+     "reply_markup": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Новые кнопки; null убирает их",
+      "title": "Reply Markup"
+     }
+    },
+    "title": "ButtonsReq",
+    "type": "object"
+   },
+   "DraftReq": {
+    "properties": {
+     "post": {
+      "additionalProperties": true,
+      "title": "Post",
+      "type": "object"
+     },
+     "title": {
+      "default": "",
+      "title": "Title",
+      "type": "string"
+     }
+    },
+    "required": [
+     "post"
+    ],
+    "title": "DraftReq",
+    "type": "object"
+   },
+   "EditReq": {
+    "properties": {
+     "chat_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Chat Id"
+     },
+     "message_id": {
+      "title": "Message Id",
+      "type": "integer"
+     },
+     "post": {
+      "$ref": "#/components/schemas/Post"
+     }
+    },
+    "required": [
+     "post",
+     "message_id"
+    ],
+    "title": "EditReq",
+    "type": "object"
+   },
+   "HTTPValidationError": {
+    "properties": {
+     "detail": {
+      "items": {
+       "$ref": "#/components/schemas/ValidationError"
+      },
+      "title": "Detail",
+      "type": "array"
+     }
+    },
+    "title": "HTTPValidationError",
+    "type": "object"
+   },
+   "PinReq": {
+    "properties": {
+     "disable_notification": {
+      "default": true,
+      "title": "Disable Notification",
+      "type": "boolean"
+     }
+    },
+    "title": "PinReq",
+    "type": "object"
+   },
+   "PollReq": {
+    "properties": {
+     "at": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Отложить: unix или ISO 8601 с часовым поясом",
+      "title": "At"
+     },
+     "chat_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Chat Id"
+     },
+     "chat_ids": {
+      "anyOf": [
+       {
+        "items": {
+         "anyOf": [
+          {
+           "type": "string"
+          },
+          {
+           "type": "integer"
+          }
+         ]
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Chat Ids"
+     },
+     "pin": {
+      "default": false,
+      "title": "Pin",
+      "type": "boolean"
+     },
+     "poll": {
+      "additionalProperties": true,
+      "description": "Параметры sendPoll без chat_id: question, options, members_only, country_codes, description, media, type=quiz…",
+      "title": "Poll",
+      "type": "object"
+     }
+    },
+    "required": [
+     "poll"
+    ],
+    "title": "PollReq",
+    "type": "object"
+   },
+   "Post": {
+    "properties": {
+     "callbacks": {
+      "additionalProperties": true,
+      "description": "Ответы на callback-кнопки: {callback_data: текст или {text, show_alert}}",
+      "title": "Callbacks",
+      "type": "object"
+     },
+     "comment": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "InputRichMessage первого комментария: студия ответит им на пересылку поста в группу обсуждения",
+      "title": "Comment"
+     },
+     "options": {
+      "additionalProperties": true,
+      "description": "Любые другие параметры sendRichMessage: disable_notification, protect_content…",
+      "title": "Options",
+      "type": "object"
+     },
+     "pin": {
+      "default": false,
+      "description": "Закрепить пост после публикации",
+      "title": "Pin",
+      "type": "boolean"
+     },
+     "reply_markup": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "InlineKeyboardMarkup под постом",
+      "title": "Reply Markup"
+     },
+     "rich_message": {
+      "additionalProperties": true,
+      "description": "InputRichMessage: ровно одно из html / markdown / blocks, плюс media",
+      "title": "Rich Message",
+      "type": "object"
+     }
+    },
+    "required": [
+     "rich_message"
+    ],
+    "title": "Post",
+    "type": "object"
+   },
+   "ScheduleReq": {
+    "properties": {
+     "at": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "string"
+       }
+      ],
+      "description": "unix-время или ISO 8601 с часовым поясом",
+      "title": "At"
+     },
+     "chat_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "@канал или числовой id; по умолчанию TG_DEFAULT_CHAT",
+      "title": "Chat Id"
+     },
+     "chat_ids": {
+      "anyOf": [
+       {
+        "items": {
+         "anyOf": [
+          {
+           "type": "string"
+          },
+          {
+           "type": "integer"
+          }
+         ]
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Несколько каналов сразу (вместо chat_id)",
+      "title": "Chat Ids"
+     },
+     "draft_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Draft Id"
+     },
+     "post": {
+      "$ref": "#/components/schemas/Post"
+     }
+    },
+    "required": [
+     "post",
+     "at"
+    ],
+    "title": "ScheduleReq",
+    "type": "object"
+   },
+   "SendReq": {
+    "properties": {
+     "chat_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "@канал или числовой id; по умолчанию TG_DEFAULT_CHAT",
+      "title": "Chat Id"
+     },
+     "chat_ids": {
+      "anyOf": [
+       {
+        "items": {
+         "anyOf": [
+          {
+           "type": "string"
+          },
+          {
+           "type": "integer"
+          }
+         ]
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Несколько каналов сразу (вместо chat_id)",
+      "title": "Chat Ids"
+     },
+     "draft_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Draft Id"
+     },
+     "post": {
+      "$ref": "#/components/schemas/Post"
+     }
+    },
+    "required": [
+     "post"
+    ],
+    "title": "SendReq",
+    "type": "object"
+   },
+   "ValidationError": {
+    "properties": {
+     "ctx": {
+      "title": "Context",
+      "type": "object"
+     },
+     "input": {
+      "title": "Input"
+     },
+     "loc": {
+      "items": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "integer"
+        }
+       ]
+      },
+      "title": "Location",
+      "type": "array"
+     },
+     "msg": {
+      "title": "Message",
+      "type": "string"
+     },
+     "type": {
+      "title": "Error Type",
+      "type": "string"
+     }
+    },
+    "required": [
+     "loc",
+     "msg",
+     "type"
+    ],
+    "title": "ValidationError",
+    "type": "object"
+   }
+  }
+ },
+ "info": {
+  "description": "Локальный сервис для rich-постов Telegram (sendRichMessage). Поле `post` везде имеет вид `{rich_message: InputRichMessage, reply_markup?: InlineKeyboardMarkup, options?: {...}}` и уходит в Bot API без изменений. Медиа из загрузок указывайте как `upload:<имя файла>`. Спецификация Bot API: GET /api/spec.",
+  "title": "Rich Studio API",
+  "version": "0.1.0"
+ },
+ "openapi": "3.1.0",
+ "paths": {
+  "/api/check": {
+   "get": {
+    "operationId": "check_api_check_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "chat_id",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Chat Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Бот админ канала? Есть права на публикацию?",
+    "tags": [
+     "telegram"
+    ]
+   }
+  },
+  "/api/config": {
+   "get": {
+    "operationId": "config_api_config_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Config",
+    "tags": [
+     "service"
+    ]
+   }
+  },
+  "/api/drafts": {
+   "get": {
+    "operationId": "drafts_api_drafts_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Drafts",
+    "tags": [
+     "drafts"
+    ]
+   },
+   "post": {
+    "operationId": "create_draft_api_drafts_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/DraftReq"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Create Draft",
+    "tags": [
+     "drafts"
+    ]
+   }
+  },
+  "/api/drafts/{did}": {
+   "delete": {
+    "operationId": "del_draft_api_drafts__did__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "did",
+      "required": true,
+      "schema": {
+       "title": "Did",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Del Draft",
+    "tags": [
+     "drafts"
+    ]
+   },
+   "get": {
+    "operationId": "draft_api_drafts__did__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "did",
+      "required": true,
+      "schema": {
+       "title": "Did",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Draft",
+    "tags": [
+     "drafts"
+    ]
+   },
+   "put": {
+    "operationId": "put_draft_api_drafts__did__put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "did",
+      "required": true,
+      "schema": {
+       "title": "Did",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/DraftReq"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Put Draft",
+    "tags": [
+     "drafts"
+    ]
+   }
+  },
+  "/api/edit": {
+   "post": {
+    "operationId": "edit_api_edit_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/EditReq"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Заменить опубликованный пост (editMessageText + rich_message)",
+    "tags": [
+     "telegram"
+    ]
+   }
+  },
+  "/api/media": {
+   "get": {
+    "operationId": "media_list_api_media_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Media List",
+    "tags": [
+     "media"
+    ]
+   },
+   "post": {
+    "operationId": "media_upload_api_media_post",
+    "requestBody": {
+     "content": {
+      "multipart/form-data": {
+       "schema": {
+        "$ref": "#/components/schemas/Body_media_upload_api_media_post"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Загрузить файл; в посте он указывается как upload:<name>",
+    "tags": [
+     "media"
+    ]
+   }
+  },
+  "/api/media/{name}": {
+   "delete": {
+    "operationId": "media_delete_api_media__name__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Media Delete",
+    "tags": [
+     "media"
+    ]
+   }
+  },
+  "/api/poll": {
+   "post": {
+    "operationId": "send_poll_api_poll_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PollReq"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Опрос или викторина в канал (sendPoll), сразу или отложенно",
+    "tags": [
+     "telegram"
+    ]
+   }
+  },
+  "/api/posts": {
+   "get": {
+    "operationId": "list_posts_api_posts_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Опубликованные и отложенные посты",
+    "tags": [
+     "telegram"
+    ]
+   }
+  },
+  "/api/posts/{pid}": {
+   "delete": {
+    "operationId": "delete_post_api_posts__pid__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "pid",
+      "required": true,
+      "schema": {
+       "title": "Pid",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Отменить отложенный пост или удалить пост из канала",
+    "tags": [
+     "telegram"
+    ]
+   },
+   "get": {
+    "operationId": "post_api_posts__pid__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "pid",
+      "required": true,
+      "schema": {
+       "title": "Pid",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Post",
+    "tags": [
+     "telegram"
+    ]
+   }
+  },
+  "/api/posts/{pid}/buttons": {
+   "post": {
+    "operationId": "set_buttons_api_posts__pid__buttons_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "pid",
+      "required": true,
+      "schema": {
+       "title": "Pid",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ButtonsReq"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Заменить только кнопки под постом (editMessageReplyMarkup), текст не трогается",
+    "tags": [
+     "telegram"
+    ]
+   }
+  },
+  "/api/posts/{pid}/edit": {
+   "post": {
+    "operationId": "edit_post_api_posts__pid__edit_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "pid",
+      "required": true,
+      "schema": {
+       "title": "Pid",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/Post"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Заменить содержимое поста, опубликованного через студию",
+    "tags": [
+     "telegram"
+    ]
+   }
+  },
+  "/api/posts/{pid}/pin": {
+   "delete": {
+    "operationId": "unpin_post_api_posts__pid__pin_delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "pid",
+      "required": true,
+      "schema": {
+       "title": "Pid",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Открепить пост",
+    "tags": [
+     "telegram"
+    ]
+   },
+   "post": {
+    "operationId": "pin_post_api_posts__pid__pin_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "pid",
+      "required": true,
+      "schema": {
+       "title": "Pid",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PinReq"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Закрепить пост в канале",
+    "tags": [
+     "telegram"
+    ]
+   }
+  },
+  "/api/posts/{pid}/stop-poll": {
+   "post": {
+    "operationId": "stop_poll_api_posts__pid__stop_poll_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "pid",
+      "required": true,
+      "schema": {
+       "title": "Pid",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Закрыть опрос и сохранить итоги",
+    "tags": [
+     "telegram"
+    ]
+   }
+  },
+  "/api/preview-send": {
+   "post": {
+    "operationId": "preview_send_api_preview_send_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SendReq"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Отправить пост себе в личку (TG_PREVIEW_CHAT)",
+    "tags": [
+     "telegram"
+    ]
+   }
+  },
+  "/api/raw/{method}": {
+   "post": {
+    "operationId": "raw_api_raw__method__post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "method",
+      "required": true,
+      "schema": {
+       "title": "Method",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "additionalProperties": true,
+        "title": "Params",
+        "type": "object"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Любой метод Bot API как есть (для функций, которых ещё нет в студии)",
+    "tags": [
+     "telegram"
+    ]
+   }
+  },
+  "/api/render": {
+   "post": {
+    "operationId": "render_api_render_post",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "theme",
+      "required": false,
+      "schema": {
+       "default": "auto",
+       "title": "Theme",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/Post"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "text/html": {
+        "schema": {
+         "type": "string"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Отрисовать пост как в Telegram: отдельная HTML-страница",
+    "tags": [
+     "preview"
+    ]
+   }
+  },
+  "/api/schedule": {
+   "post": {
+    "operationId": "schedule_api_schedule_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ScheduleReq"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Отложить публикацию",
+    "tags": [
+     "telegram"
+    ]
+   }
+  },
+  "/api/send": {
+   "post": {
+    "operationId": "send_api_send_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SendReq"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Опубликовать пост (sendRichMessage)",
+    "tags": [
+     "telegram"
+    ]
+   }
+  },
+  "/api/spec": {
+   "get": {
+    "operationId": "get_spec_api_spec_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Сводка спецификации для редактора (rich-типы, методы, изменения)",
+    "tags": [
+     "spec"
+    ]
+   }
+  },
+  "/api/spec/raw": {
+   "get": {
+    "operationId": "get_spec_raw_api_spec_raw_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Полный api.json",
+    "tags": [
+     "spec"
+    ]
+   }
+  },
+  "/api/spec/refresh": {
+   "post": {
+    "operationId": "refresh_spec_api_spec_refresh_post",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Скачать свежую спецификацию и показать, что изменилось",
+    "tags": [
+     "spec"
+    ]
+   }
+  },
+  "/api/spec/type/{name}": {
+   "get": {
+    "operationId": "get_spec_type_api_spec_type__name__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Get Spec Type",
+    "tags": [
+     "spec"
+    ]
+   }
+  },
+  "/api/updates": {
+   "get": {
+    "operationId": "updates_status_api_updates_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Приём событий от Telegram: нажатия, комментарии, реакции, опросы",
+    "tags": [
+     "service"
+    ]
+   }
+  },
+  "/api/validate": {
+   "post": {
+    "operationId": "validate_api_validate_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/Post"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Validate",
+    "tags": [
+     "posts"
+    ]
+   }
+  },
+  "/render/draft/{did}": {
+   "get": {
+    "operationId": "render_draft_render_draft__did__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "did",
+      "required": true,
+      "schema": {
+       "title": "Did",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "theme",
+      "required": false,
+      "schema": {
+       "default": "auto",
+       "title": "Theme",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "text/html": {
+        "schema": {
+         "type": "string"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Render Draft",
+    "tags": [
+     "preview"
+    ]
+   }
+  }
+ }
+}
