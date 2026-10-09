@@ -803,6 +803,9 @@ def test_callback_click_is_answered_and_counted(client, tg):
     }
     _run(updates.handle_update({**upd, "callback_query": {**upd["callback_query"], "id": "cq2"}}))
     assert client.get(f"/api/posts/{r['post']['id']}").json()["clicks"] == {"like": 2}
+    # the list names a click by its button: the editor makes up keys like "b13xoxo6v"
+    [row] = [p for p in client.get("/api/posts").json() if p["id"] == r["post"]["id"]]
+    assert row["clicks"] == {"like": 2} and row["buttons"] == {"like": "👍"}
     # a button on a message the studio does not know still stops spinning
     _run(
         updates.handle_update(

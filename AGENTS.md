@@ -8,7 +8,7 @@
 
 ```
 pip install -r requirements-dev.txt && npm ci   # один раз
-make check                                      # всё: ruff, format, mypy, слои, pytest, eslint, tsc, санитайзер, скриншоты предпросмотра
+make check                                      # всё: ruff, format, mypy, слои, pytest, eslint, tsc, санитайзер, сверка с Telegram, скриншоты предпросмотра
 make fmt                                        # автоисправление формата и линтеров
 ```
 

@@ -106,7 +106,7 @@ export function showChannels() {
   };
   draw();
   const add = h('input', { type: 'text', placeholder: '@канал или -100…' });
-  const where = h('input', { type: 'text', value: /** @type {HTMLInputElement} */ ($('#chat')).value, placeholder: '@канал, @другой', onchange: (e) => { setTarget(e.target.value); draw(); } });
+  const where = h('input', { type: 'text', style: 'width:100%', value: /** @type {HTMLInputElement} */ ($('#chat')).value, placeholder: '@канал, @другой', onchange: (e) => { setTarget(e.target.value); draw(); } });
   openDialog([h('h3', { text: 'Каналы' }),
     h('label', { class: 'small muted', text: 'Куда публиковать этот черновик (несколько через запятую: пост уйдёт в каждый)' }), where,
     box,
