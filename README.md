@@ -17,7 +17,7 @@
 | Публикация | сразу, по расписанию, «мне в личку», в несколько каналов, замена текста или только кнопок, удаление |
 | Канал | закреп без уведомления, первый комментарий в обсуждении, ответы на callback-кнопки, опросы и викторины для каналов, счётчики реакций и нажатий |
 | Свежесть | редактор строится из машиночитаемой спецификации Bot API, новые поля работают в день релиза |
-| Агенты | HTTP API, MCP-сервер на `/mcp` с 13 инструментами и предпросмотром прямо в чате, `dry_run`, `Idempotency-Key`, отметка о том, кто отправил пост |
+| Агенты | HTTP API, MCP-сервер на `/mcp` с 20 инструментами и предпросмотром прямо в чате, `dry_run`, `Idempotency-Key`, отметка о том, кто отправил пост |
 
 ## Быстрый старт
 
@@ -232,7 +232,9 @@ claude mcp add --transport http rich-studio http://localhost:8080/mcp
 claude mcp add --transport http rich-studio http://localhost:8080/mcp --header "X-API-Key: <ключ>"
 ```
 
-Инструменты: `bot_api_status`, `refresh_bot_api` (скачать спецификацию сейчас), `describe_type`, `validate_post`, `save_draft`, `list_drafts`, `send_preview_to_me`, `check_channel`, `publish_post` (с `idempotency_key` и `dry_run`), `schedule_post`, `edit_post`, `list_posts`, `preview_post`.
+Инструменты: `bot_api_status`, `refresh_bot_api` (скачать спецификацию сейчас), `studio_status` (что работает: токен, приём событий, предел опоздания отложки), `describe_type`, `validate_post`, `preview_post`, `save_draft` (новый или обновить существующий с проверкой версии), `list_drafts`, `get_draft`, `list_media`, `send_preview_to_me`, `check_channel`, `publish_post` (с `idempotency_key` и `dry_run`), `schedule_post` (тоже с `dry_run`), `list_posts`, `get_post`, `post_history`, `edit_post`, `reschedule_post`, `cancel_scheduled_post`.
+
+Агент продолжает вашу работу, а не плодит копии: читает черновик (`get_draft`) и сохраняет его же; перед заменой поста читает его (`get_post`), а прежняя версия остаётся в истории. Если агент не передал `idempotency_key`, ключом считается сам запрос: повтор того же поста в тот же канал в течение суток не опубликует его второй раз.
 
 Как это выглядит в работе. Вызовы и ответы ниже настоящие (тестовый запуск студии), а окно чата нарисовано для демонстрации. Агент проверяет пост и сам исправляет ошибку, на которую указала студия:
 
@@ -246,7 +248,7 @@ claude mcp add --transport http rich-studio http://localhost:8080/mcp --header "
 
 <img src="docs/images/mcp-publish.jpg" alt="publish_post с dry_run, публикация, повтор без дубля, list_posts" width="720">
 
-Публикация помечена как действие с внешним эффектом, и клиент обычно спрашивает подтверждение, но это решает клиент, а не студия: если вызов `publish_post` в нём разрешён заранее, агент опубликует без вопроса (в том числе по указке текста, который он прочитал). Чтобы агенты только готовили черновики, а публиковали вы из редактора, задайте `MCP_PUBLISH=off`: тогда `publish_post`, `schedule_post` и `edit_post` в MCP не появятся. Удаление постов и произвольные методы Bot API (`/api/raw`) через MCP недоступны.
+Публикация помечена как действие с внешним эффектом, и клиент обычно спрашивает подтверждение, но это решает клиент, а не студия: если вызов `publish_post` в нём разрешён заранее, агент опубликует без вопроса (в том числе по указке текста, который он прочитал). Чтобы агенты только готовили черновики, а публиковали вы из редактора, задайте `MCP_PUBLISH=off`: тогда `publish_post`, `schedule_post`, `edit_post`, `reschedule_post` и `cancel_scheduled_post` в MCP не появятся. Удаление постов и произвольные методы Bot API (`/api/raw`) через MCP недоступны.
 
 ## Skill для Claude Code
 

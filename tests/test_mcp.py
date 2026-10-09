@@ -21,7 +21,15 @@ EXPECTED_TOOLS = {
     "edit_post",
     "list_posts",
     "preview_post",
+    "get_draft",
+    "list_media",
+    "studio_status",
+    "reschedule_post",
+    "cancel_scheduled_post",
+    "get_post",
+    "post_history",
 }
+PUBLISHING = {"publish_post", "schedule_post", "edit_post", "reschedule_post", "cancel_scheduled_post"}
 
 
 def rpc(client, method, params=None, rid=1, **kw):
@@ -37,6 +45,13 @@ def call(client, tool, **arguments):
     if res.get("isError"):
         return res, None, text
     return res, json.loads(text), text
+
+
+def call_list(client, tool, **arguments) -> list:
+    """A tool that returns a list: every item comes as its own content block."""
+    res = rpc(client, "tools/call", {"name": tool, "arguments": arguments})["result"]
+    assert not res.get("isError"), res
+    return [json.loads(c["text"]) for c in res["content"]]
 
 
 def test_initialize_and_list_tools(client):
@@ -111,7 +126,7 @@ def test_mcp_publish_off_leaves_only_drafts_and_preview(monkeypatch):
 
     monkeypatch.setattr(settings.get(), "mcp_publish", False)
     names = {t.name for t in asyncio.run(mcp_tools.build().list_tools())}
-    assert names == EXPECTED_TOOLS - {"publish_post", "schedule_post", "edit_post"}
+    assert names == EXPECTED_TOOLS - PUBLISHING
 
 
 def test_refresh_bot_api_reports_failure_and_keeps_the_spec(client, monkeypatch):
@@ -176,3 +191,76 @@ def test_readme_lists_every_tool():
     listed = set(re.findall(r"`([a-z_]+)`", line)) - {"idempotency_key", "dry_run"}
     assert listed == EXPECTED_TOOLS
     assert f"с {len(EXPECTED_TOOLS)} инструментами" in readme
+
+
+# ---------- continuing the user's work ----------
+def test_agent_continues_a_draft_without_making_copies(client):
+    _, d, _ = call(client, "save_draft", post=BLOCKS_POST, title="Анонс")
+    _, full, _ = call(client, "get_draft", draft_id=d["id"])
+    assert full["payload"]["rich_message"] == BLOCKS_POST["rich_message"]
+    new = {"rich_message": {"markdown": "# Правка агента"}}
+    _, d2, _ = call(client, "save_draft", post=new, draft_id=d["id"], version=full["version"])
+    assert d2["id"] == d["id"] and d2["title"] == "Анонс" and d2["version"] == full["version"] + 1
+    assert len(store.list_drafts()) == 1
+    # the user saved meanwhile: the agent's stale version is refused, nothing is overwritten
+    res, _, text = call(client, "save_draft", post=BLOCKS_POST, draft_id=d["id"], version=full["version"])
+    assert res["isError"] and "изменили" in text
+    res, _, text = call(client, "save_draft", post=BLOCKS_POST, draft_id="nope")
+    assert res["isError"]
+
+
+def test_agent_save_keeps_the_link_to_the_edited_post(client, tg):
+    pid = client.post("/api/send", json={"post": BLOCKS_POST}).json()["post"]["id"]
+    d = client.post("/api/drafts", json={"title": "Правка", "post": BLOCKS_POST, "post_id": pid}).json()
+    call(client, "save_draft", post={"rich_message": {"markdown": "x"}}, draft_id=d["id"])
+    assert store.get_draft(d["id"])["post_id"] == pid
+
+
+def test_agent_reads_a_post_before_editing_and_sees_history(client, tg):
+    pid = client.post("/api/send", json={"post": BLOCKS_POST}).json()["post"]["id"]
+    _, p, _ = call(client, "get_post", post_id=pid)
+    assert p["payload"]["rich_message"] == BLOCKS_POST["rich_message"] and p["status"] == "sent"
+    call(client, "edit_post", post_id=pid, post={"rich_message": {"markdown": "# Новое"}})
+    h = call_list(client, "post_history", post_id=pid)
+    assert len(h) == 1 and h[0]["actor"] == "mcp" and h[0]["payload"]["rich_message"] == BLOCKS_POST["rich_message"]
+
+
+def test_media_list_and_status(client, tg):
+    client.post("/api/media", files={"file": ("cat.png", b"\x89PNG", "image/png")})
+    files = call_list(client, "list_media")
+    assert files[0]["ref"] == "upload:cat.png" and files[0]["used"] is False
+    _, st, _ = call(client, "studio_status")
+    assert st["token_set"] is True and st["updates"]["state"] == "off" and st["schedule_late_min"] == 60
+
+
+def test_agent_moves_and_cancels_scheduled_posts_but_never_deletes_from_channel(client, tg):
+    _, rec, _ = call(client, "schedule_post", post=BLOCKS_POST, at="2099-01-01T09:00:00+03:00")
+    _, moved, _ = call(client, "reschedule_post", post_id=rec["id"], at="2099-01-02T09:00:00+03:00")
+    assert moved["scheduled_at"] > rec["scheduled_at"]
+    _, gone, _ = call(client, "cancel_scheduled_post", post_id=rec["id"])
+    assert gone["status"] == "cancelled"
+    sent = client.post("/api/send", json={"post": BLOCKS_POST}).json()["post"]["id"]
+    res, _, text = call(client, "cancel_scheduled_post", post_id=sent)
+    assert res["isError"] and "sent" in text
+    assert not [c for c in tg.calls if c["method"] == "deleteMessage"]
+
+
+def test_schedule_dry_run_creates_nothing(client):
+    _, r, _ = call(client, "schedule_post", post=BLOCKS_POST, at="2099-01-01T09:00:00+03:00", dry_run=True)
+    assert r["dry_run"] is True and r["at"] and not store.list_posts()
+
+
+def test_publish_without_key_does_not_post_twice(client, tg):
+    call(client, "publish_post", post=BLOCKS_POST, chat_id="@a")
+    call(client, "publish_post", post=BLOCKS_POST, chat_id="@a")  # the agent retried after a timeout
+    call(client, "publish_post", post=BLOCKS_POST, chat_id="@b")  # another channel is another request
+    sent = [c["body"]["chat_id"] for c in tg.calls if c["method"] == "sendRichMessage"]
+    assert sent == ["@a", "@b"]
+
+
+def test_flood_wait_is_reported_with_retry_after(client, tg):
+    tg.queue["sendRichMessage"] = [
+        {"ok": False, "error_code": 429, "description": "Too Many Requests", "parameters": {"retry_after": 300}}
+    ]
+    r = client.post("/api/send", json={"post": BLOCKS_POST})
+    assert r.status_code == 502 and r.json()["retry_after"] == 300

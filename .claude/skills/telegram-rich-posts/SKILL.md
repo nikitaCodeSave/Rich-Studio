@@ -60,6 +60,8 @@ Limits: 32 768 characters (client folds after ~8 000), 1-8 buttons per row, call
 
 If the `rich-studio` MCP tools are available (`validate_post`, `save_draft`, `send_preview_to_me`, `publish_post`…), use them instead of curl: same steps and rules, `publish_post` takes `idempotency_key` and `dry_run`. After `validate_post` call `preview_post` so the user sees the post rendered as in Telegram right in the chat, before any send. Otherwise use the HTTP API below.
 
+When the user says "continue my draft" or "fix the post": `list_drafts` → `get_draft` → `save_draft` with that `draft_id` and `version` (no new copy); for a published post `list_posts` → `get_post` (read it first) → `edit_post` after the user confirms. Button answers and the first comment stay unless you pass new ones; `post_history` shows earlier versions. Call `studio_status` before scheduling: if updates are off, button answers and first comments will not work, and a post that misses its time by more than `schedule_late_min` becomes `missed` (`reschedule_post` brings it back).
+
 `post` = `{"rich_message": {...}, "reply_markup": {...}?, "options": {...}?}`. Uploaded files are referenced as `upload:<name>`. If `STUDIO_API_KEY` is set, add `-H "X-API-Key: $STUDIO_API_KEY"`.
 
 ```bash

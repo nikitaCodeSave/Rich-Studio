@@ -20,10 +20,10 @@ import settings
 import spec
 import store
 import telegram as tg
-from errors import StudioError
+from errors import Conflict, NotFound, StudioError
 from mcp_tools import preview_app
 from models import Post
-from services import idempotency, posts, publisher
+from services import idempotency, media, posts, publisher, updates
 
 ACTOR = "mcp"
 
@@ -31,6 +31,9 @@ INSTRUCTIONS = """Rich Studio: write, check, preview and publish rich posts for 
 Order: bot_api_status (what is new; refresh_bot_api if the user asks for the newest) → validate_post (fix every error) → preview_post (the user sees the post
 as in Telegram right in the chat) → save_draft and/or send_preview_to_me
 → publish_post or schedule_post only after the user explicitly confirmed that exact post and channel.
+To continue the user's work: list_drafts → get_draft → save_draft with draft_id and version (the editor shows it).
+To change a published post: list_posts → get_post (read it first) → edit_post; post_history shows earlier versions.
+studio_status says whether scheduled posts, button answers and first comments will actually work.
 A post is {"rich_message": InputRichMessage with exactly one of html|markdown|blocks, "reply_markup"?,
 "options"?, "pin"?, "comment"?, "callbacks"?}; it reaches the Bot API unchanged. describe_type gives exact
 fields of any Bot API type. Uploaded files are referenced as upload:<name>."""
@@ -43,8 +46,12 @@ ChatArg = Annotated[str | None, Field(description="@канал или число
 ChatsArg = Annotated[list[str] | None, Field(description="Несколько каналов сразу вместо chat_id")]
 KeyArg = Annotated[
     str | None,
-    Field(description="Один ключ на пост. При повторе после ошибки передайте тот же ключ: второго поста не будет"),
+    Field(
+        description="Один ключ на пост. При повторе после ошибки передайте тот же ключ: второго поста не будет. "
+        "Без ключа ключом считается сам запрос: тот же пост в тот же канал в течение суток не уйдёт второй раз"
+    ),
 ]
+PostIdArg = Annotated[str, Field(description="id поста из list_posts")]
 
 READ = ToolAnnotations(read_only_hint=True, open_world_hint=False)
 LOCAL = ToolAnnotations(read_only_hint=False, destructive_hint=False, open_world_hint=False)
@@ -63,6 +70,11 @@ def _post(raw: dict) -> dict:
         raise ToolError(f"неверный пост: {e}") from None
 
 
+def _key(given: str | None, scope: str, body: dict) -> str:
+    """Agents retry after a timeout and often without a key: the request itself becomes the key then."""
+    return given or "auto:" + idempotency.fingerprint(scope, body)
+
+
 def _errors_as_tool_errors(fn: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitable[Any]]:
     """Studio and Telegram errors become tool errors the agent can read and fix."""
 
@@ -74,7 +86,8 @@ def _errors_as_tool_errors(fn: Callable[..., Awaitable[Any]]) -> Callable[..., A
             detail = e.detail if isinstance(e.detail, str) else json.dumps(e.detail, ensure_ascii=False)
             raise ToolError(detail) from None
         except tg.TelegramError as e:
-            raise ToolError(f"Telegram: {e.description}") from None
+            wait = f" (повторить не раньше чем через {e.retry_after} с)" if e.retry_after else ""
+            raise ToolError(f"Telegram: {e.description}{wait}") from None
 
     return wrapper
 
@@ -144,16 +157,68 @@ def build() -> MCPServer:
         return spec.validate_rich_message(spec.current, _post(post)["rich_message"])
 
     @tool(LOCAL)
-    async def save_draft(post: PostArg, title: Annotated[str, Field(description="Название черновика")] = "") -> dict:
-        """Сохранить черновик: он появится в редакторе, предпросмотр по адресу preview_path."""
-        d = store.save_draft(None, title, _post(post))
-        assert d is not None  # noqa: S101 - just written
-        return {"id": d["id"], "title": d["title"], "preview_path": f"/render/draft/{d['id']}"}
+    async def save_draft(
+        post: PostArg,
+        title: Annotated[str, Field(description="Название черновика; пусто при обновлении — прежнее")] = "",
+        draft_id: Annotated[
+            str | None, Field(description="id черновика, чтобы обновить его, а не создать новый")
+        ] = None,
+        version: Annotated[
+            int | None,
+            Field(
+                description="version из get_draft: если пользователь успел изменить черновик, будет ошибка, а не перезапись"
+            ),
+        ] = None,
+    ) -> dict:
+        """Сохранить черновик: он появится в редакторе, предпросмотр по адресу preview_path.
+        С draft_id обновляет существующий черновик (связь с правкой опубликованного поста сохраняется)."""
+        old = store.get_draft(draft_id) if draft_id else None
+        if draft_id and not old:
+            raise NotFound(f"черновика {draft_id} нет")
+        d = store.save_draft(
+            draft_id, title or (old or {}).get("title") or "", _post(post), version, (old or {}).get("post_id")
+        )
+        if d is None:
+            raise Conflict("черновик изменили после get_draft: прочитайте его заново и перенесите правки")
+        return {
+            "id": d["id"],
+            "title": d["title"],
+            "version": d["version"],
+            "preview_path": f"/render/draft/{d['id']}",
+        }
 
     @tool(READ)
     async def list_drafts() -> list:
-        """Черновики студии (последние сверху)."""
+        """Черновики студии (последние сверху); post_id — опубликованный пост, который правится в черновике."""
         return store.list_drafts()
+
+    @tool(READ)
+    async def get_draft(draft_id: Annotated[str, Field(description="id из list_drafts")]) -> dict:
+        """Черновик целиком: пост (payload), название, version для save_draft."""
+        d = store.get_draft(draft_id)
+        if not d:
+            raise NotFound(f"черновика {draft_id} нет")
+        return d
+
+    @tool(READ)
+    async def list_media() -> list:
+        """Загруженные файлы: в посте указываются как ref (upload:<имя>); used — нужен ли черновику или посту."""
+        return media.list_files()
+
+    @tool(READ)
+    async def studio_status() -> dict:
+        """Что сейчас работает: токен, канал по умолчанию, приём событий (без него не будет ответов на кнопки,
+        первых комментариев и реакций), предел опоздания отложенных постов, можно ли агентам публиковать."""
+        cfg = settings.get()
+        return {
+            "token_set": bool(cfg.bot_token),
+            "default_chat": cfg.default_chat or None,
+            "preview_chat_set": bool(cfg.preview_chat),
+            "updates": updates.STATUS.as_dict(),
+            "schedule_late_min": cfg.schedule_late_min,
+            "mcp_publish": cfg.mcp_publish,
+            "note": "отложенные посты отправляет сама студия: в это время она должна работать",
+        }
 
     @tool(TO_ME)
     async def send_preview_to_me(post: PostArg) -> dict:
@@ -179,7 +244,7 @@ def build() -> MCPServer:
             return await posts.send(p, chat_id, chat_ids, dry_run=True)
         body = {"post": p, "chat_id": chat_id, "chat_ids": chat_ids, "draft_id": None, "dry_run": False}
         return await idempotency.run(
-            idempotency_key, "send", body, lambda: posts.send(p, chat_id, chat_ids, actor=ACTOR)
+            _key(idempotency_key, "send", body), "send", body, lambda: posts.send(p, chat_id, chat_ids, actor=ACTOR)
         )
 
     @tool(PUBLIC)
@@ -189,22 +254,57 @@ def build() -> MCPServer:
         chat_id: ChatArg = None,
         chat_ids: ChatsArg = None,
         idempotency_key: KeyArg = None,
+        dry_run: Annotated[bool, Field(description="Только показать запросы и время, ничего не откладывать")] = False,
     ) -> dict:
-        """Отложить публикацию. Только после явного подтверждения пользователя. Студия должна работать в это время."""
+        """Отложить публикацию. Только после явного подтверждения пользователя. Студия должна работать в это время;
+        если она была выключена и пост опоздал больше schedule_late_min, он станет missed и не уйдёт сам."""
         p = _post(post)
+        if dry_run:
+            return posts.schedule(p, at, chat_id, chat_ids, dry_run=True)
         body = {"post": p, "chat_id": chat_id, "chat_ids": chat_ids, "draft_id": None, "dry_run": False, "at": at}
 
         async def action():
             return posts.schedule(p, at, chat_id, chat_ids, actor=ACTOR)
 
-        return await idempotency.run(idempotency_key, "schedule", body, action)
+        return await idempotency.run(_key(idempotency_key, "schedule", body), "schedule", body, action)
 
     @tool(PUBLIC)
-    async def edit_post(
-        post_id: Annotated[str, Field(description="id поста из list_posts")], post: PostArg
-    ) -> dict | None:
-        """Заменить содержимое опубликованного или отложенного поста. Только после подтверждения пользователя."""
+    async def edit_post(post_id: PostIdArg, post: PostArg) -> dict | None:
+        """Заменить содержимое опубликованного или отложенного поста. Только после подтверждения пользователя.
+        Сначала прочитайте пост через get_post. Ответы на кнопки и первый комментарий остаются, если их не передать;
+        прежняя версия попадёт в post_history."""
         return await posts.edit(post_id, _post(post), actor=ACTOR)
+
+    @tool(PUBLIC)
+    async def reschedule_post(
+        post_id: PostIdArg,
+        at: Annotated[str, Field(description="Новое время: ISO 8601 с часовым поясом")],
+    ) -> dict | None:
+        """Перенести отложенный пост или вернуть пропущенный (missed) в очередь. Только после подтверждения."""
+        return posts.reschedule(post_id, at)
+
+    @tool(PUBLIC)
+    async def cancel_scheduled_post(post_id: PostIdArg) -> dict | None:
+        """Отменить отложенный или пропущенный пост (из канала ничего не удаляется). Только после подтверждения."""
+        p = store.get_post(post_id)
+        if not p:
+            raise NotFound(f"поста {post_id} нет")
+        if p["status"] not in ("scheduled", "missed"):
+            raise StudioError(f"пост в статусе {p['status']}: отменить можно только отложенный или пропущенный")
+        return await posts.delete(post_id)
+
+    @tool(READ)
+    async def get_post(post_id: PostIdArg) -> dict:
+        """Пост целиком: содержимое (payload), статус, канал, message_id, реакции, нажатия, итоги опроса."""
+        p = store.get_post(post_id)
+        if not p:
+            raise NotFound(f"поста {post_id} нет")
+        return p
+
+    @tool(READ)
+    async def post_history(post_id: PostIdArg) -> list:
+        """Как пост выглядел до каждой замены (новые сверху), кто заменял."""
+        return posts.versions(post_id)
 
     @tool(READ)
     async def list_posts(limit: Annotated[int, Field(ge=1, le=100)] = 20) -> list:

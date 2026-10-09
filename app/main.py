@@ -70,7 +70,10 @@ async def _studio_error(request: Request, e: Exception):
 
 async def _telegram_error(request: Request, e: Exception):
     assert isinstance(e, tg.TelegramError)  # noqa: S101
-    return JSONResponse({"detail": f"Telegram: {e.description}", "error_code": e.code}, status_code=502)
+    body = {"detail": f"Telegram: {e.description}", "error_code": e.code}
+    if e.retry_after:  # flood wait longer than the studio waits itself: the caller decides when to try again
+        body["retry_after"] = e.retry_after
+    return JSONResponse(body, status_code=502)
 
 
 async def _no_answer(request: Request, e: Exception):
