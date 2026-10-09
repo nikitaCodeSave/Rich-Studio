@@ -17,6 +17,7 @@ import spec
 import store
 
 from . import media, updates
+from . import scheduler as schedule_loop
 
 ORDER = {"ok": 0, "warn": 1, "fail": 2}
 DAY = 24 * 3600
@@ -147,6 +148,8 @@ def scheduler() -> dict:
 
 def posts() -> dict:
     found = store.stats.problem_posts(int(time.time()) - DAY)
+    # a post the scheduler is sending this second is "sending" in the table; only one left behind is a problem
+    found = [p for p in found if not (p["status"] == "sending" and p["id"] in schedule_loop.in_flight)]
     if not found:
         return _check("posts", "ok", "за сутки без сбоев")
     return _check(

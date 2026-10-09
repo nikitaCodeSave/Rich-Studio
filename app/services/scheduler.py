@@ -16,11 +16,44 @@ from . import publisher
 log = logging.getLogger("rich-studio.scheduler")
 INTERVAL = 10  # seconds between checks
 UNREACHABLE_RETRY = 60  # seconds before the next attempt when Telegram could not be reached
+# ids this process is sending right now: their "sending" status is normal, not stuck (health reads it)
+in_flight: set[str] = set()
 
 
 def _missed(p: dict, now: float) -> bool:
     limit = settings.get().schedule_late_min * 60
     return bool(limit) and now - p["scheduled_at"] > limit
+
+
+async def _send_claimed(queued: dict, now: float) -> None:
+    p = store.get_post(queued["id"]) or queued  # the content as it is now, after any edit since the query
+    try:
+        res = await publisher.send(publisher.resolve_chat(p["chat_id"]), p["payload"])
+    except StudioError as e:  # bad settings: nothing was sent
+        store.update_post(p["id"], status="failed", error=str(e))
+        return
+    except tg.TelegramError as e:
+        # not sent: no connection, or Telegram asked to wait longer than the client waits itself
+        if isinstance(e, tg.Unreachable) or (e.code == 429 and e.retry_after):
+            wait = UNREACHABLE_RETRY if isinstance(e, tg.Unreachable) else int(e.retry_after or 0)
+            store.retry_later(p["id"], int(now) + wait, f"{e.description}; повтор через {wait} с")
+        else:
+            store.update_post(p["id"], status="failed", error=e.description)
+        return
+    except Exception as e:  # noqa: BLE001 - network errors mid-send, a 5xx: never kill the scheduler
+        store.update_post(p["id"], status="failed", error=f"{type(e).__name__}: {e}. {publisher.MAY_HAVE_GONE}")
+        return
+    # the post is in the channel now: whatever happens next must not mark it failed
+    store.update_post(
+        p["id"], status="sent", message_id=res["message_id"], sent_at=int(time.time()), error=None, retry_at=None
+    )
+    try:
+        warnings = await publisher.after_send(p["id"], p["payload"], res)
+    except Exception as e:
+        log.exception("after-send steps failed for %s", p["id"])
+        warnings = [f"{type(e).__name__}: {e}"]
+    if warnings:
+        store.update_post(p["id"], error="; ".join(warnings))
 
 
 async def run_due_posts() -> int:
@@ -39,34 +72,11 @@ async def run_due_posts() -> int:
             continue
         if not store.claim_post(queued["id"]):  # someone else took it
             continue
-        p = store.get_post(queued["id"]) or queued  # the content as it is now, after any edit since the query
+        in_flight.add(queued["id"])
         try:
-            res = await publisher.send(publisher.resolve_chat(p["chat_id"]), p["payload"])
-        except StudioError as e:  # bad settings: nothing was sent
-            store.update_post(p["id"], status="failed", error=str(e))
-            continue
-        except tg.TelegramError as e:
-            # not sent: no connection, or Telegram asked to wait longer than the client waits itself
-            if isinstance(e, tg.Unreachable) or (e.code == 429 and e.retry_after):
-                wait = UNREACHABLE_RETRY if isinstance(e, tg.Unreachable) else int(e.retry_after or 0)
-                store.retry_later(p["id"], int(now) + wait, f"{e.description}; повтор через {wait} с")
-            else:
-                store.update_post(p["id"], status="failed", error=e.description)
-            continue
-        except Exception as e:  # noqa: BLE001 - network errors mid-send, a 5xx: never kill the scheduler
-            store.update_post(p["id"], status="failed", error=f"{type(e).__name__}: {e}. {publisher.MAY_HAVE_GONE}")
-            continue
-        # the post is in the channel now: whatever happens next must not mark it failed
-        store.update_post(
-            p["id"], status="sent", message_id=res["message_id"], sent_at=int(time.time()), error=None, retry_at=None
-        )
-        try:
-            warnings = await publisher.after_send(p["id"], p["payload"], res)
-        except Exception as e:
-            log.exception("after-send steps failed for %s", p["id"])
-            warnings = [f"{type(e).__name__}: {e}"]
-        if warnings:
-            store.update_post(p["id"], error="; ".join(warnings))
+            await _send_claimed(queued, now)
+        finally:
+            in_flight.discard(queued["id"])
     return len(due)
 
 
