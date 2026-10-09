@@ -3,8 +3,9 @@ import { api } from './api.js';
 import { closeDialog, openDialog } from './dialogs.js';
 import { $, h, store, toast } from './dom.js';
 import { draftPayload, flushSave, loadPost } from './editor.js';
+import { followDraft } from './editing.js';
 import { resetHistory } from './history.js';
-import { dirty, S, saveState } from './state.js';
+import { dirty, editing, S, saveState } from './state.js';
 
 // ---------- drafts ----------
 export async function loadDrafts() {
@@ -23,6 +24,7 @@ export async function openDraft(id) {
   const d = await api('GET', '/api/drafts/' + id);
   S.draftId = d.id; S.draftVersion = d.version;
   $('#title').value = d.title || '';
+  await followDraft(d);
   loadPost(d.payload);
   resetHistory();
   dirty.value = false; saveState.value = 'сохранено';
@@ -39,7 +41,7 @@ export function saveDraft(silent, overwrite) {
 }
 
 async function doSave(silent, overwrite) {
-  const body = { title: $('#title').value.trim() || 'Пост ' + new Date().toLocaleDateString('ru-RU'), post: draftPayload() };
+  const body = { title: $('#title').value.trim() || 'Пост ' + new Date().toLocaleDateString('ru-RU'), post: draftPayload(), post_id: editing.value ? editing.value.id : null };
   let d;
   try {
     // the version this tab started from: if another tab or an agent saved since, the server answers 409
@@ -75,7 +77,7 @@ function draftConflict(detail) {
 
 export async function newDraft() {
   await flushSave().catch(() => {});
-  S.draftId = null; S.draftVersion = null;
+  S.draftId = null; S.draftVersion = null; editing.value = null;
   $('#title').value = '';
   loadPost({ rich_message: { blocks: [{ type: 'heading', size: 1, text: 'Заголовок' }, { type: 'paragraph', text: 'Текст поста' }] } });
   resetHistory();

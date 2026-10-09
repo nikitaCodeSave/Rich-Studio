@@ -78,7 +78,7 @@ dialog .ok { color: var(--ok); } dialog .w { color: var(--warn); }
 .list li .meta { font-size: 11.5px; color: var(--muted); display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .list li .acts { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
 .status { padding: 0 6px; border-radius: 999px; font-size: 11px; background: var(--soft); }
-.status.sent { color: var(--ok); } .status.failed { color: var(--err); } .status.scheduled { color: var(--warn); }
+.status.sent { color: var(--ok); } .status.failed { color: var(--err); } .status.scheduled, .status.missed { color: var(--warn); }
 .actor { padding: 0 6px; border-radius: 999px; font-size: 11px; border: 1px solid var(--soft); }
 .upload { display: block; text-align: center; border: 1px dashed var(--accent); color: var(--accent); border-radius: 8px; padding: 10px; cursor: pointer; }
 .uploads li { flex-direction: row; align-items: center; gap: 8px; }

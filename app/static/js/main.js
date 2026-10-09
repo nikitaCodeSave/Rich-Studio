@@ -13,6 +13,8 @@ import { closeDialog, openDialog } from './dialogs.js';
 import { $, $$, act, debounce, h, store, toast } from './dom.js';
 import { effect } from '../vendor/signals-core.js';
 import './components/rs-preview.js';
+import './components/rs-edit-bar.js';
+import { leaveEditing, reschedulePost, showHistory, updatePost } from './editing.js';
 import { loadDrafts, newDraft, openDraft, saveDraft } from './drafts.js';
 import { autosave, buildPost, changed, loadPost, renderPreview, setMode } from './editor.js';
 import { canRedo, canUndo, redo, undo } from './history.js';
@@ -20,7 +22,7 @@ import { addMediaEntry, loadUploads, upload } from './media.js';
 import { showPoll } from './poll.js';
 import { loadPosts, replacePost } from './posts.js';
 import { refreshSpec, showSpec, updateBadge } from './spec-dialog.js';
-import { chat, dark, dirty, S, saveState, target, targetLabel } from './state.js';
+import { chat, dark, dirty, editing, S, saveState, target, targetLabel } from './state.js';
 
 const isTextField = (el) => el instanceof HTMLElement && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName));
 
@@ -29,6 +31,7 @@ function bindEffects() {
   effect(() => { $('#save-state').textContent = saveState.value; });
   effect(() => { $('#btn-undo').disabled = !canUndo.value; $('#btn-redo').disabled = !canRedo.value; });
   effect(() => { store.set('dark', dark.value); renderPreview(); });
+  effect(() => { /** @type {any} */ ($('#edit-bar')).post = editing.value; });
 }
 
 function bindActions() {
@@ -59,7 +62,8 @@ function bindActions() {
   $('#btn-publish').onclick = async () => {
     const where = targetLabel();
     if (!where) { toast('Укажите канал (@username или id) в поле справа сверху', 'err'); return; }
-    if (!confirm('Опубликовать пост в ' + where + '?')) return;
+    const e = editing.value;
+    if (!confirm((e ? `Это опубликует НОВЫЙ пост. Чтобы изменить пост ${e.message_id ? '#' + e.message_id : ''} в ${e.chat_id}, нажмите «Обновить пост» над редактором.\n\n` : '') + 'Опубликовать пост в ' + where + '?')) return;
     await act(async () => { if (dirty.value || !S.draftId) await saveDraft(true); return api('POST', '/api/send', { post: buildPost(), ...target(), draft_id: S.draftId }); },
       (r) => {
         const bad = (r.results || []).filter((x) => !x.ok);
@@ -93,6 +97,12 @@ function bindActions() {
         await act(() => api('POST', '/api/edit', { post: buildPost(), chat_id: chat(), message_id: id }), 'Пост #' + id + ' обновлён');
       } })]);
   };
+
+  const bar = $('#edit-bar');
+  bar.addEventListener('update', () => updatePost());
+  bar.addEventListener('reschedule', (e) => reschedulePost(/** @type {CustomEvent} */ (e).detail));
+  bar.addEventListener('history', (e) => showHistory(/** @type {CustomEvent} */ (e).detail).catch((err) => toast(err.message, 'err')));
+  bar.addEventListener('leave', () => leaveEditing());
 
   $('#theme-toggle').onclick = () => { dark.value = !dark.value; };
   $('#open-render').onclick = () => act(async () => {

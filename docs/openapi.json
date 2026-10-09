@@ -53,6 +53,18 @@
       "title": "Post",
       "type": "object"
      },
+     "post_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "id опубликованного или отложенного поста, который правится в этом черновике",
+      "title": "Post Id"
+     },
      "title": {
       "default": "",
       "title": "Title",
@@ -325,6 +337,27 @@
      "post"
     ],
     "title": "PublishReq",
+    "type": "object"
+   },
+   "RescheduleReq": {
+    "properties": {
+     "at": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "string"
+       }
+      ],
+      "description": "Новое время: unix или ISO 8601 с часовым поясом",
+      "title": "At"
+     }
+    },
+    "required": [
+     "at"
+    ],
+    "title": "RescheduleReq",
     "type": "object"
    },
    "ScheduleReq": {
@@ -766,6 +799,26 @@
   "/api/edit": {
    "post": {
     "operationId": "edit_api_edit_post",
+    "parameters": [
+     {
+      "description": "Кто отправляет: ui (редактор), mcp:<клиент>, имя скрипта. Пишется в историю постов.",
+      "in": "header",
+      "name": "x-studio-client",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "Кто отправляет: ui (редактор), mcp:<клиент>, имя скрипта. Пишется в историю постов.",
+       "title": "X-Studio-Client"
+      }
+     }
+    ],
     "requestBody": {
      "content": {
       "application/json": {
@@ -1038,7 +1091,7 @@
       "description": "Validation Error"
      }
     },
-    "summary": "Отменить отложенный пост или удалить пост из канала",
+    "summary": "Отменить отложенный или пропущенный пост, или удалить пост из канала",
     "tags": [
      "telegram"
     ]
@@ -1143,6 +1196,24 @@
       "schema": {
        "title": "Pid",
        "type": "string"
+      }
+     },
+     {
+      "description": "Кто отправляет: ui (редактор), mcp:<клиент>, имя скрипта. Пишется в историю постов.",
+      "in": "header",
+      "name": "x-studio-client",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "Кто отправляет: ui (редактор), mcp:<клиент>, имя скрипта. Пишется в историю постов.",
+       "title": "X-Studio-Client"
       }
      }
     ],
@@ -1269,6 +1340,56 @@
     ]
    }
   },
+  "/api/posts/{pid}/reschedule": {
+   "post": {
+    "operationId": "reschedule_api_posts__pid__reschedule_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "pid",
+      "required": true,
+      "schema": {
+       "title": "Pid",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RescheduleReq"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Перенести отложенный пост или вернуть пропущенный в очередь на новое время",
+    "tags": [
+     "telegram"
+    ]
+   }
+  },
   "/api/posts/{pid}/stop-poll": {
    "post": {
     "operationId": "stop_poll_api_posts__pid__stop_poll_post",
@@ -1304,6 +1425,46 @@
      }
     },
     "summary": "Закрыть опрос и сохранить итоги",
+    "tags": [
+     "telegram"
+    ]
+   }
+  },
+  "/api/posts/{pid}/versions": {
+   "get": {
+    "operationId": "post_versions_api_posts__pid__versions_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "pid",
+      "required": true,
+      "schema": {
+       "title": "Pid",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Как выглядел пост до каждой замены, новые сверху",
     "tags": [
      "telegram"
     ]

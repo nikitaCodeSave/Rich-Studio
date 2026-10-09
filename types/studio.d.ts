@@ -75,6 +75,16 @@ interface DraftRow {
   id: string;
   title: string;
   updated_at: number;
+  /** the post this draft edits, if any */
+  post_id: string | null;
+}
+
+/** GET /api/posts/{id}/versions item */
+interface PostVersion {
+  id: number;
+  payload: Json;
+  replaced_at: number;
+  actor: string | null;
 }
 
 /** GET /api/posts row */

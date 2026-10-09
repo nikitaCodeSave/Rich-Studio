@@ -5,7 +5,7 @@ from fastapi import APIRouter, Body, Depends
 import store
 import telegram as tg
 from errors import NotFound
-from models import ButtonsReq, EditReq, PinReq, PollReq, Post, PublishReq, ScheduleReq, SendReq
+from models import ButtonsReq, EditReq, PinReq, PollReq, Post, PublishReq, RescheduleReq, ScheduleReq, SendReq
 from services import idempotency, posts, publisher
 
 from .deps import actor, idempotency_key
@@ -37,8 +37,8 @@ async def preview_send(req: SendReq):
 
 
 @router.post("/api/edit", summary="Заменить опубликованный пост (editMessageText + rich_message)")
-async def edit(req: EditReq):
-    return await posts.edit_message(req.post.model_dump(), req.chat_id, req.message_id)
+async def edit(req: EditReq, who: str = Depends(actor)):
+    return await posts.edit_message(req.post.model_dump(), req.chat_id, req.message_id, who)
 
 
 @router.post("/api/schedule", summary="Отложить публикацию")
@@ -98,10 +98,22 @@ def post(pid: str):
 
 
 @router.post("/api/posts/{pid}/edit", summary="Заменить содержимое поста, опубликованного через студию")
-async def edit_post(pid: str, new: Post):
-    return await posts.edit(pid, new.model_dump())
+async def edit_post(pid: str, new: Post, who: str = Depends(actor)):
+    return await posts.edit(pid, new.model_dump(), who)
 
 
-@router.delete("/api/posts/{pid}", summary="Отменить отложенный пост или удалить пост из канала")
+@router.get("/api/posts/{pid}/versions", summary="Как выглядел пост до каждой замены, новые сверху")
+def post_versions(pid: str):
+    return posts.versions(pid)
+
+
+@router.post(
+    "/api/posts/{pid}/reschedule", summary="Перенести отложенный пост или вернуть пропущенный в очередь на новое время"
+)
+def reschedule(pid: str, req: RescheduleReq):
+    return posts.reschedule(pid, req.at)
+
+
+@router.delete("/api/posts/{pid}", summary="Отменить отложенный или пропущенный пост, или удалить пост из канала")
 async def delete_post(pid: str):
     return await posts.delete(pid)

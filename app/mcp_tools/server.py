@@ -204,7 +204,7 @@ def build() -> MCPServer:
         post_id: Annotated[str, Field(description="id поста из list_posts")], post: PostArg
     ) -> dict | None:
         """Заменить содержимое опубликованного или отложенного поста. Только после подтверждения пользователя."""
-        return await posts.edit(post_id, _post(post))
+        return await posts.edit(post_id, _post(post), actor=ACTOR)
 
     @tool(READ)
     async def list_posts(limit: Annotated[int, Field(ge=1, le=100)] = 20) -> list:

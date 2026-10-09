@@ -120,8 +120,37 @@ def claim_post(pid: str) -> bool:
 
 def cancel_scheduled(pid: str) -> bool:
     with conn() as c:
-        cur = c.execute("update posts set status='cancelled' where id=? and status='scheduled'", (pid,))
+        cur = c.execute("update posts set status='cancelled' where id=? and status in ('scheduled', 'missed')", (pid,))
         return cur.rowcount == 1
+
+
+def reschedule(pid: str, at: int) -> bool:
+    """A new time for a waiting or missed post; False if it is already being sent or gone."""
+    with conn() as c:
+        cur = c.execute(
+            """update posts set status='scheduled', scheduled_at=?, retry_at=null, error=null
+               where id=? and status in ('scheduled', 'missed')""",
+            (at, pid),
+        )
+        return cur.rowcount == 1
+
+
+def add_version(pid: str, payload: dict, actor: str | None) -> None:
+    """Keep the content a post had before it was replaced."""
+    with conn() as c:
+        c.execute(
+            "insert into post_versions(post_id, payload, replaced_at, actor) values(?,?,?,?)",
+            (pid, json.dumps(payload, ensure_ascii=False), int(time.time()), actor),
+        )
+
+
+def list_versions(pid: str) -> list[dict]:
+    """Earlier contents of a post, newest first."""
+    with conn() as c:
+        rows = c.execute(
+            "select id, payload, replaced_at, actor from post_versions where post_id=? order by id desc", (pid,)
+        )
+        return [row(r) for r in rows]  # type: ignore[misc]
 
 
 def recover_stale_sending() -> int:

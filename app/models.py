@@ -62,6 +62,10 @@ class ButtonsReq(BaseModel):
     callbacks: dict[str, Any] | None = None
 
 
+class RescheduleReq(BaseModel):
+    at: int | str = Field(..., description="Новое время: unix или ISO 8601 с часовым поясом")
+
+
 class PinReq(BaseModel):
     disable_notification: bool = True
 
@@ -73,4 +77,7 @@ class DraftReq(BaseModel):
         None,
         description="Версия черновика, на которой основана правка; если с тех пор его сохранили "
         "в другом месте, ответ 409 вместо перезаписи. Без поля черновик перезаписывается",
+    )
+    post_id: str | None = Field(
+        None, description="id опубликованного или отложенного поста, который правится в этом черновике"
     )

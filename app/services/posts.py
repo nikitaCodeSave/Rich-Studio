@@ -105,8 +105,11 @@ def after_edit(old: dict, post: dict) -> dict:
     return new
 
 
-async def edit_message(post: dict, chat_id, message_id: int) -> dict:
-    """Replace the content of any channel message (editMessageText + rich_message)."""
+async def edit_message(post: dict, chat_id, message_id: int, actor: str = "api", rec: dict | None = None) -> dict:
+    """Replace the content of any channel message (editMessageText + rich_message).
+
+    If the studio published it (`rec`, or found by chat and message id), the record follows the
+    channel and the content before the edit is kept as a version."""
     publisher.validate(post)
     params = {
         "chat_id": publisher.resolve_chat(chat_id),
@@ -123,8 +126,9 @@ async def edit_message(post: dict, chat_id, message_id: int) -> dict:
             raise
         result = None
     # if the studio published this message, keep its history in step with the channel
-    rec = store.find_sent(params["chat_id"], message_id)
+    rec = rec or store.find_sent(params["chat_id"], message_id)
     if rec and rec.get("kind") != "poll":
+        store.add_version(rec["id"], rec["payload"], actor)
         store.update_post(rec["id"], payload=after_edit(rec["payload"], post))
     return {"result": result, "unchanged": result is None}
 
@@ -143,7 +147,7 @@ def schedule(
     return recs[0] if len(recs) == 1 else {**recs[0], "all": recs}
 
 
-async def edit(pid: str, post: dict) -> dict | None:
+async def edit(pid: str, post: dict, actor: str = "api") -> dict | None:
     """Replace a post published or scheduled through the studio."""
     p = _get(pid)
     if p["status"] not in ("scheduled", "sent"):
@@ -154,11 +158,26 @@ async def edit(pid: str, post: dict) -> dict | None:
         publisher.validate(post)
         if not store.replace_scheduled(pid, post):
             raise StudioError("пост уже отправляется: обновите список и замените опубликованный")
+        store.add_version(pid, p["payload"], actor)
         return store.get_post(pid)
     if not p["message_id"]:
         raise StudioError(f"пост в статусе {p['status']}, редактировать нечего")
-    await edit_message(post, p["chat_id"], p["message_id"])
-    return store.update_post(pid, payload=after_edit(p["payload"], post))
+    await edit_message(post, p["chat_id"], p["message_id"], actor, rec=p)
+    return store.get_post(pid)
+
+
+def versions(pid: str) -> list[dict]:
+    """What the post looked like before each replacement, newest first."""
+    _get(pid)
+    return store.list_versions(pid)
+
+
+def reschedule(pid: str, at) -> dict | None:
+    """Move a waiting post, or bring back a missed one, to a new time."""
+    when = publisher.parse_at(at)
+    if not store.reschedule(pid, when):
+        raise StudioError(f"пост в статусе {_get(pid)['status']}: перенести можно отложенный или пропущенный")
+    return store.get_post(pid)
 
 
 async def delete(pid: str) -> dict | None:
@@ -167,7 +186,7 @@ async def delete(pid: str) -> dict | None:
     if p["status"] == "sent" and p["message_id"]:
         await tg.call("deleteMessage", {"chat_id": publisher.resolve_chat(p["chat_id"]), "message_id": p["message_id"]})
         return store.update_post(pid, status="deleted")
-    if p["status"] == "scheduled" and store.cancel_scheduled(pid):
+    if p["status"] in ("scheduled", "missed") and store.cancel_scheduled(pid):
         return store.get_post(pid)
     raise StudioError(f"пост в статусе {_get(pid)['status']}: удалять или отменять нечего")
 
