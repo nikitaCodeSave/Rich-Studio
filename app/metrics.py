@@ -64,17 +64,53 @@ def beat(loop: str, interval: float, error: str | None = None) -> None:
         entry["last_error"] = {"at": int(now), "error": error[:300]}
 
 
+# 400 is Telegram refusing that one request (a field in the post, a late button click): the post shows it and the
+# "posts" health check counts it. These 400s are about the setup instead: the chat, its topics, the bot's rights.
+SETUP_400 = (
+    "chat not found",
+    "rights",
+    "admin",
+    "upgraded",
+    "thread",
+    "topic",
+    "peer_id",
+    "chat_id",
+    "forbidden",
+    "not a member",
+)
+
+
+def about_the_studio(code: int | None, error: str) -> bool:
+    """Network, 401/403, 429, 5xx and setup 400s; not a single request Telegram did not like."""
+    return code != 400 or any(s in error.lower() for s in SETUP_400)
+
+
 def telegram_call(
-    method: str, ok: bool, error: str | None = None, ms: int | None = None, code: int | None = None
+    method: str,
+    ok: bool,
+    error: str | None = None,
+    ms: int | None = None,
+    code: int | None = None,
+    quiet: bool = False,
 ) -> None:
+    """quiet: the long poll. Its success says the connection works, not that a chat or the bot's rights are fixed,
+    so it clears only an error of its own kind."""
     method = _key(telegram_ms, method)
     telegram[f"{method} {'ok' if ok else 'error'}"] += 1
     if ms is not None:
         telegram_ms[method].append(ms)
+    last = telegram_last["error"]
     if ok:
-        telegram_last["ok_at"] = time.time()
-    else:
-        telegram_last["error"] = {"at": time.time(), "method": method, "error": (error or "")[:300], "code": code}
+        if not quiet or last is None or last.get("quiet"):
+            telegram_last["ok_at"] = time.time()
+    elif about_the_studio(code, error or ""):  # classified here: a refused post must not overwrite a setup error
+        telegram_last["error"] = {
+            "at": time.time(),
+            "method": method,
+            "error": (error or "")[:300],
+            "code": code,
+            "quiet": quiet,
+        }
 
 
 def problem(level: str, logger: str, message: str, request_id: str | None = None, event: str | None = None) -> None:

@@ -39,7 +39,7 @@ Log lines are JSON: `ts` (UTC, ends with `Z`; convert for the user), `level`, `l
 |---|---|---|
 | `database` | schema version, post counts | fail: the database is older than the code. Restart the studio (migrations run at start) |
 | `disk` | free space in DATA_DIR | warn < 1 GB, fail < 200 MB: nothing new can be saved. Suggest `POST /api/media/cleanup`, old backups |
-| `telegram` | token, getUpdates state, the newest Bot API call | fail `conflict`: another process or a webhook reads this bot; stop it or `TG_UPDATES=off`. warn: the newest call failed (network, rights, chat not found, 401/403, 429, 5xx): `GET /api/check?chat_id=…`. A 400 about the post itself (a bad field, a late button click) does not count here: it is on the post and in `posts` |
+| `telegram` | token, getUpdates state, the newest Bot API call | fail `conflict`: another process or a webhook reads this bot; stop it or `TG_UPDATES=off`. warn: the newest call failed (network, 401/403, 429, 5xx, or a setup 400: chat not found, rights, upgraded group, topic or thread, peer/chat id): `GET /api/check?chat_id=…`. A 400 about the post itself (a bad field, a late button click) does not count here: it is on the post and in `posts` |
 | `loops` | heartbeats of scheduler, updates, spec, backup, housekeeping | fail: a loop stopped, scheduled posts will not go. Restart the studio and read ERROR lines |
 | `scheduler` | scheduled posts past their time | warn: the queue is stuck or background loops are off; posts may go late or become `missed` |
 | `posts` | failed, missed posts and failed first comments in the last 24 h | warn: read `error` of each; a missed post needs the user: reschedule or publish |
