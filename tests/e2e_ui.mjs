@@ -324,6 +324,28 @@ check('Header fits one row at 1440px', Math.abs(header.pub - header.brand) < 12 
     JSON.stringify({ conflictShown, untouched: untouched.payload.rich_message, mine: mine.payload.rich_message }));
 }
 
+// 15. «Править» opens a published post with a bar over the editor; «Обновить пост» replaces it and keeps history
+{
+  const sent = await page.evaluate(async () => (await fetch('/api/send', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ chat_id: '@edit_me', post: { rich_message: { markdown: 'Первая версия' } } }) })).json());
+  const mid = sent.message.message_id;
+  await page.click('#side-tabs [data-tab=drafts]');
+  await page.click('#side-tabs [data-tab=posts]');
+  await page.locator('#posts li', { hasText: '#' + mid }).getByRole('button', { name: 'Править' }).click();
+  await page.waitForSelector('#edit-bar >> text=Правите пост', { timeout: 5000 }).catch(() => {});
+  const barText = await page.locator('#edit-bar').textContent().catch(() => '') || await page.evaluate(() => document.querySelector('#edit-bar').shadowRoot.textContent);
+  await applyJson({ rich_message: { markdown: 'Вторая версия' } });
+  await page.click('#edit-bar >> text=Обновить пост');
+  await page.waitForTimeout(600);
+  const edits = (await mockLog()).filter((c) => c.method === 'editMessageText' && c.body.message_id === mid);
+  await page.click('#edit-bar >> text=История');
+  await page.waitForSelector('dialog[open] >> text=История поста');
+  const history = await page.locator('dialog[open] li').allTextContents();
+  await page.keyboard.press('Escape');
+  check('Editing a published post: bar, update in place, history',
+    /#\d+ в @edit_me/.test(barText) && edits.length === 1 && edits[0].body.rich_message.markdown === 'Вторая версия' && history.length === 2 && /До замены/.test(history[1]),
+    JSON.stringify({ barText: barText.replace(/\s+/g, ' ').trim(), edits: edits.length, history }));
+}
+
 check('No CSP violations or JS errors in the editor', errors.length === 0 && csp.length === 0, [...errors, ...csp].join(' | '));
 // screenshots of the editor for a person to look at (CI keeps them as an artifact): a PR that changes the UI shows them
 mkdirSync('test-results/ui', { recursive: true });

@@ -24,12 +24,12 @@ def draft(did: str):
 
 @router.post("/api/drafts")
 def create_draft(req: DraftReq):
-    return store.save_draft(None, req.title, req.post)
+    return store.save_draft(None, req.title, req.post, post_id=req.post_id)
 
 
 @router.put("/api/drafts/{did}")
 def put_draft(did: str, req: DraftReq):
-    d = store.save_draft(did, req.title, req.post, req.version)
+    d = store.save_draft(did, req.title, req.post, req.version, req.post_id)
     if d is None:
         current = store.get_draft(did)
         raise Conflict(

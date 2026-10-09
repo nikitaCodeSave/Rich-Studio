@@ -6,6 +6,8 @@ import { $ } from './dom.js';
 export const dirty = signal(false);
 export const saveState = signal(''); // text next to the Save button
 export const dark = signal(matchMedia('(prefers-color-scheme: dark)').matches);
+/** the published or scheduled post the open draft is a working copy of (<rs-edit-bar> shows it) */
+export const editing = signal(/** @type {PostRow | null} */ (null));
 
 // ---------- state ----------
 /** @type {EditorState} */

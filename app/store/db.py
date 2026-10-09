@@ -46,6 +46,12 @@ MIGRATIONS: list[str] = [
          status text not null, response text, created_at integer not null);""",
     # 4: a draft open in two tabs: a save based on an older version is refused instead of overwriting
     """alter table drafts add column version integer not null default 0;""",
+    # 5: what a published post looked like before each replacement; the draft that edits a post
+    """create table if not exists post_versions(
+         id integer primary key autoincrement, post_id text not null, payload text not null,
+         replaced_at integer not null, actor text);
+       create index if not exists post_versions_by_post on post_versions(post_id);
+       alter table drafts add column post_id text;""",
 ]
 
 JSON_FIELDS = ("payload", "reactions", "clicks", "poll_results")

@@ -3,7 +3,8 @@ import { api } from './api.js';
 import { $, h, toast } from './dom.js';
 import { autosave, buildPost, callbacksFor, flushSave, loadPost, updatesLabel } from './editor.js';
 import { resetHistory } from './history.js';
-import { dirty, S, saveState } from './state.js';
+import { editPost, reschedulePost } from './editing.js';
+import { dirty, editing, S, saveState } from './state.js';
 
 // ---------- posts ----------
 export async function loadPosts() {
@@ -33,8 +34,9 @@ export async function loadPosts() {
       h('span', { class: 'meta', text: new Date(when * 1000).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' }) + (p.error ? ' · ' + p.error : '') }),
       stats.length ? h('span', { class: 'meta stats', text: stats.join(' · ') }) : null,
       h('span', { class: 'acts' },
-        poll ? null : h('button', { class: 'ghost small-btn', text: 'Открыть', title: 'Загрузить содержимое в редактор', onclick: () => openCopy(p) }),
-        !poll && ['sent', 'scheduled'].includes(p.status) ? h('button', { class: 'ghost small-btn', text: 'Заменить', title: 'Заменить этот пост содержимым редактора', onclick: () => replacePost(p) }) : null,
+        !poll && ['sent', 'scheduled', 'missed'].includes(p.status) ? h('button', { class: 'ghost small-btn', text: 'Править', title: 'Открыть пост в редакторе; «Обновить пост» над редактором заменит его', onclick: () => editPost(p).catch((e) => toast(e.message, 'err')) }) : null,
+        !poll && !['sent', 'scheduled', 'missed'].includes(p.status) ? h('button', { class: 'ghost small-btn', text: 'Открыть', title: 'Копия поста новым черновиком', onclick: () => openCopy(p) }) : null,
+        ['scheduled', 'missed'].includes(p.status) ? h('button', { class: 'ghost small-btn', text: p.status === 'missed' ? 'Отложить заново' : 'Перенести', onclick: () => reschedulePost(p) }) : null,
         !poll && ['sent', 'scheduled'].includes(p.status) ? h('button', { class: 'ghost small-btn', text: 'Кнопки', title: 'Заменить только кнопки под постом кнопками из редактора; текст не меняется', onclick: () => {
           const kb = S.keyboard.filter((r) => r.length);
           if (!confirm(kb.length ? `Поставить под пост ${kb.flat().length} кнопок из редактора?` : 'В редакторе нет кнопок. Убрать кнопки из поста?')) return;
@@ -42,7 +44,7 @@ export async function loadPosts() {
         } }) : null,
         sent ? h('button', { class: 'ghost small-btn', text: p.pinned ? 'Открепить' : 'Закрепить', onclick: () => p.pinned ? call('DELETE', `/api/posts/${p.id}/pin`, undefined, 'Откреплено') : call('POST', `/api/posts/${p.id}/pin`, { disable_notification: true }, 'Закреплено без уведомления') }) : null,
         poll && sent && !(pr && pr.is_closed) ? h('button', { class: 'ghost small-btn', text: 'Закрыть опрос', onclick: () => { if (confirm('Закрыть опрос? Голосовать больше будет нельзя.')) call('POST', `/api/posts/${p.id}/stop-poll`, undefined, 'Опрос закрыт'); } }) : null,
-        ['sent', 'scheduled'].includes(p.status) ? h('button', { class: 'danger small-btn', text: p.status === 'sent' ? 'Удалить' : 'Отменить', onclick: async () => {
+        ['sent', 'scheduled', 'missed'].includes(p.status) ? h('button', { class: 'danger small-btn', text: p.status === 'sent' ? 'Удалить' : 'Отменить', onclick: async () => {
           if (!confirm(p.status === 'sent' ? 'Удалить пост из канала? Это нельзя отменить.' : 'Отменить отложенную публикацию?')) return;
           try { await api('DELETE', '/api/posts/' + p.id); toast('Готово', 'ok'); } catch (e) { toast(e.message, 'err'); }
           loadPosts();
@@ -56,7 +58,7 @@ async function openCopy(p) {
   try {
     await flushSave();
     const full = await api('GET', '/api/posts/' + p.id);
-    S.draftId = null; S.draftVersion = null;
+    S.draftId = null; S.draftVersion = null; editing.value = null;
     $('#title').value = 'Копия поста ' + (p.message_id || '');
     loadPost(full.payload);
     resetHistory();

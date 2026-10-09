@@ -6,6 +6,7 @@ from .drafts import delete_draft, drafts_using, get_draft, list_drafts, save_dra
 from .meta import get_meta, set_meta
 from .posts import (
     add_post,
+    add_version,
     bump_click,
     cancel_scheduled,
     claim_post,
@@ -16,9 +17,11 @@ from .posts import (
     find_sent,
     get_post,
     list_posts,
+    list_versions,
     mark_missed,
     recover_stale_sending,
     replace_scheduled,
+    reschedule,
     retry_later,
     update_post,
     using_upload,
@@ -26,6 +29,7 @@ from .posts import (
 
 __all__ = [
     "add_post",
+    "add_version",
     "bump_click",
     "cancel_scheduled",
     "claim_post",
@@ -44,9 +48,11 @@ __all__ = [
     "init",
     "list_drafts",
     "list_posts",
+    "list_versions",
     "mark_missed",
     "recover_stale_sending",
     "replace_scheduled",
+    "reschedule",
     "retry_later",
     "save_draft",
     "set_meta",
