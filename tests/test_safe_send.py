@@ -1,6 +1,7 @@
 """Safe sending for agents: Idempotency-Key, who sent the post, dry run."""
 
 import httpx
+import pytest
 
 import store
 from test_api import BLOCKS_POST
@@ -61,6 +62,37 @@ def test_network_error_mid_send_is_never_resent_with_same_key(client, tg, monkey
     again = client.post("/api/send", json={"post": BLOCKS_POST}, headers=h)
     assert again.status_code == 502 and "мог уйти" in again.json()["detail"]
     assert sends(tg) == 0
+
+
+def test_error_after_telegram_accepted_never_resends_with_same_key(client, tg, monkeypatch):
+    # Telegram took the post, then the studio broke while recording it: the key must not be freed
+    real = store.add_post
+
+    def broken(*a, **kw):
+        raise RuntimeError("disk full")
+
+    h = {"Idempotency-Key": "post-5"}
+    monkeypatch.setattr(store, "add_post", broken)
+    with pytest.raises(RuntimeError):
+        client.post("/api/send", json={"post": BLOCKS_POST}, headers=h)
+    monkeypatch.setattr(store, "add_post", real)
+    again = client.post("/api/send", json={"post": BLOCKS_POST}, headers=h)
+    assert again.status_code == 502 and "мог уйти" in again.json()["detail"]
+    assert sends(tg) == 1
+
+
+def test_pending_key_left_by_a_crash_is_may_have_gone(client, tg):
+    h = {"Idempotency-Key": "post-6"}
+    client.post("/api/send", json={"post": BLOCKS_POST}, headers=h)
+    # as if the process died mid-send: the claim stays "pending"
+    with store.conn() as c:
+        c.execute("update idempotency set status='pending', response=null where key='post-6'")
+    assert client.post("/api/send", json={"post": BLOCKS_POST}, headers=h).status_code == 409  # maybe still running
+    with store.conn() as c:
+        c.execute("update idempotency set created_at=created_at-3600 where key='post-6'")
+    r = client.post("/api/send", json={"post": BLOCKS_POST}, headers=h)
+    assert r.status_code == 502 and "мог уйти" in r.json()["detail"]
+    assert sends(tg) == 1
 
 
 def test_schedule_and_poll_accept_keys(client, tg):
