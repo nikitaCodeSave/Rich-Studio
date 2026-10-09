@@ -162,6 +162,25 @@ def keyboard_errors(markup) -> list[str]:
     return errors
 
 
+def method_errors(spec: Spec, method: str, params: dict, where: str, skip: frozenset = frozenset()) -> list[str]:
+    """Parameters of a Bot API method against the spec: missing required ones and wrong types are errors;
+    fields the spec does not know are left to Telegram (a newer Bot API may have them)."""
+    m = spec.methods.get(method)
+    if not m or not isinstance(params, dict):
+        return []
+    v = Validator(spec)
+    for f in m.get("fields", []):
+        name = f["name"]
+        if name in skip:
+            continue
+        if name not in params:
+            if f["required"]:
+                v.errors.append(f"{where}: нет обязательного поля {name}")
+            continue
+        v.check(params[name], f["types"], f"{where}.{name}")
+    return v.errors
+
+
 MEDIA_REF_RE = re.compile(r"tg://(photo|video|audio|document|animation|voice(?:_note)?)\?id=([\w\-.]+)")
 
 

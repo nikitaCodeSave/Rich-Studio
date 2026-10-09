@@ -1020,3 +1020,37 @@ def test_button_without_an_action_is_an_error(client):
     # a field the studio does not know yet counts as the action: new Bot API buttons pass
     post["reply_markup"]["inline_keyboard"][0][0]["future_action"] = {"x": 1}
     assert not any("что она делает" in e for e in post_json(client, "/api/validate", post).json()["errors"])
+
+
+def test_poll_after_post_is_checked_like_sendpoll(client, tg):
+    def refused(poll, **kw):
+        r = post_json(client, "/api/send", {"post": {**BLOCKS_POST, "poll_after": poll}, **kw})
+        return r.status_code, r.text
+
+    status, text = refused({**POLL, "type": "quiz"})
+    assert status == 422 and "правильный ответ" in text
+    status, text = refused({**POLL, "is_anonymous": "да"})
+    assert status == 422 and "is_anonymous" in text
+    # a topic of the poll is the topic of the post: one chat only
+    status, text = refused({**POLL, "message_thread_id": 5}, chat_ids=["@a", "@b"], dry_run=True)
+    assert status == 400 and "тема форума" in text
+    assert not [c for c in tg.calls if c["method"].startswith("send")]
+
+
+def test_a_poll_that_may_have_gone_stays_listed(client, tg, monkeypatch):
+    import telegram
+
+    real = telegram.call
+
+    async def flaky(method, params, *a, **kw):
+        if method == "sendPoll":
+            raise TimeoutError("read timeout")
+        return await real(method, params, *a, **kw)
+
+    monkeypatch.setattr(telegram, "call", flaky)
+    did = post_json(client, "/api/drafts", {"title": "С опросом", "post": BLOCKS_POST}).json()["id"]
+    post = {**BLOCKS_POST, "poll_after": POLL}
+    for _ in range(2):
+        assert post_json(client, "/api/send", {"post": post, "draft_id": did}).status_code == 200
+    gone = [x for x in client.get("/api/posts").json() if x["kind"] == "poll"]
+    assert len(gone) == 2 and all("Опрос мог уйти" in x["error"] for x in gone)

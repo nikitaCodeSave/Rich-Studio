@@ -84,14 +84,17 @@ def list_posts(limit: int = 100, status: str | None = None, chat: str | None = N
         return [row(r) for r in rows]  # type: ignore[misc]
 
 
-def drop_refused(chat_id, draft_id: str, keep_with: str) -> int:
+def drop_refused(chat_id, draft_id: str, *keep_with: str) -> int:
     """After a successful send: earlier refusals of the same draft to the same chat are history, not a problem.
-    Rows whose error contains `keep_with` (the post may have gone) stay: the channel may hold a duplicate."""
+    Rows whose error contains any of `keep_with` (the post or its poll may have gone) stay: the channel may hold
+    a duplicate."""
     with conn() as c:
-        return c.execute(
-            "delete from posts where status='failed' and draft_id=? and chat_id=? and instr(coalesce(error, ''), ?)=0",
-            (draft_id, str(chat_id), keep_with),
-        ).rowcount
+        rows = c.execute(
+            "select id, error from posts where status='failed' and draft_id=? and chat_id=?", (draft_id, str(chat_id))
+        ).fetchall()
+        gone = [r["id"] for r in rows if not any(k in (r["error"] or "") for k in keep_with)]
+        c.executemany("delete from posts where id=?", [(i,) for i in gone])
+        return len(gone)
 
 
 def delete_post(pid: str) -> None:

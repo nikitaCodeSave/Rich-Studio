@@ -22,6 +22,7 @@ from errors import Invalid, MayHaveGone, StudioError
 log = logging.getLogger("rich-studio.publisher")
 RESERVED_PARAMS = {"chat_id", "rich_message", "reply_markup", "message_id"}
 MAY_HAVE_GONE = "Пост мог уйти в канал, проверьте перед повтором"
+POLL_MAY_HAVE_GONE = "Опрос мог уйти в канал, проверьте перед повтором"
 
 
 _CHAT = re.compile(r"@\w+|-?\d+")
@@ -68,6 +69,8 @@ def targets(chat_id, chat_ids, draft_id: str | None = None) -> list:
 def check_thread(chats: list, post: dict) -> None:
     """A forum topic belongs to one chat: refuse it for several chats or for a known non-forum one."""
     tid = (post.get("options") or {}).get("message_thread_id")
+    if tid in (None, "") and isinstance(post.get("poll_after"), dict):
+        tid = post["poll_after"].get("message_thread_id")  # the poll after the post goes to the same chat
     if tid in (None, ""):
         return
     if len(chats) > 1:
@@ -128,7 +131,15 @@ def poll_error(poll) -> str | None:
     texts = [o.get("text") if isinstance(o, dict) else o for o in opts] if isinstance(opts, list) else []
     if len([t for t in texts if str(t or "").strip()]) < 2:
         return "опрос после поста: нужно минимум два варианта"
-    return None
+    if len(texts) > 12:
+        return "опрос после поста: больше 12 вариантов"
+    if len(str(poll["question"])) > 300:
+        return "опрос после поста: вопрос длиннее 300 символов"
+    if poll.get("type") == "quiz" and not poll.get("correct_option_ids") and poll.get("correct_option_id") is None:
+        return "опрос после поста: у викторины не отмечен правильный ответ"
+    normalized = {**poll, "options": [o if isinstance(o, dict) else {"text": str(o)} for o in opts or []]}
+    bad = spec.method_errors(spec.current, "sendPoll", normalized, "опрос после поста", frozenset({"chat_id"}))
+    return bad[0] if bad else None
 
 
 def poll_after(post: dict) -> dict:
@@ -220,7 +231,7 @@ async def _send_poll_after(pid: str, post: dict, res: dict, actor: str) -> list[
         _record_failure(chat, sent, rec.get("draft_id"), e.description, "poll", actor)
         return [f"опрос после поста не отправлен: {e.description}"]
     except Exception as e:  # noqa: BLE001 - never resent on its own, like any send that may have gone
-        err = f"{type(e).__name__}: {e}. Опрос мог уйти в канал, проверьте перед повтором"
+        err = f"{type(e).__name__}: {e}. {POLL_MAY_HAVE_GONE}"
         _record_failure(chat, sent, rec.get("draft_id"), err, "poll", actor)
         return [f"опрос после поста: {err}"]
     poll_rec = store.add_post(chat, sent, rec.get("draft_id"), "sent", r["message_id"], kind="poll", actor=actor)
@@ -261,7 +272,7 @@ async def publish(chats: list, post: dict, draft_id: str | None = None, kind: st
             continue
         rec = store.add_post(chat, post, draft_id, "sent", res["message_id"], kind=kind, actor=actor)
         if draft_id:
-            store.drop_refused(chat, draft_id, MAY_HAVE_GONE)
+            store.drop_refused(chat, draft_id, MAY_HAVE_GONE, POLL_MAY_HAVE_GONE)
         w = await after_send(rec["id"], post, res, actor)
         warnings += [f"{chat}: {x}" for x in w] if len(chats) > 1 else w
         out.append({"chat_id": chat, "ok": True, "post": store.get_post(rec["id"]), "message": res})
