@@ -29,13 +29,19 @@ class SendReq(BaseModel):
     draft_id: str | None = None
 
 
+class PublishReq(SendReq):
+    dry_run: bool = Field(
+        False, description="Только показать, какие запросы уйдут в Telegram: без отправки и без записи в историю"
+    )
+
+
 class EditReq(BaseModel):
     post: Post
     chat_id: str | int | None = None
     message_id: int
 
 
-class ScheduleReq(SendReq):
+class ScheduleReq(PublishReq):
     at: int | str = Field(..., description="unix-время или ISO 8601 с часовым поясом")
 
 

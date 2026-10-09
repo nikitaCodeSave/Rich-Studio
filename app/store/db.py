@@ -28,6 +28,7 @@ EXTRA_COLUMNS = {
     "clicks": "text",  # {"callback_data": n}
     "poll_id": "text",
     "poll_results": "text",  # {"total": n, "options": [{"text", "voter_count"}], "is_closed"}
+    "actor": "text",  # who asked for the post: ui | api | the X-Studio-Client value (e.g. mcp:claude-code)
 }
 
 # Numbered steps after the columns above (PRAGMA user_version). Append only; never edit a shipped step.
@@ -38,6 +39,10 @@ MIGRATIONS: list[str] = [
        create index if not exists posts_due on posts(status, scheduled_at);""",
     # 2: small key-value state that must survive a restart (getUpdates offset)
     """create table if not exists meta(key text primary key, value text);""",
+    # 3: Idempotency-Key: a retried send returns the first result instead of posting twice
+    """create table if not exists idempotency(
+         key text primary key, scope text not null, fingerprint text not null,
+         status text not null, response text, created_at integer not null);""",
 ]
 
 JSON_FIELDS = ("payload", "reactions", "clicks", "poll_results")

@@ -27,7 +27,7 @@ export async function loadPosts() {
     ].filter(Boolean);
     const call = async (method, path, body, ok) => { try { await api(method, path, body); toast(ok, 'ok'); } catch (e) { toast(e.message, 'err'); } loadPosts(); };
     return h('li', { title: p.error || '' },
-      h('span', { class: 'meta' }, h('span', { class: 'status ' + p.status, text: label[p.status] || p.status }), poll ? h('b', { text: 'опрос' }) : null, p.chat_id, p.message_id ? '#' + p.message_id : ''),
+      h('span', { class: 'meta' }, h('span', { class: 'status ' + p.status, text: label[p.status] || p.status }), poll ? h('b', { text: 'опрос' }) : null, p.actor && p.actor !== 'ui' ? h('span', { class: 'actor', title: 'Кто отправил: не редактор, а API или агент', text: p.actor }) : null, p.chat_id, p.message_id ? '#' + p.message_id : ''),
       poll && p.poll_question ? h('span', { class: 'small', text: p.poll_question }) : null,
       h('span', { class: 'meta', text: new Date(when * 1000).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' }) + (p.error ? ' · ' + p.error : '') }),
       stats.length ? h('span', { class: 'meta stats', text: stats.join(' · ') }) : null,

@@ -67,8 +67,10 @@ curl -s -X POST "$S/api/render?theme=dark" -H 'content-type: application/json' -
 curl -s -X POST $S/api/drafts -H 'content-type: application/json' -d '{"title":"Анонс","post":'"$(cat post.json)"'}'  # open it in the web editor
 curl -s -X POST $S/api/preview-send -H 'content-type: application/json' -d '{"post":'"$(cat post.json)"'}'  # to the user's DM
 curl -s "$S/api/check?chat_id=@channel"                                   # bot is admin with can_post_messages?
-curl -s -X POST $S/api/send -H 'content-type: application/json' -d '{"chat_id":"@channel","post":'"$(cat post.json)"'}'
-curl -s -X POST $S/api/schedule -H 'content-type: application/json' -d '{"chat_id":"@channel","at":"2026-10-10T09:00:00+03:00","post":'"$(cat post.json)"'}'
+curl -s -X POST $S/api/send -H 'content-type: application/json' -d '{"chat_id":"@channel","post":'"$(cat post.json)"',"dry_run":true}'  # exactly what would go to Telegram, nothing sent
+K=$(uuidgen)   # one key per post; reuse it when retrying the same send
+curl -s -X POST $S/api/send -H 'content-type: application/json' -H "Idempotency-Key: $K" -H 'X-Studio-Client: claude-code' -d '{"chat_id":"@channel","post":'"$(cat post.json)"'}'
+curl -s -X POST $S/api/schedule -H 'content-type: application/json' -H "Idempotency-Key: $K" -d '{"chat_id":"@channel","at":"2026-10-10T09:00:00+03:00","post":'"$(cat post.json)"'}'
 curl -s -X POST $S/api/posts/<id>/edit -H 'content-type: application/json' -d @post.json   # replace a published post
 curl -s -X POST $S/api/send -H 'content-type: application/json' -d '{"chat_ids":["@one","@two"],"post":'"$(cat post.json)"'}'  # several channels
 curl -s -X POST $S/api/posts/<id>/pin -H 'content-type: application/json' -d '{"disable_notification":true}'   # DELETE to unpin
@@ -87,6 +89,7 @@ Without the studio, call `https://api.telegram.org/bot$TG_BOT_TOKEN/sendRichMess
 ## 5. Rules
 
 - Never publish, edit or delete a channel post without the user's explicit go-ahead for that exact action; drafts, validation, render and preview-send are fine to do on your own.
+- Every `send`, `schedule` and `poll` call carries an `Idempotency-Key` (one per post). After a timeout or 5xx, retry with the same key: the studio returns the first result instead of posting twice. A 502 saying the post "мог уйти" stays the same on retry: check the channel with the user before using a new key.
 - Never print, echo or ask the user to paste the bot token into chat; it lives in `.env` / `TG_BOT_TOKEN`.
 - Send markup as is. Do not invent tags or fields: confirm anything not in the cheat sheet against the current spec or the formatting section, and say when something is unverified.
 - Write post text in the user's language and voice.

@@ -5,7 +5,7 @@ import { store } from './dom.js';
 export function setKeyCookie(k) { document.cookie = 'rs_key=' + encodeURIComponent(k) + '; path=/; SameSite=Strict'; }
 
 export async function api(method, path, body, raw) {
-  const headers = {};
+  const headers = { 'X-Studio-Client': 'ui' };
   const key = store.get('apiKey', '');
   if (key) headers['X-API-Key'] = key;
   let payload;

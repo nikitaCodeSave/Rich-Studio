@@ -249,6 +249,72 @@
     "title": "Post",
     "type": "object"
    },
+   "PublishReq": {
+    "properties": {
+     "chat_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "@канал или числовой id; по умолчанию TG_DEFAULT_CHAT",
+      "title": "Chat Id"
+     },
+     "chat_ids": {
+      "anyOf": [
+       {
+        "items": {
+         "anyOf": [
+          {
+           "type": "string"
+          },
+          {
+           "type": "integer"
+          }
+         ]
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Несколько каналов сразу (вместо chat_id)",
+      "title": "Chat Ids"
+     },
+     "draft_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Draft Id"
+     },
+     "dry_run": {
+      "default": false,
+      "description": "Только показать, какие запросы уйдут в Telegram: без отправки и без записи в историю",
+      "title": "Dry Run",
+      "type": "boolean"
+     },
+     "post": {
+      "$ref": "#/components/schemas/Post"
+     }
+    },
+    "required": [
+     "post"
+    ],
+    "title": "PublishReq",
+    "type": "object"
+   },
    "ScheduleReq": {
     "properties": {
      "at": {
@@ -310,6 +376,12 @@
        }
       ],
       "title": "Draft Id"
+     },
+     "dry_run": {
+      "default": false,
+      "description": "Только показать, какие запросы уйдут в Telegram: без отправки и без записи в историю",
+      "title": "Dry Run",
+      "type": "boolean"
      },
      "post": {
       "$ref": "#/components/schemas/Post"
@@ -817,6 +889,44 @@
   "/api/poll": {
    "post": {
     "operationId": "send_poll_api_poll_post",
+    "parameters": [
+     {
+      "description": "Кто отправляет: ui (редактор), mcp:<клиент>, имя скрипта. Пишется в историю постов.",
+      "in": "header",
+      "name": "x-studio-client",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "Кто отправляет: ui (редактор), mcp:<клиент>, имя скрипта. Пишется в историю постов.",
+       "title": "X-Studio-Client"
+      }
+     },
+     {
+      "description": "Повтор запроса с тем же ключом вернёт первый результат, а не опубликует пост второй раз. Ключ живёт сутки.",
+      "in": "header",
+      "name": "idempotency-key",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "Повтор запроса с тем же ключом вернёт первый результат, а не опубликует пост второй раз. Ключ живёт сутки.",
+       "title": "Idempotency-Key"
+      }
+     }
+    ],
     "requestBody": {
      "content": {
       "application/json": {
@@ -1323,6 +1433,44 @@
   "/api/schedule": {
    "post": {
     "operationId": "schedule_api_schedule_post",
+    "parameters": [
+     {
+      "description": "Кто отправляет: ui (редактор), mcp:<клиент>, имя скрипта. Пишется в историю постов.",
+      "in": "header",
+      "name": "x-studio-client",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "Кто отправляет: ui (редактор), mcp:<клиент>, имя скрипта. Пишется в историю постов.",
+       "title": "X-Studio-Client"
+      }
+     },
+     {
+      "description": "Повтор запроса с тем же ключом вернёт первый результат, а не опубликует пост второй раз. Ключ живёт сутки.",
+      "in": "header",
+      "name": "idempotency-key",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "Повтор запроса с тем же ключом вернёт первый результат, а не опубликует пост второй раз. Ключ живёт сутки.",
+       "title": "Idempotency-Key"
+      }
+     }
+    ],
     "requestBody": {
      "content": {
       "application/json": {
@@ -1362,11 +1510,49 @@
   "/api/send": {
    "post": {
     "operationId": "send_api_send_post",
+    "parameters": [
+     {
+      "description": "Кто отправляет: ui (редактор), mcp:<клиент>, имя скрипта. Пишется в историю постов.",
+      "in": "header",
+      "name": "x-studio-client",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "Кто отправляет: ui (редактор), mcp:<клиент>, имя скрипта. Пишется в историю постов.",
+       "title": "X-Studio-Client"
+      }
+     },
+     {
+      "description": "Повтор запроса с тем же ключом вернёт первый результат, а не опубликует пост второй раз. Ключ живёт сутки.",
+      "in": "header",
+      "name": "idempotency-key",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "Повтор запроса с тем же ключом вернёт первый результат, а не опубликует пост второй раз. Ключ живёт сутки.",
+       "title": "Idempotency-Key"
+      }
+     }
+    ],
     "requestBody": {
      "content": {
       "application/json": {
        "schema": {
-        "$ref": "#/components/schemas/SendReq"
+        "$ref": "#/components/schemas/PublishReq"
        }
       }
      },
