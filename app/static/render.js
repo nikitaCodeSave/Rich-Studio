@@ -10,6 +10,7 @@
 
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+  /** @returns {HTMLElement} */
   function el(tag, attrs, ...kids) {
     const e = document.createElement(tag);
     for (const [k, v] of Object.entries(attrs || {})) {
@@ -47,7 +48,7 @@
     } else if (kind === 'audio' || kind === 'voice_note' || kind === 'voice') {
       node = el('audio', { src, controls: true });
     } else {
-      node = el('a', { class: 'tg-doc', href: src, target: '_blank', rel: 'noopener' }, el('span', { class: 'tg-doc-ico', text: '📄' }), (() => { try { return decodeURIComponent(src.split('/').pop()); } catch (e) { return src.split('/').pop(); } })());
+      node = el('a', { class: 'tg-doc', href: src, target: '_blank', rel: 'noopener' }, el('span', { class: 'tg-doc-ico', text: '📄' }), (() => { const last = src.split('/').pop() || ''; try { return decodeURIComponent(last); } catch (e) { return last; } })());
     }
     const wrap = el('div', { class: 'tg-media tg-media-' + kind + (spoiler ? ' tg-media-spoiler' : '') }, node);
     if (spoiler) wrap.addEventListener('click', () => wrap.classList.remove('tg-media-spoiler'));
@@ -72,14 +73,15 @@
   // ---------- date/time ----------
   function formatTime(unix, fmt) {
     const d = new Date(unix * 1000);
-    if (isNaN(d)) return '';
+    if (isNaN(d.getTime())) return '';
     fmt = fmt || '';
+    /** @type {Intl.DateTimeFormatOptions} */
     const opts = {};
     if (/w/.test(fmt)) opts.weekday = 'short';
     if (/D/.test(fmt)) { opts.day = 'numeric'; opts.month = 'long'; opts.year = 'numeric'; } else if (/d/.test(fmt)) { opts.day = '2-digit'; opts.month = '2-digit'; opts.year = 'numeric'; }
     if (/T/.test(fmt)) { opts.hour = '2-digit'; opts.minute = '2-digit'; opts.second = '2-digit'; } else if (/t/.test(fmt)) { opts.hour = '2-digit'; opts.minute = '2-digit'; }
     if (/r/.test(fmt)) {
-      const diff = Math.round((d - Date.now()) / 1000);
+      const diff = Math.round((d.getTime() - Date.now()) / 1000);
       const rtf = new Intl.RelativeTimeFormat('ru', { numeric: 'auto' });
       const a = Math.abs(diff);
       if (a < 60) return rtf.format(diff, 'second');
@@ -321,6 +323,7 @@
       [...node.childNodes].forEach((c) => { if (c.nodeType === 1) walk(c); });
       if (node === root || node.nodeType !== 1) return;
       const tag = node.tagName.toLowerCase();
+      /** @type {HTMLElement | null} */
       let rep = null;
       const attr = (n) => node.getAttribute(n);
       const kids = () => [...node.childNodes];
@@ -344,6 +347,7 @@
         if (type === 'url') b.url = safeUrl(attr('url')) || ''; else if (type === 'copy_text') b.copy_text = { text: attr('text') }; else if (type === 'disabled') b.disabled = {}; else b[type] = attr('data') || attr(type) || '';
         rep = buttonEl(b, ctx);
       } else if (tag === 'tg-document' || ((tag === 'img' || tag === 'video' || tag === 'audio') && /^tg:/.test(attr('src') || ''))) {
+        /** @type {{ kind: string, media: any, id?: string }} */
         const info = mediaFromSrc(attr('src'), ctx) || { kind: tag === 'tg-document' ? 'document' : tag === 'img' ? 'photo' : tag, media: null };
         const kind = tag === 'tg-document' ? 'document' : info.kind;
         rep = mediaEl(kind, info.media || (info.id ? 'нет в media: ' + info.id : null), ctx);
@@ -374,13 +378,14 @@
     // <template> content is inert: no scripts run and no images load until sanitized nodes are attached
     const tpl = document.createElement('template');
     tpl.innerHTML = '<div>' + src + '</div>';
-    const root = tpl.content.firstChild;
+    const root = /** @type {HTMLElement} */ (tpl.content.firstChild);
     transformHtml(root, ctx);
     const frag = document.createDocumentFragment();
     while (root.firstChild) frag.append(root.firstChild);
     return frag;
   }
 
+  /** @type {any} */
   let md = null;
   function renderMarkdown(src, ctx) {
     if (!md && global.markdownit) md = global.markdownit({ html: true, linkify: true, breaks: false });

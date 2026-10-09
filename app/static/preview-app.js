@@ -1,8 +1,9 @@
 // Post preview inside an MCP host (Claude chat): the view of the preview_post tool, served as ui://rich-studio/preview.
 // Talks to the host over postMessage JSON-RPC (MCP Apps). Has no network access: upload:<name> media shows as a stub.
 (function () {
-  const root = document.getElementById('root');
-  const notes = document.getElementById('notes');
+  // both are in the page preview_app.py builds
+  const root = /** @type {HTMLElement} */ (document.getElementById('root'));
+  const notes = /** @type {HTMLElement} */ (document.getElementById('notes'));
   const pending = new Map();
   let nextId = 1;
 

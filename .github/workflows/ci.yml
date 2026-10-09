@@ -34,6 +34,12 @@ jobs:
       - run: npx tsc -p .
       - run: npx playwright install --with-deps chromium
       - run: npm run test:render
+      - run: npm run test:shots
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: preview-screenshots
+          path: test-results/preview/
 
   e2e:
     runs-on: ubuntu-latest

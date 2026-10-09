@@ -17,6 +17,7 @@ check-js:
 	npx eslint .
 	npx tsc -p .
 	npm run --silent test:render
+	npm run --silent test:shots
 
 fmt:
 	$(PY) -m ruff check --fix .

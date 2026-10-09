@@ -14,5 +14,5 @@
     "useUnknownInCatchVariables": false,
     "skipLibCheck": true
   },
-  "include": ["app/static/js/**/*.js", "types/*.d.ts"]
+  "include": ["app/static/*.js", "app/static/js/**/*.js", "types/*.d.ts"]
 }
