@@ -70,10 +70,10 @@ async def run_due_posts() -> int:
                 "опубликуйте или отложите заново",
             )
             continue
-        if not store.claim_post(queued["id"]):  # someone else took it
-            continue
-        in_flight.add(queued["id"])
+        in_flight.add(queued["id"])  # before the claim: health must never see "sending" without the id here
         try:
+            if not store.claim_post(queued["id"]):  # someone else took it
+                continue
             await _send_claimed(queued, now)
         finally:
             in_flight.discard(queued["id"])
