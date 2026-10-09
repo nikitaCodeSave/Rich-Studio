@@ -5,6 +5,7 @@ import { channelTitle } from './channels.js';
 import { saveDraft } from './drafts.js';
 import { renderBlocksPane } from './forms.js';
 import { recordHistory } from './history.js';
+import { readIssue, reveal } from './issues.js';
 import { renderKeyboard } from './keyboard.js';
 import { plural } from './labels.js';
 import { renderMedia } from './media.js';
@@ -203,13 +204,26 @@ export function parsedToBlocks() {
 
 export const validate = debounce(async () => {
   const box = $('#validation');
+  const pill = $('#check-pill');
   try {
     const r = await api('POST', '/api/validate', buildPost());
     const st = r.stats || {};
     const statLine = h('span', { class: 'muted small', text: ' · ' + plural(st.chars ?? 0, 'символ', 'символа', 'символов') + (st.blocks ? ' · ' + plural(st.blocks, 'блок', 'блока', 'блоков') : '') + (st.media ? ` · ${st.media} медиа` : '') + ` · проверено по ${r.spec_version}` });
+    const item = (msg, cls) => {
+      const it = readIssue(msg);
+      return h('li', { class: cls }, it.block && S.mode === 'blocks'
+        ? h('button', { type: 'button', class: 'link', title: 'Показать в редакторе', text: it.text, onclick: () => reveal(it.block, it.field) })
+        : it.text);
+    };
     box.replaceChildren(...[
       r.ok ? h('span', { class: 'ok', text: '✓ Пост проходит проверку' }) : h('b', { class: 'e', text: 'Ошибки' }), statLine,
-      r.errors.length ? h('ul', {}, r.errors.map((e) => h('li', { class: 'e', text: e }))) : null,
-      r.warnings.length ? h('ul', {}, r.warnings.map((e) => h('li', { class: 'w', text: e }))) : null].filter(Boolean));
-  } catch (e) { box.replaceChildren(h('span', { class: 'e', text: 'Проверка недоступна: ' + e.message })); }
+      r.errors.length ? h('ul', {}, r.errors.map((e) => item(e, 'e'))) : null,
+      r.warnings.length ? h('ul', {}, r.warnings.map((e) => item(e, 'w'))) : null].filter(Boolean));
+    // always in sight next to the mode tabs: the length and whether the post passes
+    const chars = plural(st.chars ?? 0, 'символ', 'символа', 'символов');
+    pill.className = 'check-pill ' + (r.errors.length ? 'e' : r.warnings.length ? 'w' : 'ok');
+    pill.textContent = r.errors.length ? '✕ ' + plural(r.errors.length, 'ошибка', 'ошибки', 'ошибок') + ' · ' + chars : (r.warnings.length ? '⚠ ' : '✓ ') + chars;
+    pill.title = r.errors.length || r.warnings.length ? 'Показать замечания проверки' : 'Пост проходит проверку';
+    pill.hidden = false;
+  } catch (e) { box.replaceChildren(h('span', { class: 'e', text: 'Проверка недоступна: ' + e.message })); pill.hidden = true; }
 }, 500);

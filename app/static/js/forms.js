@@ -1,11 +1,16 @@
 // Forms generated from the spec: block list, object fields, tables, media fields.
+import { api } from './api.js';
 import { closeDialog, editJson, openDialog } from './dialogs.js';
-import { $, clone, h } from './dom.js';
+import { $, $$, clone, h, toast } from './dom.js';
 import { changed } from './editor.js';
-import { BLOCK_LABELS, FIELD_HINTS, FIELD_LABELS, IGNORED_MEDIA_FIELDS } from './labels.js';
+import { BLOCK_GROUPS, BLOCK_LABELS, FIELD_HINTS, FIELD_LABELS, IGNORED_MEDIA_FIELDS, plural } from './labels.js';
+import { clipboardTable } from './paste.js';
 import { richTextEditor } from './rich-text.js';
 import { blockTypeName, blockTypes, cell, constField, constOf, defaultFor, defaultObject, isNewType, newBlock, T } from './spec.js';
 import { S } from './state.js';
+
+/** block object -> its card, so a validation message can scroll to the block it is about */
+export const cardOf = new WeakMap();
 
 // ---------- block editor ----------
 export function renderBlocksPane() {
@@ -27,12 +32,15 @@ export function blockCard(arr, i, depth, redraw) {
   const label = BLOCK_LABELS[b.type] || b.type;
   const card = h('div', { class: 'block' });
   const move = (d) => { const j = i + d; if (j < 0 || j >= arr.length) return; [arr[i], arr[j]] = [arr[j], arr[i]]; redraw(); changed(); };
+  const moveTo = (j) => { if (j === i) return; arr.splice(j, 0, ...arr.splice(i, 1)); redraw(); changed(); };
   const head = h('div', { class: 'block-head' },
     h('span', { class: 'label', text: label, title: name ? T(name).description : 'Тип не найден в спецификации', onclick: () => card.classList.toggle('collapsed') }),
     h('span', { class: 'type', text: b.type }),
     h('span', { class: 'tools' },
       h('button', { title: 'Выше', text: '↑', onclick: () => move(-1) }),
       h('button', { title: 'Ниже', text: '↓', onclick: () => move(1) }),
+      arr.length > 2 ? h('button', { title: 'В начало', text: '⤒', onclick: () => moveTo(0) }) : null,
+      arr.length > 2 ? h('button', { title: 'В конец', text: '⤓', onclick: () => moveTo(arr.length - 1) }) : null,
       h('button', { title: 'Вставить блок ниже', text: '＋', onclick: () => pickBlock((c) => { arr.splice(i + 1, 0, newBlock(c)); redraw(); changed(); }) }),
       h('button', { title: 'Дублировать', text: '⧉', onclick: () => { arr.splice(i + 1, 0, clone(b)); redraw(); changed(); } }),
       h('button', { title: 'Редактировать JSON', text: '{}', onclick: () => editJson(b, (v) => { arr[i] = v; redraw(); changed(); }) }),
@@ -41,15 +49,60 @@ export function blockCard(arr, i, depth, redraw) {
   if (name) body.append(objectFields(name, b, depth));
   else body.append(h('p', { class: 'muted small', text: 'Тип «' + b.type + '» не найден в спецификации ' + S.spec.version + '. Блок уйдёт в Telegram как есть; правьте через {}.' }));
   card.append(head, body);
+  cardOf.set(b, card);
+  // a picture pasted into a text field becomes a block right after this one
+  const insertFiles = async (files) => {
+    const added = await uploadBlocks(files);
+    if (added.length) { arr.splice(i + 1, 0, ...added); redraw(); changed(); }
+  };
+  card.addEventListener('rs-paste-files', (e) => { e.stopPropagation(); insertFiles(/** @type {CustomEvent} */ (e).detail); });
+  // files dragged from the desktop onto a block land right after it
+  const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+  card.addEventListener('dragover', (e) => { if (!hasFiles(e)) return; e.preventDefault(); e.stopPropagation(); card.classList.add('drop'); });
+  card.addEventListener('dragleave', (e) => { if (!card.contains(/** @type {Node} */ (e.relatedTarget))) card.classList.remove('drop'); });
+  card.addEventListener('drop', (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault(); e.stopPropagation(); card.classList.remove('drop');
+    insertFiles([...e.dataTransfer.files]);
+  });
   return card;
 }
 
 export function pickBlock(cb) {
-  const items = blockTypes().map((b) => h('button', {
-    class: isNewType(b.name) ? 'new' : '', title: b.desc,
+  const all = blockTypes();
+  const groupOf = (c) => Object.keys(BLOCK_GROUPS).find((g) => BLOCK_GROUPS[g].includes(c)) || 'Другое';
+  const tile = (b) => h('button', {
+    class: isNewType(b.name) ? 'new' : '', title: b.desc, 'data-q': ((BLOCK_LABELS[b.const] || '') + ' ' + b.const).toLowerCase(),
     onclick: () => { closeDialog(); cb(b.const); },
-  }, h('b', { text: BLOCK_LABELS[b.const] || b.const }), h('small', { text: b.const + (isNewType(b.name) ? ' · новое' : '') })));
-  openDialog([h('h3', { text: 'Добавить блок' }), h('p', { class: 'muted small', text: 'Список блоков взят из спецификации ' + S.spec.version + '. Наведите, чтобы увидеть описание.' }), h('div', { class: 'palette' }, items)], [h('button', { class: 'ghost', value: 'cancel', text: 'Отмена' })]);
+  }, h('b', { text: BLOCK_LABELS[b.const] || b.const }), h('small', { text: b.const + (isNewType(b.name) ? ' · новое' : '') }));
+  const groups = [...Object.keys(BLOCK_GROUPS), 'Другое'].map((g) => {
+    const items = all.filter((b) => groupOf(b.const) === g);
+    return items.length ? h('section', { class: 'palette-group' }, h('h4', { text: g }), h('div', { class: 'palette' }, items.map(tile))) : null;
+  });
+  const box = h('div', { class: 'palette-groups' }, groups);
+  const search = h('input', { type: 'search', placeholder: 'Найти блок', 'aria-label': 'Найти блок', oninput: (e) => {
+    const q = e.target.value.trim().toLowerCase();
+    $$('button', box).forEach((b) => { b.hidden = !!q && !b.dataset.q.includes(q); });
+    $$('.palette-group', box).forEach((g) => { g.hidden = !$$('button', g).some((b) => !b.hidden); });
+  }, onkeydown: (e) => { if (e.key === 'Enter') /** @type {HTMLElement | undefined} */ ($$('button', box).find((b) => !b.hidden))?.click(); } });
+  openDialog([h('h3', { text: 'Добавить блок' }), search, box, h('p', { class: 'muted small', text: 'Блоки из спецификации ' + S.spec.version + '. Наведите, чтобы увидеть описание.' })], [h('button', { class: 'ghost', value: 'cancel', text: 'Отмена' })]);
+  search.focus();
+}
+
+/** Upload pasted or dropped files; each becomes a media block (photo, video…) pointing at upload:<name>. */
+export async function uploadBlocks(files) {
+  const blocks = [];
+  for (const f of files) {
+    const fd = new FormData();
+    fd.append('file', f, f.name && f.name !== 'image.png' ? f.name : 'paste-' + Date.now() + '.' + (f.type.split('/')[1] || 'bin'));
+    try {
+      const u = await api('POST', '/api/media', fd);
+      const b = newBlock(u.kind);
+      if (b && b[u.kind]) { b[u.kind].media = u.ref; blocks.push(b); } else toast('Файл ' + u.name + ' загружен, но такого блока в спецификации нет', 'err');
+    } catch (e) { toast(e.message, 'err'); }
+  }
+  if (blocks.length) { toast('Вставлено: ' + plural(blocks.length, 'файл', 'файла', 'файлов'), 'ok'); document.dispatchEvent(new CustomEvent('rs-uploads-changed')); }
+  return blocks;
 }
 
 // fields of an object type, editing obj in place
@@ -76,7 +129,7 @@ export function fieldRow(typeName, f, obj, depth, redraw) {
   const label = h('label', { class: f.required ? 'req' : '', title: f.description, text: FIELD_LABELS[f.name] || f.name });
   const wide = /^Array of (InputRichBlock|InputRichBlockListItem|Array of)/.test(f.types[0]) || f.types[0] === 'Array of RichMessageButton';
   const rm = f.required ? h('span') : h('button', { class: 'rm', title: 'Убрать поле', text: '✕', onclick: () => { delete obj[f.name]; redraw(); changed(); } });
-  return h('div', { class: 'field' + (wide ? ' wide' : '') }, label, fieldEditor(f, obj, f.name, depth, redraw), rm);
+  return h('div', { class: 'field' + (wide ? ' wide' : ''), 'data-field': f.name }, label, fieldEditor(f, obj, f.name, depth, redraw), rm);
 }
 
 // editor for obj[key] according to spec field types
@@ -150,36 +203,81 @@ export function objectArray(obj, key, itemType, depth) {
 }
 
 // ---------- table ----------
-export function tableEditor(cells) {
+const ALIGN = { left: 'По левому краю', center: 'По центру', right: 'По правому краю' };
+const VALIGN = { top: 'Сверху', middle: 'По середине', bottom: 'Снизу' };
+
+// cells are plain text fields; what a cell is (header, alignment, merge) is set in the bar under the table for the cell in focus
+export function tableEditor(cells, focus) {
   const box = h('div', { class: 'table-ed' });
-  const redraw = () => box.replaceWith(tableEditor(cells));
+  const redraw = (at) => { const next = tableEditor(cells, at); box.replaceWith(next); };
   const width = (r) => (r || []).reduce((n, c) => n + Math.max(1, (c && c.colspan) || 1), 0);
-  const cols = Math.max(1, ...cells.map(width));
+  const cols = () => Math.max(1, ...cells.map(width));
+  const bar = h('div', { class: 'cell-bar', role: 'toolbar', 'aria-label': 'Ячейка' });
   const tbl = h('table');
+  /** @type {HTMLElement | null} */
+  let toFocus = null;
+  const showBar = (ri, ci, td) => {
+    const c = cells[ri][ci];
+    $$('td.sel', tbl).forEach((x) => x.classList.remove('sel'));
+    td.classList.add('sel');
+    const edit = (fn) => { fn(); changed(); };
+    const num = (key, title) => h('label', { class: 'small', title }, title + ' ', h('input', { type: 'number', min: 1, value: c[key] || 1, 'aria-label': title, oninput: (e) => edit(() => { const v = +e.target.value; if (v > 1) c[key] = v; else delete c[key]; td.setAttribute(key, v > 1 ? String(v) : '1'); }) }));
+    bar.replaceChildren(
+      h('span', { class: 'muted small', text: `Ячейка ${ri + 1}:${ci + 1}` }),
+      h('button', { type: 'button', class: 'ghost small-btn' + (c.is_header ? ' on' : ''), 'aria-pressed': String(!!c.is_header), text: 'Заголовок', onclick: (e) => edit(() => {
+        if (c.is_header) delete c.is_header; else c.is_header = true;
+        td.classList.toggle('hdr', !!c.is_header); e.target.classList.toggle('on', !!c.is_header); e.target.setAttribute('aria-pressed', String(!!c.is_header));
+      }) }),
+      h('select', { 'aria-label': 'Выравнивание', onchange: (e) => edit(() => { c.align = e.target.value; td.style.textAlign = c.align; }) }, Object.entries(ALIGN).map(([v, t]) => h('option', { value: v, text: t, selected: (c.align || 'left') === v ? true : null }))),
+      h('select', { 'aria-label': 'По вертикали', onchange: (e) => edit(() => { c.valign = e.target.value; }) }, Object.entries(VALIGN).map(([v, t]) => h('option', { value: v, text: t, selected: (c.valign || 'top') === v ? true : null }))),
+      num('colspan', 'Ширина'), num('rowspan', 'Высота'),
+      h('span', { class: 'grow' }),
+      h('button', { type: 'button', class: 'ghost small-btn', title: 'Строка ниже', text: '＋ строка', onclick: () => { cells.splice(ri + 1, 0, Array.from({ length: cols() }, () => cell(''))); redraw([ri + 1, ci]); changed(); } }),
+      h('button', { type: 'button', class: 'ghost small-btn', title: 'Колонка справа', text: '＋ колонка', onclick: () => { cells.forEach((r) => r.splice(Math.min(ci + 1, r.length), 0, cell(''))); redraw([ri, ci + 1]); changed(); } }),
+      h('button', { type: 'button', class: 'ghost small-btn', title: 'Удалить строку', text: '✕ строка', onclick: () => { cells.splice(ri, 1); redraw(cells.length ? [Math.min(ri, cells.length - 1), 0] : null); changed(); } }),
+      h('button', { type: 'button', class: 'ghost small-btn', title: 'Удалить колонку', text: '✕ колонка', onclick: () => { cells.forEach((r) => r.splice(ci, 1)); redraw([ri, Math.max(0, ci - 1)]); changed(); } }));
+    bar.hidden = false;
+  };
+  // rows from a spreadsheet land from this cell to the right and down, growing the table
+  const pasteTable = (ri, ci) => (e) => {
+    const rows = clipboardTable(e.clipboardData.getData('text/plain'), e.clipboardData.getData('text/html'));
+    if (!rows) return false;
+    rows.forEach((vals, dr) => {
+      while (cells.length <= ri + dr) cells.push(Array.from({ length: cols() }, () => cell('')));
+      const row = cells[ri + dr];
+      vals.forEach((v, dc) => {
+        while (row.length <= ci + dc) row.push(cell(''));
+        const c = row[ci + dc] && typeof row[ci + dc] === 'object' ? row[ci + dc] : (row[ci + dc] = cell(''));
+        if (v.trim()) c.text = v.trim(); else delete c.text;
+      });
+    });
+    const w = cols();
+    cells.forEach((r) => { while (width(r) < w) r.push(cell('')); });
+    redraw([ri, ci]); changed();
+    toast(`Вставлено ${plural(rows.length, 'строка', 'строки', 'строк')} × ${Math.max(...rows.map((r) => r.length))}`, 'ok');
+    return true;
+  };
   cells.forEach((row, ri) => {
     const tr = h('tr');
     for (let ci = 0; ci < row.length; ci++) {
       if (!row[ci] || typeof row[ci] !== 'object') row[ci] = cell('');
       const c = row[ci];
-      const td = h('td', { class: c.is_header ? 'hdr' : '', colspan: c.colspan > 1 ? c.colspan : null, rowspan: c.rowspan > 1 ? c.rowspan : null },
-        richTextEditor(c, 'text', { placeholder: 'пусто = невидимая ячейка', compact: true }),
-        h('div', { class: 'cell-tools' },
-          h('label', { class: 'small', title: 'Заголовок' }, h('input', { type: 'checkbox', checked: !!c.is_header, onchange: (e) => { if (e.target.checked) c.is_header = true; else delete c.is_header; td.classList.toggle('hdr', e.target.checked); changed(); } }), 'th'),
-          h('select', { title: 'align', onchange: (e) => { c.align = e.target.value; changed(); } }, ['left', 'center', 'right'].map((v) => h('option', { value: v, text: { left: '⇤', center: '↔', right: '⇥' }[v], selected: c.align === v ? true : null }))),
-          h('select', { title: 'valign', onchange: (e) => { c.valign = e.target.value; changed(); } }, ['top', 'middle', 'bottom'].map((v) => h('option', { value: v, text: { top: '⤒', middle: '↕', bottom: '⤓' }[v], selected: c.valign === v ? true : null }))),
-          h('input', { type: 'number', min: 1, title: 'colspan', placeholder: 'col', value: c.colspan || '', oninput: (e) => { const v = +e.target.value; if (v > 1) c.colspan = v; else delete c.colspan; changed(); } }),
-          h('input', { type: 'number', min: 1, title: 'rowspan', placeholder: 'row', value: c.rowspan || '', oninput: (e) => { const v = +e.target.value; if (v > 1) c.rowspan = v; else delete c.rowspan; changed(); } })));
+      const td = h('td', { class: c.is_header ? 'hdr' : '', colspan: c.colspan > 1 ? c.colspan : null, rowspan: c.rowspan > 1 ? c.rowspan : null, style: c.align && c.align !== 'left' ? 'text-align:' + c.align : null },
+        richTextEditor(c, 'text', { placeholder: ri === 0 && ci === 0 && cells.length === 1 ? 'можно вставить из таблицы' : '', compact: true, onPaste: pasteTable(ri, ci) }));
+      td.addEventListener('focusin', () => showBar(ri, ci, td));
+      if (focus && focus[0] === ri && focus[1] === ci) toFocus = td;
       tr.append(td);
     }
-    tr.append(h('td', { style: 'border:0;min-width:0' }, h('button', { class: 'ghost small-btn', title: 'Удалить строку', text: '✕', onclick: () => { cells.splice(ri, 1); redraw(); changed(); } })));
     tbl.append(tr);
   });
-  const del = h('tr', {}, Array.from({ length: cols }, (_, ci) => h('td', { style: 'border:0;min-width:0;text-align:center' }, h('button', { class: 'ghost small-btn', title: 'Удалить колонку', text: '✕', onclick: () => { cells.forEach((r) => r.splice(ci, 1)); redraw(); changed(); } }))));
-  tbl.append(del);
-  box.append(tbl, h('div', { class: 'row' },
-    h('button', { class: 'ghost small-btn', text: '＋ строка', onclick: () => { cells.push(Array.from({ length: cols }, () => cell(''))); redraw(); changed(); } }),
-    h('button', { class: 'ghost small-btn', text: '＋ колонка', onclick: () => { cells.forEach((r, i) => r.push(cell(i === 0 && r[0] && r[0].is_header ? 'Колонка' : '', i === 0 && r[0] && r[0].is_header))); redraw(); changed(); } }),
-    h('button', { class: 'ghost small-btn', text: '＋ ячейка', title: 'Добавить ячейку в короткие строки', onclick: () => { cells.forEach((r) => { while (width(r) < cols) r.push(cell('')); }); redraw(); changed(); } })));
+  bar.hidden = true;
+  box.append(h('div', { class: 'table-scroll' }, tbl), bar, h('div', { class: 'row' },
+    h('button', { class: 'ghost small-btn', text: '＋ строка', onclick: () => { cells.push(Array.from({ length: cols() }, () => cell(''))); redraw([cells.length - 1, 0]); changed(); } }),
+    h('button', { class: 'ghost small-btn', text: '＋ колонка', onclick: () => { cells.forEach((r, i) => r.push(cell(i === 0 && r[0] && r[0].is_header ? 'Колонка' : '', i === 0 && r[0] && r[0].is_header))); redraw([0, cells[0] ? cells[0].length - 1 : 0]); changed(); } }),
+    cells.some((r) => width(r) < cols()) ? h('button', { class: 'ghost small-btn', text: 'Дополнить строки', title: 'Добавить пустые ячейки в короткие строки', onclick: () => { const w = cols(); cells.forEach((r) => { while (width(r) < w) r.push(cell('')); }); redraw(); changed(); } }) : null,
+    h('span', { class: 'muted small', text: 'Нажмите на ячейку, чтобы сделать её заголовком, выровнять или объединить. Таблицу из Google Sheets или Excel можно вставить в любую ячейку.' })));
+  const cellToFocus = /** @type {HTMLElement | null} */ (toFocus);
+  if (cellToFocus) setTimeout(() => /** @type {HTMLElement | null} */ (cellToFocus.querySelector('.rte'))?.focus(), 0);
   return box;
 }
 

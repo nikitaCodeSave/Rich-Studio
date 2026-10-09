@@ -74,6 +74,7 @@ function bindViewTabs() {
 function bindActions() {
   bindPublishMenu();
   bindViewTabs();
+  $('#check-pill').onclick = () => $('#validation').scrollIntoView({ block: 'center', behavior: 'smooth' });
   $('#btn-save').onclick = () => act(() => saveDraft());
   $('#btn-undo').onclick = undo;
   $('#btn-redo').onclick = redo;
@@ -197,6 +198,7 @@ async function boot() {
   snippetBar('html'); snippetBar('markdown'); bindCode('html'); bindCode('markdown');
   bindEffects();
   bindActions();
+  document.addEventListener('rs-uploads-changed', () => loadUploads().catch(() => {}));
   watchHealth();
   await loadChannels().catch(() => {}); // the lists below name channels by title
   await Promise.all([loadUploads().catch(() => {}), loadPosts().catch(() => {})]);
