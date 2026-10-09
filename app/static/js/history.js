@@ -29,6 +29,9 @@ function commit() {
   current = snap;
 }
 
+/** The open draft changed elsewhere and was reloaded: one more undo step, so Ctrl+Z brings back what was here. */
+export function pushHistory() { commit(); }
+
 /** A new draft is open: its loaded state is the bottom of the stack. Telegram's check was for another post. */
 export function resetHistory() {
   parsed.value = null;

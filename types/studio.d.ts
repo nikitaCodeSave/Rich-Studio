@@ -77,6 +77,8 @@ interface DraftRow {
   updated_at: number;
   /** the post this draft edits, if any */
   post_id: string | null;
+  /** grows with every save: the editor notices a draft changed elsewhere */
+  version: number;
   /** the channels the draft is meant for; null: the default channel */
   chat_ids: string[] | null;
 }

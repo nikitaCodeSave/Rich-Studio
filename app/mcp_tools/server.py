@@ -127,6 +127,12 @@ def _source(
     return _post(d["payload"]), d["version"]
 
 
+def _links(draft_id: str) -> dict:
+    """Full links the agent can give the person: the draft in the editor and its preview page."""
+    base = settings.get().public_url
+    return {"editor_url": f"{base}/?draft={draft_id}", "preview_url": f"{base}/render/draft/{draft_id}"}
+
+
 def _key(given: str | None, scope: str, body: dict) -> str:
     """Agents retry after a timeout and often without a key: the request itself becomes the key then."""
     return given or "auto:" + idempotency.fingerprint(scope, body)
@@ -167,7 +173,7 @@ def build() -> MCPServer:
         p, version = _source(post, draft_id, None, publish=False)
         # version: what to pass to publish_post/edit_post, so exactly the version shown here goes out
         out = {"post": p, "validation": publisher.check(p)}
-        return out if version is None else {**out, "version": version}
+        return out if version is None else {**out, "version": version, **_links(draft_id or "")}
 
     server = MCPServer(name="rich-studio", title="Rich Studio", instructions=INSTRUCTIONS, extensions=[apps])
 
@@ -255,6 +261,7 @@ def build() -> MCPServer:
             "chat_ids": d["chat_ids"],
             "goes_to": channels.goes_to(d["chat_ids"]),
             "preview_path": f"/render/draft/{d['id']}",
+            **_links(d["id"]),
             "validation": publisher.check(d["payload"]),
         }
 
@@ -270,7 +277,23 @@ def build() -> MCPServer:
         d = store.get_draft(draft_id)
         if not d:
             raise NotFound(f"черновика {draft_id} нет")
-        return {**d, "goes_to": channels.goes_to(d.get("chat_ids"))}
+        return {**d, **_links(d["id"]), "goes_to": channels.goes_to(d.get("chat_ids"))}
+
+    @tool(LOCAL)
+    async def upload_media(
+        url: Annotated[str | None, Field(description="Ссылка http(s) на файл: студия скачает его сама")] = None,
+        data_base64: Annotated[str | None, Field(description="Или содержимое файла в base64 (с filename)")] = None,
+        filename: Annotated[str | None, Field(description="Имя файла с расширением: по нему выбирается тип")] = None,
+    ) -> dict:
+        """Загрузить картинку, видео или файл для поста. Вернёт ref (upload:<имя>): его ставят в media блока
+        (например {"type": "photo", "photo": {"type": "photo", "media": ref}}) или в rich_message.media."""
+        if (url is None) == (data_base64 is None):
+            raise ToolError("передайте url или data_base64, одно из двух")
+        if data_base64 is not None:
+            if not filename:
+                raise ToolError("с data_base64 нужен filename с расширением, например cover.jpg")
+            return media.save_base64(filename, data_base64)
+        return await media.fetch(url or "", filename)
 
     @tool(READ)
     async def list_media() -> list:
@@ -360,6 +383,31 @@ def build() -> MCPServer:
         )
 
     @tool(PUBLIC)
+    async def send_poll(
+        poll: Annotated[
+            dict[str, Any],
+            Field(
+                description="Параметры sendPoll без chat_id: question, options [{text}], type quiz + correct_option_id, "
+                "is_anonymous, allows_multiple_answers, members_only, country_codes…"
+            ),
+        ],
+        chat_id: ChatArg = None,
+        chat_ids: ChatsArg = None,
+        at: Annotated[str | None, Field(description="Отложить: ISO 8601 с часовым поясом")] = None,
+        pin: Annotated[bool, Field(description="Закрепить после отправки")] = False,
+        idempotency_key: KeyArg = None,
+    ) -> dict:
+        """Опрос или викторина отдельным сообщением (в rich-пост опрос не вкладывается), сразу или отложенно.
+        Только после явного подтверждения пользователя для этого опроса и канала."""
+        body = {"poll": poll, "chat_id": chat_id, "chat_ids": chat_ids, "at": at, "pin": pin}
+        return await idempotency.run(
+            _key(idempotency_key, "poll", body),
+            "poll",
+            body,
+            lambda: posts.send_poll(poll, chat_id, chat_ids, at, pin, actor=ACTOR),
+        )
+
+    @tool(PUBLIC)
     async def schedule_post(
         at: Annotated[str, Field(description="Когда: ISO 8601 с часовым поясом, например 2026-10-10T09:00:00+03:00")],
         post: OptPostArg = None,
@@ -417,7 +465,12 @@ def build() -> MCPServer:
         p = store.get_post(post_id)
         if not p:
             raise NotFound(f"поста {post_id} нет")
-        return {**p, "chat_title": channels.title_of(p["chat_id"])}
+        # the editor opens the post in edit mode: «Обновить пост» replaces it in the channel
+        return {
+            **p,
+            "chat_title": channels.title_of(p["chat_id"]),
+            "editor_url": f"{settings.get().public_url}/?post={post_id}",
+        }
 
     @tool(READ)
     async def post_history(post_id: PostIdArg) -> list:

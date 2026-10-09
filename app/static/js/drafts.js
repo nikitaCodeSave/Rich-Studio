@@ -5,7 +5,7 @@ import { closeDialog, openDialog } from './dialogs.js';
 import { $, h, store, toast } from './dom.js';
 import { changed, draftPayload, flushSave, loadPost } from './editor.js';
 import { followDraft } from './editing.js';
-import { resetHistory } from './history.js';
+import { pushHistory, resetHistory } from './history.js';
 import { chatLabel, chats, dirty, editing, S, saveState } from './state.js';
 
 // the draft's own channels; one without them goes to the channel the editor used to remember
@@ -28,7 +28,12 @@ function draftBadge(d) {
 }
 
 export async function loadDrafts() {
-  S.drafts = await api('GET', '/api/drafts');
+  showDrafts(await api('GET', '/api/drafts'));
+}
+
+/** @param {DraftRow[]} list */
+function showDrafts(list) {
+  S.drafts = list;
   renderDrafts();
 }
 
@@ -48,23 +53,62 @@ export function renderDrafts() {
 export async function openDraft(id) {
   await flushSave();
   const d = await api('GET', '/api/drafts/' + id);
+  await followDraft(d);
+  showDraft(d, false);
+}
+
+/** Put the draft as the server has it into the editor; synchronous, so nothing typed in between is lost.
+ * @param {Json} d @param {boolean} keepHistory an outside change becomes one more undo step */
+function showDraft(d, keepHistory) {
   S.draftId = d.id; S.draftVersion = d.version;
   $('#title').value = d.title || '';
   const migrated = setChannels(d.chat_ids);
-  await followDraft(d);
   loadPost(d.payload);
   showTarget();
-  resetHistory();
+  if (keepHistory) pushHistory(); else resetHistory();
   dirty.value = false; saveState.value = 'сохранено';
   if (migrated) changed(); // the old remembered channel moves into the draft
-  store.set('lastDraft', id);
+  store.set('lastDraft', d.id);
+  showAddress(d.id);
   loadDrafts();
+}
+
+// the address bar names the open draft: the link can be bookmarked or given by an agent (/?draft=<id>)
+function showAddress(id) {
+  const url = id ? '?draft=' + encodeURIComponent(id) : location.pathname;
+  if (location.search !== (id ? url : '')) history.replaceState(null, '', url);
+}
+
+// ---------- the open draft changed elsewhere (an agent, another tab) ----------
+let lastSeen = '';
+/** Every few seconds while the tab is visible: a newer version of the open draft reloads it when nothing here
+ * is unsaved, otherwise the conflict dialog asks; the list on the left follows new drafts by itself. */
+export async function watchDrafts() {
+  if (document.visibilityState !== 'visible' || S.conflict || pending) return;
+  const list = await api('GET', '/api/drafts').catch(() => null);
+  if (!list || pending) return;
+  const key = JSON.stringify(list.map((d) => [d.id, d.version, d.title]));
+  if (key !== lastSeen) { lastSeen = key; showDrafts(list); }
+  const mine = S.draftId && list.find((d) => d.id === S.draftId);
+  if (!mine || S.draftVersion === null || mine.version <= S.draftVersion) return;
+  const current = await api('GET', '/api/drafts/' + mine.id).catch(() => null);
+  if (!current || pending || S.draftId !== current.id) return;
+  const conflict = () => draftConflict({ message: 'черновик изменили в другом месте (агент или другая вкладка), пока вы печатали', current });
+  if (dirty.value) { conflict(); return; }
+  await followDraft(current);
+  // typed something while the requests were on the way: ask instead of overwriting it
+  if (pending || S.draftId !== current.id) return;
+  if (dirty.value) { conflict(); return; }
+  showDraft(current, true);
+  toast('Черновик изменили в другом месте (агент или другая вкладка): показана новая версия. Ctrl+Z вернёт прежнюю', 'ok');
 }
 
 // one save at a time: a second one sent before the first returns would carry a stale version and get 409
 let saving = Promise.resolve();
+let pending = 0; // saves in flight: their new version is ours, not someone else's
 export function saveDraft(silent, overwrite) {
-  const run = saving.then(() => doSave(silent, overwrite));
+  pending++;
+  const run = saving.then(() => doSave(silent, overwrite)).finally(() => { pending--; });
   saving = run.catch(() => {});
   return run;
 }
@@ -83,6 +127,7 @@ async function doSave(silent, overwrite) {
   S.draftId = d.id; S.draftVersion = d.version; $('#title').value = d.title;
   dirty.value = false; saveState.value = 'сохранено ' + new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
   store.set('lastDraft', d.id);
+  showAddress(d.id);
   if (body.chat_ids.length) store.del('chat'); // the channel lives in the draft now
   if (!silent) toast('Черновик сохранён', 'ok');
   loadDrafts();
@@ -116,5 +161,6 @@ export async function newDraft() {
   showTarget();
   resetHistory();
   saveState.value = '';
+  showAddress(null);
   loadDrafts();
 }
