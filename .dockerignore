@@ -1,0 +1,5 @@
+.env
+data/
+**/__pycache__
+skill/
+node_modules/

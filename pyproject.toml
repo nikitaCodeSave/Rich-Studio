@@ -1,0 +1,62 @@
+# Rich Studio: настройки инструментов качества.
+# Положить в корень проекта (рядом с Dockerfile). Зависимости для разработки: requirements-dev.txt.
+
+[project]
+name = "rich-studio"
+version = "0.1.0"
+requires-python = ">=3.12"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+src = ["app", "tests"]
+extend-exclude = ["app/static", "app/bundled"]
+
+[tool.ruff.lint]
+# Базовый набор + баги, async, безопасность, упрощения. Без стилевого шума.
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "S", "ASYNC", "RUF", "PIE", "BLE", "PLE", "PLW"]
+ignore = [
+  "E501",    # длину строк держит formatter
+  "RUF001",  # кириллица в строках — нормально
+  "RUF002",
+  "RUF003",
+  "B008",    # File(...)/Body(...) в аргументах — идиома FastAPI
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106", "BLE001", "PLW0603", "ASYNC109"]  # fakes mirror telegram.call(timeout=)
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Body", "fastapi.File", "fastapi.Depends", "fastapi.Query"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.12"
+files = ["app"]
+mypy_path = "app"
+check_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+ignore_missing_imports = true
+# Шаг 2 (после разбиения main.py): disallow_untyped_defs = true для app/services и app/store.
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+markers = [
+  "e2e: браузерные проверки (Playwright), запускаются отдельно",
+]
+# незакрытые соединения SQLite и другие ошибки в __del__ роняют тест, чтобы утечка не вернулась
+filterwarnings = ["error::pytest.PytestUnraisableExceptionWarning"]
+
+[tool.coverage.run]
+source = ["app"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 85
+show_missing = true
+skip_covered = true

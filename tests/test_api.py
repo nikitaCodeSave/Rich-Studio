@@ -1,0 +1,851 @@
+import asyncio
+import json
+import re
+import time
+from pathlib import Path
+
+import pytest
+
+import settings
+from services import scheduler, updates
+
+BLOCKS_POST = {
+    "rich_message": {
+        "blocks": [
+            {"type": "heading", "size": 1, "text": "Тест"},
+            {"type": "paragraph", "text": ["Привет, ", {"type": "bold", "text": "мир"}]},
+        ]
+    }
+}
+
+
+def post_json(client, path, body, **kw):
+    return client.post(path, json=body, **kw)
+
+
+# ---------- spec ----------
+def test_spec_summary_has_all_rich_blocks(client):
+    s = client.get("/api/spec").json()
+    assert s["version"] == "Bot API 10.3"
+    subtypes = s["types"]["InputRichBlock"]["subtypes"]
+    assert len(subtypes) == 24
+    consts = {s["types"][n]["const"] for n in subtypes}
+    assert {"paragraph", "heading", "table", "buttons", "document", "map", "slideshow"} <= consts
+    assert None not in consts
+    assert s["types"]["RichMessageButton"]["fields"][1]["enum"] == ["danger", "success", "primary", "link"]
+
+
+def test_spec_type_lookup(client):
+    assert client.get("/api/spec/type/sendRichMessage").json()["fields"]
+    assert client.get("/api/spec/type/NoSuchType").status_code == 404
+
+
+def test_diff_specs_reports_new_rich_features():
+    from spec import diff_specs
+
+    old = {
+        "types": {
+            "InputRichBlock": {"subtypes": ["InputRichBlockParagraph"]},
+            "InputRichBlockTable": {"fields": [{"name": "cells", "types": ["X"]}]},
+        },
+        "methods": {},
+    }
+    new = {
+        "types": {
+            "InputRichBlock": {"subtypes": ["InputRichBlockParagraph", "InputRichBlockPoll"]},
+            "InputRichBlockPoll": {"description": ["A poll block."], "fields": []},
+            "InputRichBlockTable": {
+                "fields": [{"name": "cells", "types": ["X"]}, {"name": "is_compact", "types": ["Boolean"]}]
+            },
+        },
+        "methods": {"sendRichPoll": {"description": ["Sends a poll."], "fields": []}},
+    }
+    kinds = {(i["kind"], i["name"]) for i in diff_specs(old, new)}
+    assert ("subtype_added", "InputRichBlock → InputRichBlockPoll") in kinds
+    assert ("type_added", "InputRichBlockPoll") in kinds
+    assert ("field_added", "InputRichBlockTable.is_compact") in kinds
+    assert ("method_added", "sendRichPoll") in kinds
+
+
+# ---------- validation ----------
+def test_examples_are_valid(client, examples):
+    blocks = json.loads((examples / "post-blocks.json").read_text("utf-8"))
+    r = post_json(client, "/api/validate", {"rich_message": {"blocks": blocks}}).json()
+    assert r["ok"], r
+    html = (examples / "post-showcase.html").read_text("utf-8")
+    r = post_json(client, "/api/validate", {"rich_message": {"html": html}}).json()
+    assert r["ok"], r
+
+
+@pytest.mark.parametrize(
+    "rm, fragment",
+    [
+        ({"blocks": [{"type": "paragraf", "text": "x"}]}, "неизвестный type='paragraf'"),
+        ({"blocks": [{"type": "heading", "size": "2", "text": "x"}]}, "ожидалось целое число"),
+        ({"blocks": [{"type": "table"}]}, "нет обязательного поля cells"),
+        ({"html": '<img src="tg://photo?id=cover">'}, "нет элемента с id='cover'"),
+        ({"html": "<p>a</p>", "markdown": "b"}, "ровно одно из html / markdown / blocks"),
+        ({}, "ровно одно из html / markdown / blocks"),
+        ({"html": "<p>" + "я" * 33000 + "</p>"}, "лимит 32768"),
+    ],
+)
+def test_validation_errors(client, rm, fragment):
+    r = post_json(client, "/api/validate", {"rich_message": rm}).json()
+    assert not r["ok"]
+    assert any(fragment in e for e in r["errors"]), r["errors"]
+
+
+def test_unknown_field_is_a_warning_not_an_error(client):
+    """A field newer than the cached spec must still be sendable."""
+    rm = {"blocks": [{"type": "paragraph", "text": "x", "future_field": 1}]}
+    r = post_json(client, "/api/validate", {"rich_message": rm}).json()
+    assert r["ok"]
+    assert any("future_field" in w for w in r["warnings"])
+
+
+# ---------- sending ----------
+def test_send_passes_payload_through_unchanged(client, tg):
+    post = {
+        "rich_message": {"html": "<h1>Привет</h1><tg-new-tag x='1'>future</tg-new-tag>", "is_rtl": False},
+        "reply_markup": {"inline_keyboard": [[{"text": "Сайт", "url": "https://t.me"}]]},
+        "options": {"disable_notification": True, "protect_content": True, "message_effect_id": "123"},
+    }
+    r = post_json(client, "/api/send", {"post": post})
+    assert r.status_code == 200, r.text
+    call = tg.last("sendRichMessage")
+    assert call["token"] == "123:TEST"
+    assert call["body"]["chat_id"] == "@test_channel"
+    assert call["body"]["rich_message"] == post["rich_message"]
+    assert call["body"]["reply_markup"] == post["reply_markup"]
+    assert call["body"]["disable_notification"] is True and call["body"]["message_effect_id"] == "123"
+    rec = r.json()["post"]
+    assert rec["status"] == "sent" and rec["message_id"] == r.json()["message"]["message_id"]
+
+
+def test_invalid_post_is_not_sent(client, tg):
+    r = post_json(client, "/api/send", {"post": {"rich_message": {"blocks": [{"type": "nope"}]}}})
+    assert r.status_code == 422
+    assert not [c for c in tg.calls if c["method"] == "sendRichMessage"]
+
+
+def test_numeric_chat_id_becomes_integer(client, tg):
+    post_json(client, "/api/send", {"post": BLOCKS_POST, "chat_id": "-1001234567890"})
+    assert tg.last("sendRichMessage")["body"]["chat_id"] == -1001234567890
+
+
+def test_telegram_error_is_reported(client, tg):
+    tg.fail["sendRichMessage"] = "Bad Request: not enough rights to send rich messages"
+    r = post_json(client, "/api/send", {"post": BLOCKS_POST})
+    assert r.status_code == 502
+    assert "not enough rights" in r.json()["detail"]
+
+
+def test_upload_and_send_as_multipart(client, tg):
+    up = client.post("/api/media", files={"file": ("обложка 1.png", b"\x89PNG fake", "image/png")}).json()
+    assert up["kind"] == "photo" and up["ref"].startswith("upload:")
+    post = {"rich_message": {"blocks": [{"type": "photo", "photo": {"type": "photo", "media": up["ref"]}}]}}
+    r = post_json(client, "/api/send", {"post": post})
+    assert r.status_code == 200, r.text
+    call = tg.last("sendRichMessage")
+    assert call["body"]["rich_message"]["blocks"][0]["photo"]["media"] == "attach://f0"
+    assert call["files"]["f0"][1] == len(b"\x89PNG fake")
+    # stored record keeps the upload reference, so re-sending works
+    assert (
+        client.get("/api/posts/" + r.json()["post"]["id"]).json()["payload"]["rich_message"]["blocks"][0]["photo"][
+            "media"
+        ]
+        == up["ref"]
+    )
+
+
+def test_upload_names_are_safe_and_unique(client):
+    a = client.post("/api/media", files={"file": ("../../etc/passwd", b"x", "text/plain")}).json()
+    assert "/" not in a["name"] and ".." not in a["name"]
+    b1 = client.post("/api/media", files={"file": ("same.jpg", b"1", "image/jpeg")}).json()
+    b2 = client.post("/api/media", files={"file": ("same.jpg", b"2", "image/jpeg")}).json()
+    assert b1["name"] != b2["name"] and b2["name"].endswith(".jpg")
+    assert client.get("/media/" + b2["name"]).content == b"2"
+    assert client.get("/media/..%2F..%2Fetc%2Fpasswd").status_code == 404
+
+
+def test_missing_upload_is_an_error(client, tg):
+    post = {"rich_message": {"blocks": [{"type": "photo", "photo": {"type": "photo", "media": "upload:nope.png"}}]}}
+    r = post_json(client, "/api/send", {"post": post})
+    assert r.status_code == 400 and "не найден" in r.json()["detail"]
+
+
+def test_preview_send_goes_to_preview_chat(client, tg):
+    r = post_json(client, "/api/preview-send", {"post": BLOCKS_POST})
+    assert r.status_code == 200
+    assert tg.last("sendRichMessage")["body"]["chat_id"] == 777
+
+
+# ---------- edit / delete ----------
+def test_edit_published_post(client, tg):
+    sent = post_json(client, "/api/send", {"post": BLOCKS_POST}).json()["post"]
+    new = {"rich_message": {"markdown": "# Исправлено"}}
+    r = post_json(client, f"/api/posts/{sent['id']}/edit", new)
+    assert r.status_code == 200, r.text
+    call = tg.last("editMessageText")["body"]
+    assert call["message_id"] == sent["message_id"] and call["rich_message"] == new["rich_message"]
+    assert client.get(f"/api/posts/{sent['id']}").json()["payload"]["rich_message"] == new["rich_message"]
+
+
+def test_edit_by_message_id(client, tg):
+    r = post_json(client, "/api/edit", {"post": BLOCKS_POST, "message_id": 55, "chat_id": "@other"})
+    assert r.status_code == 200
+    assert tg.last("editMessageText")["body"]["chat_id"] == "@other"
+
+
+def test_edit_by_message_id_updates_the_studio_record(client, tg):
+    rec = post_json(client, "/api/send", {"post": {**BLOCKS_POST, "callbacks": {"like": "Спасибо"}}}).json()["post"]
+    new = {"rich_message": {"html": "<p>новый текст</p>"}}
+    r = post_json(client, "/api/edit", {"post": new, "message_id": rec["message_id"], "chat_id": rec["chat_id"]})
+    assert r.status_code == 200
+    payload = client.get("/api/posts/" + rec["id"]).json()["payload"]
+    assert payload["rich_message"] == new["rich_message"]
+    assert payload["callbacks"] == {"like": "Спасибо"}  # untouched by a text edit
+
+
+def test_delete_published_post(client, tg):
+    sent = post_json(client, "/api/send", {"post": BLOCKS_POST}).json()["post"]
+    r = client.delete(f"/api/posts/{sent['id']}")
+    assert r.json()["status"] == "deleted"
+    assert tg.last("deleteMessage")["body"]["message_id"] == sent["message_id"]
+
+
+# ---------- scheduling ----------
+def test_schedule_rejects_past_time(client):
+    r = post_json(client, "/api/schedule", {"post": BLOCKS_POST, "at": int(time.time()) - 3600})
+    assert r.status_code == 400
+
+
+def test_schedule_iso_with_timezone(client):
+    r = post_json(client, "/api/schedule", {"post": BLOCKS_POST, "at": "2030-01-01T09:00:00+03:00"})
+    assert r.json()["scheduled_at"] == 1893477600
+    client.delete("/api/posts/" + r.json()["id"])
+
+
+def test_scheduler_sends_due_posts_and_records_failures(client, tg):
+    import store
+
+    ok = post_json(client, "/api/schedule", {"post": BLOCKS_POST, "at": int(time.time())}).json()
+    tg.fail["sendRichMessage"] = "Forbidden: bot was kicked"
+    bad = post_json(client, "/api/schedule", {"post": BLOCKS_POST, "at": int(time.time()), "chat_id": "@gone"}).json()
+    # first due post fails too (same failure flag), so send them one at a time
+    store.update_post(bad["id"], scheduled_at=int(time.time()) + 3600)
+    tg.fail.clear()
+    assert asyncio.run(scheduler.run_due_posts()) >= 1
+    assert client.get("/api/posts/" + ok["id"]).json()["status"] == "sent"
+    store.update_post(bad["id"], scheduled_at=int(time.time()) - 1)
+    tg.fail["sendRichMessage"] = "Forbidden: bot was kicked"
+    asyncio.run(scheduler.run_due_posts())
+    rec = client.get("/api/posts/" + bad["id"]).json()
+    assert rec["status"] == "failed" and "kicked" in rec["error"]
+    # nothing is sent twice
+    tg.fail.clear()
+    before = len([c for c in tg.calls if c["method"] == "sendRichMessage"])
+    asyncio.run(scheduler.run_due_posts())
+    assert len([c for c in tg.calls if c["method"] == "sendRichMessage"]) == before
+
+
+def test_cancel_scheduled(client, tg):
+    p = post_json(client, "/api/schedule", {"post": BLOCKS_POST, "at": int(time.time()) + 3600}).json()
+    assert client.delete("/api/posts/" + p["id"]).json()["status"] == "cancelled"
+    assert not [c for c in tg.calls if c["method"] == "deleteMessage"]
+
+
+# ---------- drafts / render / misc ----------
+def test_drafts_crud(client):
+    d = post_json(client, "/api/drafts", {"title": "Анонс", "post": BLOCKS_POST}).json()
+    assert client.get("/api/drafts/" + d["id"]).json()["payload"] == BLOCKS_POST
+    client.put("/api/drafts/" + d["id"], json={"title": "Анонс 2", "post": {"rich_message": {"html": "<p>x</p>"}}})
+    assert [x["title"] for x in client.get("/api/drafts").json() if x["id"] == d["id"]] == ["Анонс 2"]
+    client.delete("/api/drafts/" + d["id"])
+    assert client.get("/api/drafts/" + d["id"]).status_code == 404
+
+
+def test_render_cannot_break_out_of_payload_script(client):
+    evil = {"rich_message": {"html": "</script><script>alert(1)</script>"}}
+    page = client.post("/api/render?theme=dark", json=evil).text
+    assert "<script>alert(1)</script>" not in page
+    assert "__THEME__" not in page and 'data-theme="dark"' in page
+
+
+def test_render_theme_is_escaped(client):
+    page = client.post('/api/render?theme=x";alert(1)//', json=BLOCKS_POST).text
+    assert 'x";alert(1)' not in page
+
+
+def test_check_bot_rights(client, tg):
+    r = client.get("/api/check").json()
+    assert r["can_post"] and r["bot"]["username"] == "studio_test_bot"
+
+
+def test_raw_method_passthrough(client, tg):
+    assert client.post("/api/raw/getMe", json={}).json()["result"]["id"] == 42
+    assert client.post("/api/raw/get-me;rm", json={}).status_code in (400, 404)
+
+
+def test_api_key_required_when_configured(client, monkeypatch):
+    monkeypatch.setattr(settings.get(), "api_key", "secret")
+    assert client.get("/api/drafts").status_code == 401
+    assert client.get("/api/drafts", headers={"X-API-Key": "secret"}).status_code == 200
+
+
+def test_non_json_bodies_are_rejected(client, tg):
+    """A web page cannot post a form or text/plain to the local API (CSRF)."""
+    body = json.dumps({"post": BLOCKS_POST})
+    r = client.post("/api/send", content=body, headers={"content-type": "text/plain"})
+    assert r.status_code in (415, 422)
+    r = client.post("/api/raw/deleteMessage", data={"chat_id": "@x", "message_id": "1"})
+    assert r.status_code in (415, 422)
+    assert not [c for c in tg.calls if c["method"] in ("sendRichMessage", "deleteMessage")]
+
+
+# ---------- security and robustness (from the code review) ----------
+def test_foreign_host_is_rejected(client):
+    """DNS rebinding: evil.example resolving to 127.0.0.1 must not reach the API."""
+    assert client.get("/api/drafts", headers={"host": "evil.example"}).status_code == 400
+    assert client.get("/api/drafts", headers={"host": "localhost:8080"}).status_code == 200
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {"origin": "https://evil.example"},
+        {"origin": "null"},
+        {"sec-fetch-site": "cross-site"},
+    ],
+)
+def test_cross_site_writes_are_rejected(client, tg, headers):
+    r = client.post("/api/raw/getMe", json={}, headers=headers)
+    assert r.status_code == 403
+    r = client.post("/api/media", files={"file": ("x.html", b"<script>1</script>", "text/html")}, headers=headers)
+    assert r.status_code == 403
+    assert not tg.calls
+
+
+def test_same_origin_writes_are_allowed(client, tg):
+    r = client.post(
+        "/api/raw/getMe", json={}, headers={"origin": "http://localhost:8080", "sec-fetch-site": "same-origin"}
+    )
+    assert r.status_code == 200
+
+
+def test_empty_text_plain_body_is_rejected(client, tg):
+    r = client.post("/api/raw/logOut", content=b"", headers={"content-type": "text/plain"})
+    assert r.status_code == 415 and not tg.calls
+
+
+def test_dangerous_raw_methods_need_confirmation(client, tg):
+    assert client.post("/api/raw/logOut", json={}).status_code == 400
+    assert not tg.calls
+    client.post("/api/raw/logOut", json={}, headers={"x-confirm": "yes"})
+    assert tg.last("logOut")
+
+
+@pytest.mark.parametrize(
+    "method", ["deleteMessages", "setChatTitle", "unpinAllChatMessages", "getUpdates", "someMethodTelegramAddsLater"]
+)
+def test_raw_methods_outside_the_allowlist_need_confirmation(client, tg, method):
+    assert client.post(f"/api/raw/{method}", json={}).status_code == 400
+    assert not tg.calls
+
+
+@pytest.mark.parametrize(
+    "method",
+    ["getChat", "sendMessage", "editMessageText", "answerCallbackQuery", "copyMessage", "stopPoll", "pinChatMessage"],
+)
+def test_reading_and_sending_raw_methods_run_without_confirmation(client, tg, method):
+    client.post(f"/api/raw/{method}", json={})
+    assert tg.last(method)
+
+
+def test_upload_over_the_limit_is_refused_and_not_kept(client, monkeypatch):
+    monkeypatch.setattr(settings.get(), "max_upload_mb", 0.001)  # ~1 KB
+    before = {m["name"] for m in client.get("/api/media").json()}
+    r = client.post("/api/media", files={"file": ("big.png", b"x" * 5000, "image/png")})
+    assert r.status_code == 413 and "МБ" in r.json()["detail"]
+    assert {m["name"] for m in client.get("/api/media").json()} == before
+
+
+def test_upload_limit_is_larger_with_own_bot_api_server():
+    assert settings.Settings.from_env({}).max_upload_mb == 50
+    assert settings.Settings.from_env({"TG_API_BASE": "http://localhost:8081"}).max_upload_mb == 2000
+    assert settings.Settings.from_env({"MAX_UPLOAD_MB": "10"}).max_upload_mb == 10
+
+
+def test_uploaded_html_is_never_rendered_inline(client):
+    name = client.post("/api/media", files={"file": ("page.html", b"<script>alert(1)</script>", "text/html")}).json()[
+        "name"
+    ]
+    r = client.get("/media/" + name)
+    assert r.headers["content-type"] == "application/octet-stream"
+    assert "attachment" in r.headers["content-disposition"]
+    assert r.headers["content-security-policy"].startswith("sandbox")
+    img = client.post("/api/media", files={"file": ("a.png", b"png", "image/png")}).json()["name"]
+    r = client.get("/media/" + img)
+    assert r.headers["content-type"] == "image/png" and r.headers["x-content-type-options"] == "nosniff"
+
+
+def test_editor_pages_have_csp(client):
+    for r in (client.get("/"), client.post("/api/render", json=BLOCKS_POST)):
+        assert "script-src 'self'" in r.headers["content-security-policy"]
+
+
+@pytest.mark.parametrize("key", ["chat_id", "rich_message", "reply_markup"])
+def test_options_cannot_override_core_params(client, tg, key):
+    post = {**BLOCKS_POST, "options": {key: "@other"}}
+    assert client.post("/api/send", json={"post": post}).status_code == 400
+    assert not tg.calls
+
+
+def test_render_page_survives_placeholder_injection(client):
+    d = client.post(
+        "/api/drafts", json={"title": "x", "post": {"rich_message": {"html": "<p>a</p>"}, ",x=alert(1)//": 1}}
+    ).json()
+    page = client.get(f"/render/draft/{d['id']}?theme=__PAYLOAD__").text
+    assert 'data-theme="auto"' in page
+    assert 'data-theme="{' not in page
+
+
+@pytest.mark.parametrize("at", ["2030-01-01T09:00:00", "завтра"])
+def test_schedule_requires_valid_time_with_timezone(client, at):
+    r = client.post("/api/schedule", json={"post": BLOCKS_POST, "at": at})
+    assert r.status_code == 400
+
+
+def test_post_state_transitions(client, tg):
+    import store
+
+    p = client.post("/api/schedule", json={"post": BLOCKS_POST, "at": int(time.time()) + 3600}).json()
+    store.update_post(p["id"], status="failed", error="x")
+    assert client.delete("/api/posts/" + p["id"]).status_code == 400
+    assert client.get("/api/posts/" + p["id"]).json()["status"] == "failed"
+    assert client.post(f"/api/posts/{p['id']}/edit", json=BLOCKS_POST).status_code == 400
+
+
+def test_only_media_fields_are_treated_as_uploads(client, tg):
+    client.post("/api/media", files={"file": ("dup.png", b"12345", "image/png")})
+    post = {
+        "rich_message": {
+            "blocks": [
+                {"type": "paragraph", "text": "upload:dup.png — это просто текст"},
+                {"type": "photo", "photo": {"type": "photo", "media": "upload:dup.png"}},
+                {"type": "photo", "photo": {"type": "photo", "media": "upload:dup.png"}},
+            ]
+        }
+    }
+    assert client.post("/api/send", json={"post": post}).status_code == 200
+    call = tg.last("sendRichMessage")
+    blocks = call["body"]["rich_message"]["blocks"]
+    assert blocks[0]["text"] == "upload:dup.png — это просто текст"
+    assert blocks[1]["photo"]["media"] == blocks[2]["photo"]["media"] == "attach://f0"
+    assert list(call["files"]) == ["f0"]
+
+
+@pytest.mark.parametrize(
+    "rm",
+    [
+        {"blocks": [{"type": "list", "items": ["x"]}]},
+        {"blocks": [{"type": "table", "cells": [["a"]]}]},
+        {"blocks": "not a list"},
+    ],
+)
+def test_malformed_blocks_are_reported_not_crashing(client, rm):
+    r = client.post("/api/validate", json={"rich_message": rm})
+    assert r.status_code == 200 and not r.json()["ok"]
+
+
+def test_absurdly_deep_payload_is_an_error_not_a_crash(client):
+    blocks: list = []
+    node = blocks
+    for _ in range(3000):
+        inner: list = []
+        node.append({"type": "blockquote", "blocks": inner})
+        node = inner
+    r = client.post("/api/validate", json={"rich_message": {"blocks": blocks}})
+    assert r.status_code == 200 and not r.json()["ok"] and "вложенность" in r.json()["errors"][0]
+
+
+def test_type_constants_are_checked(client):
+    rm = {"blocks": [{"type": "photo", "photo": {"type": "video", "media": "https://x/y.mp4"}}]}
+    r = client.post("/api/validate", json={"rich_message": rm}).json()
+    assert not r["ok"] and any("должно быть 'photo'" in e for e in r["errors"])
+    rm = {
+        "html": "<video src='tg://video?id=v'></video>",
+        "media": [{"id": "v", "media": {"type": "video", "media": "https://x/y.mp4", "supports_streaming": True}}],
+    }
+    r = client.post("/api/validate", json={"rich_message": rm}).json()
+    assert r["ok"] and not r["warnings"], r
+
+
+def test_scheduler_survives_network_errors(client, tg, monkeypatch):
+    import httpx
+
+    import telegram
+
+    async def boom(method, params=None, timeout=60):
+        raise httpx.ConnectError("connection refused")
+
+    p = client.post("/api/schedule", json={"post": BLOCKS_POST, "at": int(time.time())}).json()
+    monkeypatch.setattr(telegram, "call", boom)
+    asyncio.run(scheduler.run_due_posts())
+    rec = client.get("/api/posts/" + p["id"]).json()
+    assert rec["status"] == "failed" and "ConnectError" in rec["error"]
+
+
+def test_stale_sending_posts_are_not_retried(client):
+    import store
+
+    p = client.post("/api/schedule", json={"post": BLOCKS_POST, "at": int(time.time()) + 3600}).json()
+    store.update_post(p["id"], status="sending")
+    assert store.recover_stale_sending() >= 1
+    assert client.get("/api/posts/" + p["id"]).json()["status"] == "failed"
+    assert not store.claim_post(p["id"])
+
+
+def test_spec_refresh_rejects_bad_downloads(monkeypatch, tmp_path):
+    import httpx
+
+    import spec as specmod
+
+    s = specmod.Spec()
+    s.load_initial()
+    good_version = s.version
+
+    class Resp:
+        def __init__(self, data):
+            self.data = data
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self.data
+
+    for bad in ({}, {"error": "rate limited"}, {"version": "Bot API 9.0", "types": {}, "methods": {}}):
+
+        class C:
+            def __init__(self, **kw):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                pass
+
+            async def get(self, url, _bad=bad):
+                return Resp(_bad)
+
+        monkeypatch.setattr(httpx, "AsyncClient", C)
+        r = asyncio.run(s.refresh(force=True))
+        assert not r["updated"] and r.get("error")
+        assert s.version == good_version
+
+
+def test_api_key_protects_media_render_and_docs(client, monkeypatch):
+    monkeypatch.setattr(settings.get(), "api_key", "secret")
+    for path in ("/media/a.png", "/render/draft/x", "/docs", "/openapi.json", "/api/spec?key=secret"):
+        assert client.get(path).status_code == 401, path
+    assert client.get("/static/js/main.js").status_code == 200
+    assert client.get("/api/spec", cookies={"rs_key": "secret"}).status_code == 200
+
+
+def test_editor_modules_are_served_as_javascript(client):
+    # browsers refuse <script type="module"> with a wrong MIME type, and a missing import breaks the whole editor
+    static = Path(__file__).resolve().parent.parent / "app" / "static"
+    assert '<script type="module" src="/static/js/main.js">' in (static / "index.html").read_text()
+    for f in (static / "js").glob("*.js"):
+        for name in re.findall(r"from '\./([\w-]+\.js)'", f.read_text()):
+            r = client.get(f"/static/js/{name}")
+            assert r.status_code == 200, (f.name, name)
+            assert "javascript" in r.headers["content-type"], name
+
+
+# ---------- posting extras: pin, several channels, buttons, polls, updates ----------
+def _run(coro):
+    return asyncio.run(coro)
+
+
+def test_publish_with_pin_pins_silently(client, tg):
+    r = post_json(client, "/api/send", {"post": {**BLOCKS_POST, "pin": True}}).json()
+    pin = tg.last("pinChatMessage")["body"]
+    assert pin == {"chat_id": -1001, "message_id": r["message"]["message_id"], "disable_notification": True}
+    assert r["post"]["pinned"] == 1 and r["post"]["chat_num"] == -1001
+    # studio-only fields never reach Telegram
+    assert set(tg.last("sendRichMessage")["body"]) == {"chat_id", "rich_message"}
+
+
+def test_pin_failure_is_a_warning_not_an_error(client, tg):
+    tg.fail["pinChatMessage"] = "Bad Request: not enough rights"
+    r = post_json(client, "/api/send", {"post": {**BLOCKS_POST, "pin": True}})
+    assert r.status_code == 200
+    assert any("закрепить" in w for w in r.json()["warnings"])
+
+
+def test_send_to_several_channels(client, tg):
+    r = post_json(client, "/api/send", {"post": BLOCKS_POST, "chat_ids": ["@a", "@b", "@a", "-1002"]}).json()
+    chats = [c["body"]["chat_id"] for c in tg.calls if c["method"] == "sendRichMessage"]
+    assert chats == ["@a", "@b", -1002]
+    assert [x["ok"] for x in r["results"]] == [True, True, True]
+
+
+def test_one_failing_channel_does_not_stop_the_rest(client, tg):
+    orig = tg.fail
+    calls = {"n": 0}
+
+    class FailFirst(dict):
+        def __contains__(self, m):
+            if m == "sendRichMessage":
+                calls["n"] += 1
+                return calls["n"] == 1
+            return False
+
+        def __getitem__(self, m):
+            return "Forbidden: bot is not a member"
+
+    tg.fail = FailFirst()
+    try:
+        r = post_json(client, "/api/send", {"post": BLOCKS_POST, "chat_ids": ["@bad", "@good"]}).json()
+    finally:
+        tg.fail = orig
+    assert [x["ok"] for x in r["results"]] == [False, True]
+    assert r["post"]["chat_id"] == "@good"
+
+
+def test_schedule_to_several_channels(client):
+    r = post_json(
+        client, "/api/schedule", {"post": BLOCKS_POST, "chat_ids": ["@a", "@b"], "at": int(time.time()) + 999}
+    ).json()
+    assert [x["chat_id"] for x in r["all"]] == ["@a", "@b"]
+
+
+def test_pin_and_unpin_endpoints(client, tg):
+    pid = post_json(client, "/api/send", {"post": BLOCKS_POST}).json()["post"]["id"]
+    assert client.post(f"/api/posts/{pid}/pin", json={"disable_notification": False}).json()["pinned"] == 1
+    assert tg.last("pinChatMessage")["body"]["disable_notification"] is False
+    assert client.delete(f"/api/posts/{pid}/pin").json()["pinned"] == 0
+    assert tg.last("unpinChatMessage")["body"]["message_id"]
+
+
+def test_replace_only_buttons(client, tg):
+    pid = post_json(client, "/api/send", {"post": BLOCKS_POST}).json()["post"]["id"]
+    kb = {"inline_keyboard": [[{"text": "👍", "callback_data": "like"}]]}
+    p = post_json(client, f"/api/posts/{pid}/buttons", {"reply_markup": kb, "callbacks": {"like": "Спасибо!"}}).json()
+    assert tg.last("editMessageReplyMarkup")["body"]["reply_markup"] == kb
+    assert p["payload"]["reply_markup"] == kb and p["payload"]["callbacks"] == {"like": "Спасибо!"}
+    assert not [c for c in tg.calls if c["method"] == "editMessageText"]
+    post_json(client, f"/api/posts/{pid}/buttons", {"reply_markup": None})
+    assert "reply_markup" not in tg.last("editMessageReplyMarkup")["body"]
+
+
+def test_callback_click_is_answered_and_counted(client, tg):
+    post = {
+        **BLOCKS_POST,
+        "reply_markup": {"inline_keyboard": [[{"text": "👍", "callback_data": "like"}]]},
+        "callbacks": {"like": {"text": "Голос учтён", "show_alert": True}},
+    }
+    r = post_json(client, "/api/send", {"post": post}).json()
+    mid = r["message"]["message_id"]
+    upd = {
+        "update_id": 1,
+        "callback_query": {
+            "id": "cq1",
+            "data": "like",
+            "from": {"id": 5},
+            "message": {"message_id": mid, "chat": {"id": -1001}},
+        },
+    }
+    assert _run(updates.handle_update(upd)) == "callback"
+    assert tg.last("answerCallbackQuery")["body"] == {
+        "callback_query_id": "cq1",
+        "text": "Голос учтён",
+        "show_alert": True,
+    }
+    _run(updates.handle_update({**upd, "callback_query": {**upd["callback_query"], "id": "cq2"}}))
+    assert client.get(f"/api/posts/{r['post']['id']}").json()["clicks"] == {"like": 2}
+    # a button on a message the studio does not know still stops spinning
+    _run(
+        updates.handle_update(
+            {
+                "update_id": 2,
+                "callback_query": {"id": "cq3", "data": "x", "message": {"message_id": 1, "chat": {"id": -5}}},
+            }
+        )
+    )
+    assert tg.last("answerCallbackQuery")["body"] == {"callback_query_id": "cq3"}
+
+
+def test_first_comment_goes_under_the_forwarded_post(client, tg):
+    post = {**BLOCKS_POST, "comment": {"html": "<p>Ссылки из эфира</p>"}}
+    r = post_json(client, "/api/send", {"post": post}).json()
+    assert r["post"]["comment_status"] == "waiting"
+    fwd = {
+        "update_id": 3,
+        "message": {
+            "message_id": 77,
+            "chat": {"id": -2002, "type": "supergroup"},
+            "is_automatic_forward": True,
+            "forward_origin": {"type": "channel", "chat": {"id": -1001}, "message_id": r["message"]["message_id"]},
+        },
+    }
+    assert _run(updates.handle_update(fwd)) == "comment"
+    body = tg.last("sendRichMessage")["body"]
+    assert body == {
+        "chat_id": -2002,
+        "rich_message": {"html": "<p>Ссылки из эфира</p>"},
+        "reply_parameters": {"message_id": 77},
+    }
+    assert client.get(f"/api/posts/{r['post']['id']}").json()["comment_status"] == "sent"
+    n = len(tg.calls)
+    _run(updates.handle_update(fwd))  # only once
+    assert len(tg.calls) == n
+
+
+def test_invalid_first_comment_is_rejected(client, tg):
+    r = post_json(client, "/api/send", {"post": {**BLOCKS_POST, "comment": {"html": "a", "markdown": "b"}}})
+    assert r.status_code == 422 and not tg.calls
+
+
+def test_reaction_counts_are_stored(client, tg):
+    r = post_json(client, "/api/send", {"post": BLOCKS_POST}).json()
+    _run(
+        updates.handle_update(
+            {
+                "update_id": 4,
+                "message_reaction_count": {
+                    "chat": {"id": -1001},
+                    "message_id": r["message"]["message_id"],
+                    "date": 0,
+                    "reactions": [
+                        {"type": {"type": "emoji", "emoji": "👍"}, "total_count": 5},
+                        {"type": {"type": "custom_emoji", "custom_emoji_id": "123"}, "total_count": 1},
+                        {"type": {"type": "paid"}, "total_count": 2},
+                    ],
+                },
+            }
+        )
+    )
+    p = client.get(f"/api/posts/{r['post']['id']}").json()
+    assert p["reactions"] == {"👍": 5, "custom:123": 1, "paid": 2}
+
+
+def test_poll_send_results_and_stop(client, tg):
+    poll = {
+        "question": "Когда эфир?",
+        "options": ["Утром", {"text": "Вечером"}],
+        "members_only": True,
+        "country_codes": ["RU", "FT"],
+        "description": "Голосуют подписчики старше суток",
+    }
+    r = post_json(client, "/api/poll", {"poll": poll, "pin": True}).json()
+    body = tg.last("sendPoll")["body"]
+    assert body["options"] == [{"text": "Утром"}, {"text": "Вечером"}]
+    assert body["members_only"] is True and body["country_codes"] == ["RU", "FT"] and body["chat_id"] == "@test_channel"
+    assert "pin" not in body and tg.last("pinChatMessage")
+    rec = r["results"][0]["post"]
+    assert rec["kind"] == "poll"
+    _run(
+        updates.handle_update(
+            {
+                "update_id": 5,
+                "poll": {
+                    "id": rec["poll_id"],
+                    "total_voter_count": 4,
+                    "is_closed": False,
+                    "options": [{"text": "Утром", "voter_count": 3}, {"text": "Вечером", "voter_count": 1}],
+                },
+            }
+        )
+    )
+    assert client.get(f"/api/posts/{rec['id']}").json()["poll_results"]["total"] == 4
+    stopped = client.post(f"/api/posts/{rec['id']}/stop-poll").json()
+    assert stopped["poll_results"]["is_closed"] is True
+    assert post_json(client, f"/api/posts/{rec['id']}/edit", BLOCKS_POST).status_code == 400
+
+
+def test_poll_needs_question_and_two_options(client, tg):
+    assert post_json(client, "/api/poll", {"poll": {"question": "?", "options": ["один"]}}).status_code == 400
+    assert (
+        post_json(client, "/api/poll", {"poll": {"question": "?", "options": ["a", "b"], "chat_id": "@x"}}).status_code
+        == 400
+    )
+    assert not tg.calls
+
+
+def test_scheduled_poll_is_sent_by_scheduler(client, tg):
+    r = post_json(
+        client, "/api/poll", {"poll": {"question": "?", "options": ["a", "b"]}, "at": int(time.time()) + 999}
+    ).json()
+    pid = r["scheduled"][0]["id"]
+    import store
+
+    store.update_post(pid, scheduled_at=int(time.time()) - 1)
+    _run(scheduler.run_due_posts())
+    p = client.get(f"/api/posts/{pid}").json()
+    assert p["status"] == "sent" and p["poll_id"] and tg.last("sendPoll")["body"]["question"] == "?"
+
+
+def test_updates_status_endpoint(client):
+    s = client.get("/api/updates").json()
+    assert s["enabled"] is False and s["state"] == "off"
+
+
+def test_pin_without_body_is_silent(client, tg):
+    pid = post_json(client, "/api/send", {"post": BLOCKS_POST}).json()["post"]["id"]
+    assert client.post(f"/api/posts/{pid}/pin").status_code == 200
+    assert tg.last("pinChatMessage")["body"]["disable_notification"] is True
+
+
+def test_updates_loop_handles_updates_and_conflicts(monkeypatch):
+    import telegram as tgmod
+
+    seen, calls = [], []
+
+    async def fake_call(method, params=None, timeout=60):
+        calls.append(params)
+        if len(calls) == 1:
+            return [
+                {"update_id": 10, "poll": {"id": "nope"}},
+                {"update_id": 11, "callback_query": {"id": "c", "data": "d"}},
+            ]
+        raise tgmod.TelegramError("Conflict: terminated by other getUpdates request", 409)
+
+    async def fake_handle(u):
+        seen.append(u["update_id"])
+        if u["update_id"] == 10:
+            raise RuntimeError("boom")  # one bad update must not stop the loop
+        return "x"
+
+    async def stop_sleep(sec):
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(tgmod, "call", fake_call)
+    monkeypatch.setattr(updates, "handle_update", fake_handle)
+    monkeypatch.setattr(updates, "_sleep", stop_sleep)
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(updates.loop())
+    assert seen == [10, 11]
+    assert calls[1]["offset"] == 12 and "message_reaction_count" in calls[0]["allowed_updates"]
+    assert updates.STATUS.state == "conflict"
+    updates.reset_status()
+
+
+def test_updates_offset_survives_a_restart(monkeypatch):
+    import store
+    import telegram as tgmod
+
+    store.set_meta(updates.OFFSET_KEY, "500")
+    calls = []
+
+    async def fake_call(method, params=None, timeout=60):
+        calls.append(params)
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(tgmod, "call", fake_call)
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(updates.loop())
+    assert calls[0]["offset"] == 500

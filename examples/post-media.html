@@ -1,0 +1,32 @@
+<h1>Обзор: фото и файлы внутри текста</h1>
+<p>Медиа больше не обязаны висеть над постом. Их можно ставить в любое место текста.</p>
+
+<figure>
+  <img src="tg://photo?id=cover"/>
+  <figcaption>Обложка обзора<cite>Фото: редакция</cite></figcaption>
+</figure>
+
+<p>Дальше идёт текст, а за ним коллаж (несколько фото в одной сетке):</p>
+<tg-collage>
+  <img src="tg://photo?id=pic1"/>
+  <img src="tg://photo?id=pic2"/>
+  <figcaption>Коллаж из двух фото</figcaption>
+</tg-collage>
+
+<p>Слайдшоу листается свайпом:</p>
+<tg-slideshow>
+  <img src="tg://photo?id=pic1"/>
+  <img src="tg://photo?id=pic2"/>
+</tg-slideshow>
+
+<h2>Где это было</h2>
+<figure>
+  <tg-map lat="55.7539" long="37.6208" zoom="15"/>
+  <figcaption>Красная площадь</figcaption>
+</figure>
+
+<h2>Материалы</h2>
+<figure>
+  <tg-document src="tg://document?id=guide"></tg-document>
+  <figcaption>PDF-гайд к обзору</figcaption>
+</figure>

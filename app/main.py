@@ -1,0 +1,102 @@
+"""Rich Studio: local editor, preview renderer and API for Telegram rich posts.
+
+This module only assembles the app. Routes live in api/, logic in services/,
+Telegram transport in telegram/, storage in store/, the Bot API spec in spec/.
+"""
+
+import asyncio
+import contextlib
+import logging
+from pathlib import Path
+
+from fastapi import FastAPI, Request
+from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.staticfiles import StaticFiles
+
+import settings
+import spec
+import store
+import telegram as tg
+from api import drafts, media, posts, preview, raw, service, specs
+from errors import StudioError
+from security import guard
+from services import scheduler, updates
+
+STATIC = Path(__file__).parent / "static"
+SPEC_CHECK_INTERVAL = 1800  # seconds; Spec.refresh itself skips while the copy is fresh
+
+log = logging.getLogger("rich-studio")
+
+
+async def _spec_loop():
+    while True:
+        try:
+            await spec.current.refresh()
+        except Exception:
+            log.exception("spec refresh failed")
+        await asyncio.sleep(SPEC_CHECK_INTERVAL)
+
+
+@contextlib.asynccontextmanager
+async def lifespan(app):
+    cfg = settings.get()
+    store.init()
+    stale = store.recover_stale_sending()
+    if stale:
+        log.warning("%d posts were being sent when the service stopped; marked failed", stale)
+    cfg.media_dir.mkdir(parents=True, exist_ok=True)
+    spec.current.load_initial()
+    updates.reset_status()
+    tasks = []
+    if cfg.background:
+        tasks = [asyncio.create_task(_spec_loop()), asyncio.create_task(scheduler.loop())]
+        if cfg.updates_on:
+            tasks.append(asyncio.create_task(updates.loop()))
+    yield
+    for t in tasks:
+        t.cancel()
+
+
+async def _studio_error(request: Request, e: Exception):
+    assert isinstance(e, StudioError)  # noqa: S101 - registered for StudioError only
+    return JSONResponse({"detail": e.detail}, status_code=e.status)
+
+
+async def _telegram_error(request: Request, e: Exception):
+    assert isinstance(e, tg.TelegramError)  # noqa: S101
+    return JSONResponse({"detail": f"Telegram: {e.description}", "error_code": e.code}, status_code=502)
+
+
+def create_app(cfg: settings.Settings | None = None) -> FastAPI:
+    if cfg is not None:
+        settings.use(cfg)
+    app = FastAPI(
+        title="Rich Studio API",
+        version="0.1.0",
+        lifespan=lifespan,
+        description=(
+            "Локальный сервис для rich-постов Telegram (sendRichMessage). Поле `post` везде имеет вид "
+            "`{rich_message: InputRichMessage, reply_markup?: InlineKeyboardMarkup, options?: {...}}` и уходит в "
+            "Bot API без изменений. Медиа из загрузок указывайте как `upload:<имя файла>`. "
+            "Спецификация Bot API: GET /api/spec."
+        ),
+    )
+    app.middleware("http")(guard)
+    app.add_exception_handler(StudioError, _studio_error)
+    app.add_exception_handler(tg.TelegramError, _telegram_error)
+    for module in (service, specs, preview, drafts, posts, raw, media):
+        app.include_router(module.router)
+
+    @app.get("/", include_in_schema=False)
+    def index():
+        return FileResponse(STATIC / "index.html")
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    def favicon():  # browsers ask on every page; a 404 shows up as a console error in the preview
+        return Response(status_code=204)
+
+    app.mount("/static", StaticFiles(directory=STATIC), name="static")
+    return app
+
+
+app = create_app()

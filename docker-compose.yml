@@ -1,0 +1,10 @@
+services:
+  rich-studio:
+    build: .
+    container_name: rich-studio
+    env_file: .env
+    ports:
+      - "127.0.0.1:8080:8080"   # только с этого компьютера
+    volumes:
+      - ./data:/data            # черновики, посты, файлы, кэш спецификации
+    restart: unless-stopped

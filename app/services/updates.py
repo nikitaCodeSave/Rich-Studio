@@ -1,0 +1,135 @@
+"""Incoming Telegram updates (getUpdates): button clicks, first comments, reactions, poll results."""
+
+import asyncio
+import logging
+import time
+from dataclasses import asdict, dataclass
+
+import settings
+import store
+import telegram as tg
+
+log = logging.getLogger("rich-studio.updates")
+# tests replace this one name; patching asyncio.sleep itself would also stop the fake Telegram server
+_sleep = asyncio.sleep
+OFFSET_KEY = "updates_offset"
+ALLOWED_UPDATES = ["message", "callback_query", "message_reaction_count", "poll"]
+
+
+@dataclass
+class Status:
+    enabled: bool = True
+    state: str = "starting"  # starting | ok | off | no_token | conflict | error
+    error: str | None = None
+    last_at: int | None = None
+    handled: int = 0
+
+    def as_dict(self) -> dict:
+        return asdict(self)
+
+
+STATUS = Status()
+
+
+def reset_status() -> None:
+    on = settings.get().updates_on
+    STATUS.__init__(enabled=on, state="starting" if on else "off")  # type: ignore[misc]
+
+
+def _reaction_key(r: dict) -> str:
+    t = r.get("type") or {}
+    return t.get("emoji") or ("custom:" + t["custom_emoji_id"] if t.get("custom_emoji_id") else t.get("type", "?"))
+
+
+def poll_results(poll: dict) -> dict:
+    return {
+        "total": poll.get("total_voter_count", 0),
+        "is_closed": poll.get("is_closed", False),
+        "options": [{"text": o.get("text"), "voter_count": o.get("voter_count", 0)} for o in poll.get("options", [])],
+    }
+
+
+async def handle_update(u: dict) -> str | None:
+    """React to one Telegram update. Unknown updates are ignored. Returns what was handled."""
+    if cq := u.get("callback_query"):
+        msg = cq.get("message") or {}
+        p = store.find_post((msg.get("chat") or {}).get("id"), msg.get("message_id")) if msg else None
+        params = {"callback_query_id": cq["id"]}
+        if p:
+            data = cq.get("data") or ""
+            store.bump_click(p["id"], data)
+            ans = ((p["payload"] or {}).get("callbacks") or {}).get(data)
+            if isinstance(ans, str):
+                ans = {"text": ans}
+            if isinstance(ans, dict):
+                params.update({k: v for k, v in ans.items() if k in ("text", "show_alert", "url", "cache_time")})
+        await tg.call("answerCallbackQuery", params)  # always, or the button keeps spinning
+        return "callback"
+    if (m := u.get("message")) and m.get("is_automatic_forward"):
+        origin = m.get("forward_origin") or {}
+        if origin.get("type") != "channel":
+            return None
+        p = store.find_post(origin["chat"]["id"], origin.get("message_id"))
+        if not p or p.get("comment_status") != "waiting":
+            return None
+        comment = p["payload"].get("comment")
+        try:
+            res = await tg.call(
+                "sendRichMessage",
+                {
+                    "chat_id": m["chat"]["id"],
+                    "rich_message": comment,
+                    "reply_parameters": {"message_id": m["message_id"]},
+                },
+            )
+            store.update_post(p["id"], comment_status="sent", comment_message_id=res["message_id"])
+        except tg.TelegramError as e:
+            store.update_post(p["id"], comment_status="failed", error=f"первый комментарий: {e.description}")
+        return "comment"
+    if rc := u.get("message_reaction_count"):
+        p = store.find_post(rc["chat"]["id"], rc["message_id"])
+        if p:
+            store.update_post(
+                p["id"], reactions={_reaction_key(r): r.get("total_count", 0) for r in rc.get("reactions", [])}
+            )
+        return "reactions"
+    if poll := u.get("poll"):
+        p = store.find_poll(poll["id"])
+        if p:
+            store.update_post(p["id"], poll_results=poll_results(poll))
+        return "poll"
+    return None
+
+
+async def loop() -> None:
+    # Telegram re-sends updates that were not confirmed by the next getUpdates call;
+    # remembering the offset keeps a restart from counting the same clicks twice
+    saved = store.get_meta(OFFSET_KEY)
+    offset = int(saved) if saved else None
+    while True:
+        if not settings.get().bot_token:
+            STATUS.state = "no_token"
+            await _sleep(30)
+            continue
+        try:
+            ups = await tg.call(
+                "getUpdates", {"offset": offset, "timeout": 25, "allowed_updates": ALLOWED_UPDATES}, timeout=40
+            )
+            STATUS.state, STATUS.error = "ok", None
+            for u in ups:
+                offset = u["update_id"] + 1
+                store.set_meta(OFFSET_KEY, str(offset))
+                try:
+                    if await handle_update(u):
+                        STATUS.handled += 1
+                        STATUS.last_at = int(time.time())
+                except Exception:
+                    log.exception("update %s failed", u.get("update_id"))
+        except tg.TelegramError as e:
+            # 409: a webhook is set or another process polls the same bot
+            STATUS.state = "conflict" if e.code == 409 else "error"
+            STATUS.error = e.description
+            await _sleep(60 if e.code == 409 else 10)
+        except Exception as e:  # noqa: BLE001 - keep polling whatever happens
+            STATUS.state, STATUS.error = "error", f"{type(e).__name__}: {e}"
+            await _sleep(10)

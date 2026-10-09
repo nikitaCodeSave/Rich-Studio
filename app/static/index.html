@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rich Studio</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%233390ec'/><path d='M8 16l14-6-3 13-4-4-3 3v-4l7-6-9 5z' fill='white'/></svg>">
+<link rel="stylesheet" href="/static/vendor/katex/katex.min.css">
+<link rel="stylesheet" href="/static/tg.css">
+<link rel="stylesheet" href="/static/app.css">
+<script src="/static/vendor/katex/katex.min.js"></script>
+<script src="/static/vendor/markdown-it.min.js"></script>
+<script src="/static/render.js"></script>
+<script src="/static/snippets.js"></script>
+</head>
+<body>
+<header class="top">
+  <div class="brand">Rich&nbsp;Studio</div>
+  <input id="title" class="title-input" placeholder="Название черновика">
+  <button id="btn-new" class="ghost" title="Новый черновик">Новый</button>
+  <button id="btn-save" title="Сохранить (Ctrl+S)">Сохранить</button>
+  <span id="save-state" class="muted small"></span>
+  <span class="grow"></span>
+  <button id="spec-badge" class="badge" title="Версия Bot API, по которой строится редактор">Bot API …</button>
+  <input id="chat" class="chat-input" placeholder="@канал или id" title="Можно несколько каналов через запятую: пост уйдёт в каждый">
+  <button id="btn-check" class="ghost" title="Бот админ? Есть права?">Проверить</button>
+  <button id="btn-me" class="ghost" title="Отправить пост себе в личку (TG_PREVIEW_CHAT)">Мне в личку</button>
+  <button id="btn-poll" class="ghost" title="Опрос или викторина в канал">Опрос</button>
+  <button id="btn-schedule" class="ghost">Отложить</button>
+  <button id="btn-replace" class="ghost" title="Заменить уже опубликованный пост этим">Заменить пост</button>
+  <button id="btn-publish" class="primary">Опубликовать</button>
+</header>
+
+<main class="layout">
+  <aside class="side">
+    <nav class="tabs" id="side-tabs">
+      <button data-tab="drafts" class="on">Черновики</button>
+      <button data-tab="posts">Посты</button>
+      <button data-tab="uploads">Файлы</button>
+    </nav>
+    <div class="side-body" data-pane="drafts"><ul id="drafts" class="list"></ul></div>
+    <div class="side-body" data-pane="posts" hidden><p id="updates-state" class="small"></p><ul id="posts" class="list"></ul></div>
+    <div class="side-body" data-pane="uploads" hidden>
+      <label class="upload"><input id="upload" type="file" multiple hidden>＋ Загрузить файлы</label>
+      <p class="muted small">Файлы хранятся в сервисе и отправляются в Telegram при публикации. В посте указываются как <code>upload:имя</code>.</p>
+      <ul id="uploads" class="list uploads"></ul>
+    </div>
+  </aside>
+
+  <section class="editor">
+    <nav class="tabs mode-tabs" id="mode-tabs">
+      <button data-mode="blocks" class="on" title="Конструктор из блоков; формы строятся из спецификации Bot API">Визуально</button>
+      <button data-mode="html" title="Rich HTML: покрывает всё, включая новые теги">HTML</button>
+      <button data-mode="markdown" title="Rich Markdown (GFM + разрешённые теги)">Markdown</button>
+      <button data-mode="json" title="Весь запрос как JSON: любое поле API">JSON</button>
+      <span class="grow"></span>
+      <span class="muted small" id="mode-hint"></span>
+    </nav>
+    <div id="pane-blocks" class="pane"></div>
+    <div id="pane-html" class="pane" hidden>
+      <div class="snip-bar" id="snip-html"></div>
+      <textarea id="src-html" class="code" spellcheck="false" placeholder="<h1>Заголовок</h1>&#10;<p>Текст поста</p>"></textarea>
+    </div>
+    <div id="pane-markdown" class="pane" hidden>
+      <div class="snip-bar" id="snip-markdown"></div>
+      <textarea id="src-markdown" class="code" spellcheck="false" placeholder="# Заголовок&#10;&#10;Текст поста"></textarea>
+    </div>
+    <div id="pane-json" class="pane" hidden>
+      <p class="muted small">Полный запрос: <code>rich_message</code>, <code>reply_markup</code> и <code>options</code> (любые параметры sendRichMessage). Поля, которых студия ещё не знает, тоже уйдут в Telegram.</p>
+      <textarea id="src-json" class="code" spellcheck="false"></textarea>
+      <div class="row"><button id="json-apply">Применить JSON</button><span id="json-err" class="err small"></span></div>
+    </div>
+
+    <details class="panel" id="panel-media" open>
+      <summary>Медиа поста <span class="muted small">(для HTML и Markdown: <code>tg://photo?id=…</code>)</span></summary>
+      <div id="media-list"></div>
+      <button id="media-add" class="ghost small-btn">＋ медиа</button>
+    </details>
+    <details class="panel" id="panel-kb">
+      <summary>Кнопки под постом <span class="muted small">(reply_markup)</span></summary>
+      <div id="kb"></div>
+    </details>
+    <details class="panel" id="panel-after">
+      <summary>После публикации <span class="muted small">(закреп, первый комментарий)</span></summary>
+      <div id="after"></div>
+    </details>
+    <details class="panel" id="panel-opts">
+      <summary>Параметры отправки</summary>
+      <div id="opts"></div>
+    </details>
+    <div id="validation" class="validation"></div>
+  </section>
+
+  <section class="preview-col">
+    <div class="preview-bar">
+      <strong>Предпросмотр</strong>
+      <span class="grow"></span>
+      <button id="theme-toggle" class="ghost small-btn" title="Светлая/тёмная тема Telegram">☾</button>
+      <button id="open-render" class="ghost small-btn" title="Открыть рендер отдельной страницей">↗</button>
+    </div>
+    <div id="preview" class="tg-preview"></div>
+  </section>
+</main>
+
+<div id="toasts"></div>
+<script type="module" src="/static/js/main.js"></script>
+</body>
+</html>
