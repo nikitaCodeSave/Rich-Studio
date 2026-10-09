@@ -44,7 +44,8 @@ export async function loadPosts() {
         !poll && ['sent', 'scheduled', 'missed'].includes(p.status) ? h('button', { class: 'ghost small-btn', text: 'Править', title: 'Открыть пост в редакторе; «Обновить пост» над редактором заменит его', onclick: () => editPost(p).catch((e) => toast(e.message, 'err')) }) : null,
         !poll && !['sent', 'scheduled', 'missed'].includes(p.status) ? h('button', { class: 'ghost small-btn', text: 'Открыть', title: 'Копия поста новым черновиком', onclick: () => openCopy(p) }) : null,
         ['scheduled', 'missed'].includes(p.status) ? h('button', { class: 'ghost small-btn', text: p.status === 'missed' ? 'Отложить заново' : 'Перенести', onclick: () => reschedulePost(p) }) : null,
-        !poll && ['sent', 'scheduled'].includes(p.status) ? h('button', { class: 'ghost small-btn', text: 'Кнопки', title: 'Заменить только кнопки под постом кнопками из редактора; текст не меняется', onclick: () => {
+        // only for the post open for editing: the editor's buttons are that post's, not another draft's
+        !poll && ['sent', 'scheduled'].includes(p.status) && editing.value && editing.value.id === p.id ? h('button', { class: 'ghost small-btn', text: 'Кнопки', title: 'Заменить только кнопки под постом кнопками из редактора; текст не меняется', onclick: () => {
           const kb = S.keyboard.filter((r) => r.length);
           if (!confirm(kb.length ? `Поставить под пост ${kb.flat().length} кнопок из редактора?` : 'В редакторе нет кнопок. Убрать кнопки из поста?')) return;
           call('POST', `/api/posts/${p.id}/buttons`, { reply_markup: kb.length ? { inline_keyboard: kb } : null, callbacks: callbacksFor(kb) }, 'Кнопки обновлены');

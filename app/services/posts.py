@@ -9,7 +9,7 @@ import settings
 import spec
 import store
 import telegram as tg
-from errors import Conflict, MayHaveGone, NotFound, StudioError, Upstream
+from errors import Conflict, Invalid, MayHaveGone, NotFound, StudioError, Upstream
 from telegram.uploads import MissingUpload, collect_uploads
 
 from . import channels, publisher
@@ -270,6 +270,9 @@ async def unpin(pid: str) -> dict | None:
 
 async def set_buttons(pid: str, reply_markup: dict | None, callbacks: dict | None) -> dict | None:
     """Replace only the buttons (editMessageReplyMarkup); the text is untouched."""
+    bad = spec.keyboard_errors(reply_markup)
+    if bad:  # the same rule as a full send: Telegram would refuse the whole request
+        raise Invalid({"message": "кнопки не прошли проверку", "ok": False, "errors": bad, "warnings": []})
     p = _get(pid)
     if p["status"] not in ("sent", "scheduled"):
         raise StudioError(f"пост в статусе {p['status']}")

@@ -37,9 +37,43 @@ function bindEffects() {
   effect(() => { $('#btn-undo').disabled = !canUndo.value; $('#btn-redo').disabled = !canRedo.value; });
   effect(() => { store.set('dark', dark.value); parsed.value; showParsed.value; renderPreview(); });
   effect(() => { /** @type {any} */ ($('#edit-bar')).post = editing.value; });
+  // «Кнопки» in «Посты» shows only for the post being edited
+  let wasEditing = editing.peek()?.id;
+  effect(() => { const id = editing.value?.id; if (id !== wasEditing) { wasEditing = id; loadPosts().catch(() => {}); } });
+}
+
+// «Опубликовать ▾»: Отложить, Опрос, Заменить пост; closes on a choice, a click elsewhere or Escape
+function bindPublishMenu() {
+  const menu = $('#publish-menu');
+  const more = $('#btn-more');
+  const show = (on) => { menu.hidden = !on; more.setAttribute('aria-expanded', String(on)); if (on) /** @type {HTMLElement} */ (menu.querySelector('button')).focus(); };
+  more.onclick = (e) => { e.stopPropagation(); show(menu.hidden); };
+  menu.addEventListener('click', () => show(false)); // the item's own handler runs first
+  document.addEventListener('click', (e) => { if (!menu.hidden && !$('#publish-split').contains(/** @type {Node} */ (e.target))) show(false); });
+  menu.addEventListener('keydown', (e) => {
+    const items = [...menu.querySelectorAll('button')];
+    const i = items.indexOf(/** @type {HTMLButtonElement} */ (document.activeElement));
+    if (e.key === 'Escape') { show(false); more.focus(); }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); items[(i + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length].focus(); }
+  });
+}
+
+// phone: «Редактор» and «Предпросмотр» are tabs (the layout is one column there)
+function bindViewTabs() {
+  const tabs = $('#view-tabs');
+  tabs.onclick = (e) => {
+    const b = /** @type {HTMLElement} */ (e.target).closest('button');
+    if (!b) return;
+    tabs.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b));
+    document.body.classList.toggle('view-preview', b.dataset.view === 'preview');
+    if (b.dataset.view === 'preview') renderPreview();
+    scrollTo(0, 0);
+  };
 }
 
 function bindActions() {
+  bindPublishMenu();
+  bindViewTabs();
   $('#btn-save').onclick = () => act(() => saveDraft());
   $('#btn-undo').onclick = undo;
   $('#btn-redo').onclick = redo;

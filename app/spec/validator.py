@@ -147,6 +147,8 @@ def keyboard_errors(markup) -> list[str]:
     for ri, row in enumerate(rows if isinstance(rows, list) else []):
         for bi, button in enumerate(row if isinstance(row, list) else []):
             if isinstance(button, dict) and "url" in button and (bad := url_error(button["url"])):
+                if bad == "пустая ссылка":  # often a button meant to be of another kind, with the link field left over
+                    bad += ": впишите адрес или выберите кнопке другой тип (уберите поле url)"
                 errors.append(f"кнопка «{button.get('text', '')}» (ряд {ri + 1}, №{bi + 1}): {bad}")
     return errors
 

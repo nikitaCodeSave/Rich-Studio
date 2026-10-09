@@ -728,6 +728,11 @@ def test_replace_only_buttons(client, tg):
     assert not [c for c in tg.calls if c["method"] == "editMessageText"]
     post_json(client, f"/api/posts/{pid}/buttons", {"reply_markup": None})
     assert "reply_markup" not in tg.last("editMessageReplyMarkup")["body"]
+    # the same link rule as a full send: an empty link never reaches Telegram
+    calls = len(tg.calls)
+    bad = {"inline_keyboard": [[{"text": "Сайт", "url": ""}]]}
+    r = client.post(f"/api/posts/{pid}/buttons", json={"reply_markup": bad})
+    assert r.status_code == 422 and "другой тип" in str(r.json()["detail"]) and len(tg.calls) == calls
 
 
 def test_callback_click_is_answered_and_counted(client, tg):

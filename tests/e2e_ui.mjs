@@ -185,7 +185,8 @@ check('Pin, first comment and callback answer work end to end',
   commentShown === 1 && !sentRich.body.pin && !sentRich.body.comment && !!pinned && answer && answer.body.text === 'Спасибо, учтено' && /нажатия: like 1/.test(statsText) && /ждёт пересылки/.test(statsText),
   JSON.stringify({ commentShown, pinned: !!pinned, answer: answer && answer.body, statsText }));
 
-// 11. poll dialog
+// 11. poll dialog (in the «Опубликовать ▾» menu)
+await page.click('#btn-more');
 await page.click('#btn-poll');
 await page.waitForSelector('dialog[open]');
 const dlg = page.locator('dialog[open]');
@@ -558,6 +559,48 @@ check('Header fits one row at 1440px', Math.abs(header.pub - header.brand) < 12 
   check('A topic is dropped with another channel; the old remembered channel moves into the draft',
     kept.message_thread_id === 7 && dropped.message_thread_id === undefined && shown === '@legacy_chan' && JSON.stringify(migrated.chat_ids) === '["@legacy_chan"]' && leftover === null,
     JSON.stringify({ kept, dropped, shown, migrated: migrated.chat_ids, leftover }));
+}
+
+// 14. a button's kind is a switch (link / answer / copy); «Опубликовать ▾» holds the rarer sends; a phone has tabs
+{
+  await page.click('#btn-new');
+  await page.waitForTimeout(300);
+  await page.fill('#title', 'Кнопки по типам');
+  await page.evaluate(() => { /** @type {HTMLDetailsElement} */ (document.getElementById('panel-kb')).open = true; });
+  await page.locator('#kb button', { hasText: 'ряд кнопок' }).click();
+  await page.locator('#kb button', { hasText: 'в ряд' }).click();
+  await page.locator('#kb button', { hasText: 'в ряд' }).click();
+  const cards = page.locator('#kb .kb-btn');
+  await cards.nth(0).locator('input[type=url]').fill('https://t.me/telegram');
+  await cards.nth(1).locator('select[aria-label="Что делает кнопка"]').selectOption('callback');
+  await cards.nth(1).locator('input[type=text]').first().fill('Нравится');
+  await cards.nth(1).locator('.cb-answer input[type=text]').fill('Спасибо!');
+  await cards.nth(2).locator('select[aria-label="Что делает кнопка"]').selectOption('copy');
+  await cards.nth(2).locator('input[placeholder="Промокод, адрес, ссылка"]').fill('PROMO2026');
+  await page.click('#btn-save');
+  await page.waitForTimeout(500);
+  const id = await page.evaluate(() => JSON.parse(localStorage.getItem('rs.lastDraft') || 'null'));
+  const d = await page.evaluate((x) => fetch('/api/drafts/' + x).then((r) => r.json()), id);
+  const [b1, b2, b3] = d.payload.reply_markup.inline_keyboard[0];
+  const fieldsShown = await cards.nth(1).textContent();
+  await page.click('#btn-more');
+  const menuOpen = await page.locator('#publish-menu').isVisible();
+  const items = await page.locator('#publish-menu button').allTextContents();
+  await page.keyboard.press('Escape');
+  const menuClosed = await page.locator('#publish-menu').isHidden();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(200);
+  const editorFirst = (await page.locator('.editor').isVisible()) && (await page.locator('.preview-col').isHidden());
+  await page.click('#view-tabs [data-view=preview]');
+  const previewTab = (await page.locator('.editor').isHidden()) && (await page.locator('#preview').isVisible());
+  await page.click('#view-tabs [data-view=edit]');
+  await page.screenshot({ path: 'test-results/ui/buttons-390.png', fullPage: true }).catch(() => {});
+  await page.setViewportSize({ width: 1400, height: 900 });
+  check('Button kinds are a switch, «Опубликовать ▾» menu, phone tabs',
+    b1.url === 'https://t.me/telegram' && b2.text === 'Нравится' && /^b\w+$/.test(b2.callback_data) && b2.url === undefined && d.payload.callbacks[b2.callback_data] === 'Спасибо!'
+      && JSON.stringify(b3.copy_text) === '{"text":"PROMO2026"}' && !/callback_data/.test(fieldsShown)
+      && menuOpen && JSON.stringify(items) === '["Отложить…","Опрос…","Заменить пост…"]' && menuClosed && editorFirst && previewTab,
+    JSON.stringify({ b1, b2, b3, callbacks: d.payload.callbacks, menuOpen, items, menuClosed, editorFirst, previewTab }));
 }
 
 check('No CSP violations or JS errors in the editor', errors.length === 0 && csp.length === 0, [...errors, ...csp].join(' | '));
