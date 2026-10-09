@@ -131,6 +131,7 @@ function bindActions() {
     if (b.dataset.tab === 'posts') loadPosts();
     if (b.dataset.tab === 'uploads') loadUploads();
   });
+  $('#posts-filter').onchange = () => loadPosts().catch((e) => toast(e.message, 'err'));
   $$('#mode-tabs button').forEach((b) => b.onclick = () => setMode(b.dataset.mode));
   $('#json-apply').onclick = () => {
     try { const v = JSON.parse($('#src-json').value); loadPost(v); setMode('json', true); changed(); toast('JSON применён', 'ok'); } catch (e) { $('#json-err').textContent = e.message; }

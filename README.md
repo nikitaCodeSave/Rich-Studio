@@ -155,6 +155,7 @@ HTML и Markdown предпросмотр разбирает так же, как
 | `GET/POST/PUT/DELETE /api/drafts` | черновики (открываются в редакторе); `PUT` с `version` вернёт 409, если черновик сохранили в другом месте |
 | `POST /api/preview-send` | отправить себе в личку; в ответе `parsed`: блоки, на которые Telegram разобрал пост, и они же для повторной отправки (`input_blocks`) |
 | `GET /api/check?chat_id=` | бот админ канала? права? |
+| `GET /api/posts?status=&chat=` | посты студии, новые сверху: первая строка (`title`), миниатюра (`thumb`), ссылка t.me (`link`); неудачные отправки со статусом `failed` и ошибкой |
 | `POST /api/send`, `/api/schedule`, `/api/edit`, `/api/posts/{id}/edit`, `DELETE /api/posts/{id}` | публикация (`chat_ids` для нескольких каналов), отложка, замена, удаление |
 | `POST/DELETE /api/posts/{id}/pin`, `POST /api/posts/{id}/buttons` | закрепить, открепить, заменить только кнопки |
 | `GET /api/posts/{id}/versions`, `POST /api/posts/{id}/reschedule` | как пост выглядел до каждой замены; перенести отложенный или вернуть пропущенный |
@@ -240,7 +241,7 @@ claude mcp add --transport http rich-studio http://localhost:8080/mcp
 claude mcp add --transport http rich-studio http://localhost:8080/mcp --header "X-API-Key: <ключ>"
 ```
 
-Инструменты: `bot_api_status`, `refresh_bot_api` (скачать спецификацию сейчас), `studio_status` (что работает: токен, приём событий, предел опоздания отложки), `studio_health` (что сломано и что делать), `studio_logs` (журнал), `describe_type`, `validate_post`, `preview_post`, `save_draft` (новый или обновить существующий с проверкой версии; сразу возвращает результат проверки), `list_drafts`, `get_draft`, `list_media`, `send_preview_to_me`, `check_channel`, `publish_post` (с `idempotency_key` и `dry_run`), `schedule_post` (тоже с `dry_run`), `list_posts`, `get_post`, `post_history`, `edit_post`, `reschedule_post`, `cancel_scheduled_post`.
+Инструменты: `bot_api_status`, `refresh_bot_api` (скачать спецификацию сейчас), `studio_status` (что работает: токен, приём событий, предел опоздания отложки), `studio_health` (что сломано и что делать), `studio_logs` (журнал), `describe_type`, `validate_post`, `preview_post`, `save_draft` (новый или обновить существующий с проверкой версии; сразу возвращает результат проверки), `list_drafts`, `get_draft`, `list_media`, `send_preview_to_me`, `check_channel`, `publish_post` (с `idempotency_key` и `dry_run`), `schedule_post` (тоже с `dry_run`), `list_posts` (первая строка, ссылка, фильтр по статусу и каналу), `get_post`, `post_history`, `edit_post`, `reschedule_post`, `cancel_scheduled_post`.
 
 Агент передаёт JSON поста один раз, в `save_draft`; дальше `preview_post`, `publish_post` и `schedule_post` берут пост по `draft_id`. Публикация по `draft_id` требует `version`, которую вернул `preview_post`, и откажет, если вы успели изменить черновик в редакторе после предпросмотра. Черновик-правка опубликованного поста уходит только через `edit_post` с `draft_id`, вторым постом в канал он не попадёт.
 

@@ -100,12 +100,18 @@ interface PostRow {
   created_at: number;
   kind: string;
   actor: string | null;
-  pinned: number | null;
+  pinned: boolean;
   comment_status: string | null;
   reactions: Json | null;
   clicks: Json | null;
   poll_results: Json | null;
   poll_question: string | null;
+  /** first line of the text (or the poll question), empty when the post has none */
+  title: string;
+  /** /media/<name> of the first uploaded photo */
+  thumb: string | null;
+  /** t.me link to the message */
+  link: string | null;
 }
 
 /** GET /api/media item */

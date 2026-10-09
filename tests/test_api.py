@@ -135,9 +135,40 @@ def test_numeric_chat_id_becomes_integer(client, tg):
 
 def test_telegram_error_is_reported(client, tg):
     tg.fail["sendRichMessage"] = "Bad Request: not enough rights to send rich messages"
-    r = post_json(client, "/api/send", {"post": BLOCKS_POST})
-    assert r.status_code == 502
+    r = post_json(client, "/api/send", {"post": BLOCKS_POST, "chat_id": "@chan"})
+    assert r.status_code == 422  # Telegram refused the request itself, not a gateway failure
     assert "not enough rights" in r.json()["detail"]
+    # the refusal stays in the list of posts, not only in a toast
+    [p] = client.get("/api/posts").json()
+    assert p["status"] == "failed" and "not enough rights" in p["error"] and p["chat_id"] == "@chan"
+    assert p["title"] == "Тест" and p["link"] is None
+
+
+def test_one_failed_channel_of_two_is_listed(client, tg):
+    tg.fail["sendRichMessage"] = "Bad Request: chat not found"
+    r = post_json(client, "/api/send", {"post": BLOCKS_POST, "chat_ids": ["@a", "@b"]})
+    assert r.status_code == 502
+    assert [p["status"] for p in client.get("/api/posts").json()] == ["failed", "failed"]
+    assert client.get("/api/posts?status=failed&chat=@a").json()[0]["chat_id"] == "@a"
+    assert client.get("/api/posts?status=sent").json() == []
+
+
+def test_posts_list_shows_what_the_post_is(client, tg):
+    up = client.post("/api/media", files={"file": ("cover.png", b"\x89PNG fake", "image/png")}).json()
+    html = '<figure><img src="tg://photo?id=c"></figure><h1>Анонс &amp; эфир</h1><p>Подробности</p>'
+    rm = {"html": html, "media": [{"id": "c", "media": {"type": "photo", "media": up["ref"]}}]}
+    assert post_json(client, "/api/send", {"post": {"rich_message": rm}, "chat_id": "@my_chan"}).status_code == 200
+    post_json(
+        client,
+        "/api/send",
+        {"post": {"rich_message": {"markdown": "## **Итоги** недели\n\nтекст"}}, "chat_id": "-1001234567890"},
+    )
+    md, first = client.get("/api/posts").json()
+    assert first["title"] == "Анонс & эфир" and first["thumb"] == "/media/" + up["ref"][len("upload:") :]
+    assert first["link"] == f"https://t.me/my_chan/{first['message_id']}" and first["pinned"] is False
+    assert "payload" not in first
+    assert md["title"] == "Итоги недели" and md["thumb"] is None
+    assert md["link"] == f"https://t.me/c/1234567890/{md['message_id']}"
 
 
 def test_upload_and_send_as_multipart(client, tg):

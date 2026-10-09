@@ -3,7 +3,8 @@
 Error policy (see docs/REVIEW_CHECKLIST.md, section 2):
 - once a send succeeded, the post is recorded as sent; later steps only add warnings;
 - a network error during a send means "may have gone out": never retried automatically;
-- one failing channel never stops the others.
+- one failing channel never stops the others;
+- a send Telegram refused, or that may have gone, is recorded as failed with the error.
 """
 
 import re
@@ -138,6 +139,8 @@ async def publish(chats: list, post: dict, draft_id: str | None = None, kind: st
         try:
             res = await send(chat, post)
         except tg.TelegramError as e:
+            # kept in the list of posts, so a refusal is not lost with the toast that showed it
+            store.add_post(chat, post, draft_id, "failed", error=e.description, kind=kind, actor=actor)
             if len(chats) == 1:
                 raise
             out.append({"chat_id": chat, "ok": False, "error": e.description})
@@ -146,6 +149,7 @@ async def publish(chats: list, post: dict, draft_id: str | None = None, kind: st
             raise
         except Exception as e:
             err = f"{type(e).__name__}: {e}. {MAY_HAVE_GONE}"
+            store.add_post(chat, post, draft_id, "failed", error=err, kind=kind, actor=actor)
             if len(chats) == 1:
                 raise MayHaveGone(err) from e
             out.append({"chat_id": chat, "ok": False, "error": err})
