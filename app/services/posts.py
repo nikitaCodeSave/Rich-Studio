@@ -10,7 +10,7 @@ from errors import MayHaveGone, NotFound, StudioError, Upstream
 from telegram.uploads import MissingUpload, collect_uploads
 
 from . import publisher
-from .updates import poll_results
+from .updates import poll_results, remember_preview
 
 
 def _get(pid: str) -> dict:
@@ -75,6 +75,8 @@ async def preview(post: dict, chat_id=None) -> dict:
     chat = publisher.resolve_chat(target)
     res = await publisher.send(chat, post)
     out = {"message_id": res["message_id"], "chat_id": chat}
+    if post.get("callbacks"):  # so the buttons of the preview answer like in the channel
+        remember_preview(chat, res["message_id"], post["callbacks"])
     if post.get("comment"):  # show the first comment right under the preview
         await tg.call(
             "sendRichMessage",

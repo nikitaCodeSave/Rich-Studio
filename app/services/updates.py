@@ -1,6 +1,7 @@
 """Incoming Telegram updates (getUpdates): button clicks, first comments, reactions, poll results."""
 
 import asyncio
+import json
 import logging
 import time
 from dataclasses import asdict, dataclass
@@ -13,6 +14,8 @@ log = logging.getLogger("rich-studio.updates")
 # tests replace this one name; patching asyncio.sleep itself would also stop the fake Telegram server
 _sleep = asyncio.sleep
 OFFSET_KEY = "updates_offset"
+PREVIEW_KEY = "preview_callbacks"
+PREVIEWS_KEPT = 20  # button answers of the newest previews; older preview buttons get an empty answer
 ALLOWED_UPDATES = ["message", "callback_query", "message_reaction_count", "poll"]
 # Telegram keeps undelivered updates for about a day; a forward older than that will never arrive
 COMMENT_WAIT = 24 * 3600
@@ -38,6 +41,17 @@ def reset_status() -> None:
     STATUS.__init__(enabled=on, state="starting" if on else "off")  # type: ignore[misc]
 
 
+def remember_preview(chat_id, message_id: int, callbacks: dict) -> None:
+    """Keep the answers to the buttons of a preview in the DM: previews are not posts, but clicks come all the same."""
+    saved = json.loads(store.get_meta(PREVIEW_KEY) or "{}")
+    saved[f"{chat_id}:{message_id}"] = callbacks
+    store.set_meta(PREVIEW_KEY, json.dumps(dict(list(saved.items())[-PREVIEWS_KEPT:]), ensure_ascii=False))
+
+
+def _preview_callbacks(chat_id, message_id) -> dict:
+    return json.loads(store.get_meta(PREVIEW_KEY) or "{}").get(f"{chat_id}:{message_id}") or {}
+
+
 def _reaction_key(r: dict) -> str:
     t = r.get("type") or {}
     return t.get("emoji") or ("custom:" + t["custom_emoji_id"] if t.get("custom_emoji_id") else t.get("type", "?"))
@@ -57,15 +71,24 @@ async def handle_update(u: dict) -> str | None:
         msg = cq.get("message") or {}
         p = store.find_post((msg.get("chat") or {}).get("id"), msg.get("message_id")) if msg else None
         params = {"callback_query_id": cq["id"]}
+        data = cq.get("data") or ""
         if p:
-            data = cq.get("data") or ""
             store.bump_click(p["id"], data)
-            ans = ((p["payload"] or {}).get("callbacks") or {}).get(data)
-            if isinstance(ans, str):
-                ans = {"text": ans}
-            if isinstance(ans, dict):
-                params.update({k: v for k, v in ans.items() if k in ("text", "show_alert", "url", "cache_time")})
-        await tg.call("answerCallbackQuery", params)  # always, or the button keeps spinning
+            callbacks = (p["payload"] or {}).get("callbacks") or {}
+        else:
+            callbacks = _preview_callbacks((msg.get("chat") or {}).get("id"), msg.get("message_id")) if msg else {}
+        ans = callbacks.get(data)
+        if isinstance(ans, str):
+            ans = {"text": ans}
+        if isinstance(ans, dict):
+            params.update({k: v for k, v in ans.items() if k in ("text", "show_alert", "url", "cache_time")})
+        try:
+            await tg.call("answerCallbackQuery", params)  # always, or the button keeps spinning
+        except tg.TelegramError as e:
+            # the click came while the studio was off: Telegram no longer takes an answer, the click still counts
+            if "query is too old" not in e.description:
+                raise
+            log.warning("button click came too late to answer: %s", e.description)
         return "callback"
     if (m := u.get("message")) and m.get("is_automatic_forward"):
         origin = m.get("forward_origin") or {}
