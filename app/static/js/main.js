@@ -27,7 +27,7 @@ import { addMediaEntry, loadUploads, upload } from './media.js';
 import { showPoll } from './poll.js';
 import { loadPosts, replacePost } from './posts.js';
 import { refreshSpec, showSpec, updateBadge } from './spec-dialog.js';
-import { chat, dark, dirty, editing, parsed, S, saveState, showParsed, target, targetLabel } from './state.js';
+import { chat, chatLabel, chats, dark, dirty, editing, parsed, S, saveState, showParsed, target, targetLabel } from './state.js';
 
 const isTextField = (el) => el instanceof HTMLElement && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName));
 
@@ -137,13 +137,16 @@ function bindActions() {
     await loadPosts();
     const sent = S.posts.filter((p) => ['sent', 'scheduled'].includes(p.status));
     const mid = h('input', { type: 'number', placeholder: 'message_id' });
+    const where = chats();
     openDialog([h('h3', { text: 'Заменить опубликованный пост' }),
-      sent.length ? h('ul', { class: 'list' }, sent.slice(0, 15).map((p) => h('li', { onclick: () => { closeDialog(); replacePost(p); } }, h('span', { text: `${p.chat_id} #${p.message_id || '—'} · ${STATUS_LABELS[p.status] || p.status}` }), h('span', { class: 'meta', text: new Date((p.sent_at || p.scheduled_at || p.created_at) * 1000).toLocaleString('ru-RU') })))) : h('p', { class: 'muted', text: 'Через студию ещё ничего не публиковалось.' }),
-      h('p', { class: 'muted small', text: 'Или любой пост бота по message_id (видно в ссылке на пост: t.me/канал/ID):' }), mid],
+      sent.length ? h('ul', { class: 'list' }, sent.slice(0, 15).map((p) => h('li', { onclick: () => { closeDialog(); replacePost(p); } }, h('span', { text: `${chatLabel(p.chat_id)} #${p.message_id || '—'} · ${STATUS_LABELS[p.status] || p.status}` }), h('span', { class: 'meta', text: new Date((p.sent_at || p.scheduled_at || p.created_at) * 1000).toLocaleString('ru-RU') })))) : h('p', { class: 'muted', text: 'Через студию ещё ничего не публиковалось.' }),
+      h('p', { class: 'muted small', text: where.length > 1
+        ? 'Пост по message_id ищется в одном канале, а у черновика их ' + where.length + ': оставьте один в окне «Каналы».'
+        : 'Или любой пост бота в ' + chatLabel(where[0] || S.config.default_chat || '') + ' по message_id (видно в ссылке на пост: t.me/канал/ID):' }), where.length > 1 ? null : mid],
       [h('button', { class: 'ghost', value: 'cancel', text: 'Отмена' }), h('button', { type: 'button', text: 'Заменить по id', onclick: async () => {
-        const id = parseInt(mid.value, 10); if (!id) return;
+        const id = parseInt(mid.value, 10); if (!id || where.length > 1) return;
         closeDialog();
-        await act(() => api('POST', '/api/edit', { post: buildPost(), chat_id: chat(), message_id: id }), 'Пост #' + id + ' обновлён');
+        await act(() => api('POST', '/api/edit', { post: buildPost(), chat_id: where[0] || chat(), message_id: id }), 'Пост #' + id + ' обновлён');
       } })]);
   };
 

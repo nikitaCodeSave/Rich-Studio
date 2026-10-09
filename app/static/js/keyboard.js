@@ -26,8 +26,11 @@ const newCallbackKey = () => 'b' + Date.now().toString(36).slice(-4) + Math.rand
 
 /** @param {Json} btn @param {string} kind */
 function setKind(btn, kind) {
-  if (btn.callback_data !== undefined && kind !== 'callback') delete S.extra.callbacks[btn.callback_data];
+  // «Другое» keeps every field, the answer included
   if (kind === 'other') { byHand.add(btn); return; }
+  // the answer belongs to the key: another button with the same callback_data keeps it
+  const shared = S.keyboard.some((r) => r.some((b) => b !== btn && b.callback_data === btn.callback_data));
+  if (btn.callback_data !== undefined && kind !== 'callback' && !shared) delete S.extra.callbacks[btn.callback_data];
   byHand.delete(btn);
   if (kindOf(btn) === kind) return;
   ACTIONS.forEach((k) => { delete btn[k]; });
