@@ -11,21 +11,41 @@ import { api, setKeyCookie } from './api.js';
 import { bindCode, snippetBar } from './code.js';
 import { closeDialog, openDialog } from './dialogs.js';
 import { $, $$, act, debounce, h, store, toast } from './dom.js';
+import { effect } from '../vendor/signals-core.js';
 import { loadDrafts, newDraft, openDraft, saveDraft } from './drafts.js';
 import { autosave, buildPost, changed, loadPost, renderPreview, setMode } from './editor.js';
+import { canRedo, canUndo, redo, undo } from './history.js';
 import { addMediaEntry, loadUploads, upload } from './media.js';
 import { showPoll } from './poll.js';
 import { loadPosts, replacePost } from './posts.js';
 import { showSpec, updateBadge } from './spec-dialog.js';
-import { chat, S, target, targetLabel } from './state.js';
+import { chat, dark, dirty, S, saveState, target, targetLabel } from './state.js';
+
+const isTextField = (el) => el instanceof HTMLElement && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName));
+
+// what the page shows follows the signals in state.js and history.js
+function bindEffects() {
+  effect(() => { $('#save-state').textContent = saveState.value; });
+  effect(() => { $('#btn-undo').disabled = !canUndo.value; $('#btn-redo').disabled = !canRedo.value; });
+  effect(() => { store.set('dark', dark.value); renderPreview(); });
+}
 
 function bindActions() {
   $('#btn-save').onclick = () => act(() => saveDraft());
-  $('#btn-new').onclick = () => { if (!S.dirty || confirm('Есть несохранённые изменения. Создать новый черновик?')) newDraft(); };
-  $('#title').oninput = () => { S.dirty = true; autosave(); };
+  $('#btn-undo').onclick = undo;
+  $('#btn-redo').onclick = redo;
+  $('#btn-new').onclick = () => { if (!dirty.value || confirm('Есть несохранённые изменения. Создать новый черновик?')) newDraft(); };
+  $('#title').oninput = () => { dirty.value = true; autosave(); };
   $('#chat').oninput = debounce(() => { store.set('chat', $('#chat').value); renderPreview(); }, 300);
-  addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); act(() => saveDraft()); } });
-  addEventListener('beforeunload', (e) => { if (S.dirty) { if (S.draftId) saveDraft(true).catch(() => {}); e.preventDefault(); e.returnValue = ''; } });
+  addEventListener('keydown', (e) => {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    const key = e.key.toLowerCase();
+    if (key === 's') { e.preventDefault(); act(() => saveDraft()); return; }
+    // text fields keep their own undo; the post-wide one works everywhere else
+    if (isTextField(e.target)) return;
+    if (key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); } else if ((key === 'z' && e.shiftKey) || key === 'y') { e.preventDefault(); redo(); }
+  });
+  addEventListener('beforeunload', (e) => { if (dirty.value) { if (S.draftId) saveDraft(true).catch(() => {}); e.preventDefault(); e.returnValue = ''; } });
 
   $('#btn-check').onclick = () => act(async () => {
     const r = await api('GET', '/api/check' + (chat() ? '?chat_id=' + encodeURIComponent(chat()) : ''));
@@ -39,7 +59,7 @@ function bindActions() {
     const where = targetLabel();
     if (!where) { toast('Укажите канал (@username или id) в поле справа сверху', 'err'); return; }
     if (!confirm('Опубликовать пост в ' + where + '?')) return;
-    await act(async () => { if (S.dirty || !S.draftId) await saveDraft(true); return api('POST', '/api/send', { post: buildPost(), ...target(), draft_id: S.draftId }); },
+    await act(async () => { if (dirty.value || !S.draftId) await saveDraft(true); return api('POST', '/api/send', { post: buildPost(), ...target(), draft_id: S.draftId }); },
       (r) => {
         const bad = (r.results || []).filter((x) => !x.ok);
         return (r.results && r.results.length > 1 ? `Опубликовано в ${r.results.length - bad.length} из ${r.results.length}` : 'Опубликовано, message_id ' + r.message.message_id)
@@ -55,7 +75,7 @@ function bindActions() {
       [h('button', { class: 'ghost', value: 'cancel', text: 'Отмена' }), h('button', { type: 'button', text: 'Запланировать', onclick: async () => {
         const at = Math.floor(new Date(inp.value).getTime() / 1000);
         closeDialog();
-        await act(async () => { if (S.dirty || !S.draftId) await saveDraft(true); return api('POST', '/api/schedule', { post: buildPost(), ...target(), draft_id: S.draftId, at }); }, 'Запланировано на ' + new Date(at * 1000).toLocaleString('ru-RU'));
+        await act(async () => { if (dirty.value || !S.draftId) await saveDraft(true); return api('POST', '/api/schedule', { post: buildPost(), ...target(), draft_id: S.draftId, at }); }, 'Запланировано на ' + new Date(at * 1000).toLocaleString('ru-RU'));
         loadPosts();
       } })]);
   };
@@ -73,10 +93,10 @@ function bindActions() {
       } })]);
   };
 
-  $('#theme-toggle').onclick = () => { S.dark = !S.dark; store.set('dark', S.dark); renderPreview(); };
+  $('#theme-toggle').onclick = () => { dark.value = !dark.value; };
   $('#open-render').onclick = () => act(async () => {
-    if (S.dirty || !S.draftId) await saveDraft(true);
-    window.open('/render/draft/' + S.draftId + '?theme=' + (S.dark ? 'dark' : 'light'), '_blank', 'noopener');
+    if (dirty.value || !S.draftId) await saveDraft(true);
+    window.open('/render/draft/' + S.draftId + '?theme=' + (dark.value ? 'dark' : 'light'), '_blank', 'noopener');
   });
 
   $$('#side-tabs button').forEach((b) => b.onclick = () => {
@@ -103,20 +123,19 @@ async function boot() {
   try {
     [S.spec, S.config] = await Promise.all([api('GET', '/api/spec'), api('GET', '/api/config')]);
   } catch (e) { document.body.prepend(h('p', { class: 'err', style: 'padding:12px', text: 'Не удалось загрузить сервис: ' + e.message })); return; }
-  S.dark = store.get('dark', S.dark);
+  dark.value = store.get('dark', dark.value);
   if (store.get('apiKey', '')) setKeyCookie(store.get('apiKey', ''));
   $('#chat').value = store.get('chat', '') || S.config.default_chat || '';
   $('#chat').placeholder = S.config.default_chat || '@канал или id';
   if (!S.config.token_set) toast('TG_BOT_TOKEN не задан: редактор и предпросмотр работают, отправка нет. Добавьте токен в .env и перезапустите.', 'err');
   updateBadge();
   snippetBar('html'); snippetBar('markdown'); bindCode('html'); bindCode('markdown');
+  bindEffects();
   bindActions();
   await Promise.all([loadUploads().catch(() => {}), loadPosts().catch(() => {})]);
   const last = store.get('lastDraft', null);
   await loadDrafts();
   if (last && S.drafts.some((d) => d.id === last)) await openDraft(last); else newDraft();
 }
-
-boot();
 
 boot();

@@ -2,6 +2,7 @@
 import { api } from './api.js';
 import { $, h, toast } from './dom.js';
 import { buildPost, callbacksFor, loadPost, updatesLabel } from './editor.js';
+import { resetHistory } from './history.js';
 import { S } from './state.js';
 
 // ---------- posts ----------
@@ -32,7 +33,7 @@ export async function loadPosts() {
       h('span', { class: 'meta', text: new Date(when * 1000).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' }) + (p.error ? ' · ' + p.error : '') }),
       stats.length ? h('span', { class: 'meta stats', text: stats.join(' · ') }) : null,
       h('span', { class: 'acts' },
-        poll ? null : h('button', { class: 'ghost small-btn', text: 'Открыть', title: 'Загрузить содержимое в редактор', onclick: async () => { const full = await api('GET', '/api/posts/' + p.id); S.draftId = null; $('#title').value = 'Копия поста ' + (p.message_id || ''); loadPost(full.payload); } }),
+        poll ? null : h('button', { class: 'ghost small-btn', text: 'Открыть', title: 'Загрузить содержимое в редактор', onclick: async () => { const full = await api('GET', '/api/posts/' + p.id); S.draftId = null; $('#title').value = 'Копия поста ' + (p.message_id || ''); loadPost(full.payload); resetHistory(); } }),
         !poll && ['sent', 'scheduled'].includes(p.status) ? h('button', { class: 'ghost small-btn', text: 'Заменить', title: 'Заменить этот пост содержимым редактора', onclick: () => replacePost(p) }) : null,
         !poll && ['sent', 'scheduled'].includes(p.status) ? h('button', { class: 'ghost small-btn', text: 'Кнопки', title: 'Заменить только кнопки под постом кнопками из редактора; текст не меняется', onclick: () => {
           const kb = S.keyboard.filter((r) => r.length);

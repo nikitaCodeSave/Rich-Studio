@@ -3,15 +3,16 @@ import { api } from './api.js';
 import { $, $$, clone, debounce, h, toast } from './dom.js';
 import { saveDraft } from './drafts.js';
 import { renderBlocksPane } from './forms.js';
+import { recordHistory } from './history.js';
 import { renderKeyboard } from './keyboard.js';
 import { renderMedia } from './media.js';
-import { chats, S } from './state.js';
+import { chats, dark, dirty, S, saveState } from './state.js';
 
 // ---------- change tracking ----------
 export const refreshPreview = debounce(() => { renderPreview(); validate(); }, 250);
 export const autosave = debounce(() => { if (S.draftId) saveDraft(true).catch((e) => toast('Автосохранение не удалось: ' + e.message, 'err')); }, 2500);
-export async function flushSave() { if (S.dirty && S.draftId) await saveDraft(true); }
-export function changed() { S.dirty = true; $('#save-state').textContent = 'есть изменения'; refreshPreview(); autosave(); }
+export async function flushSave() { if (dirty.value && S.draftId) await saveDraft(true); }
+export function changed() { dirty.value = true; saveState.value = 'есть изменения'; refreshPreview(); autosave(); recordHistory(); }
 
 export function buildPost() {
   const rm = {};
@@ -145,7 +146,7 @@ export function renderOptions() {
 // ---------- preview & validation ----------
 export function renderPreview() {
   const p = $('#preview');
-  p.classList.toggle('tg-dark', S.dark);
+  p.classList.toggle('tg-dark', dark.value);
   const post = buildPost();
   p.replaceChildren(RichRender.render(post, { channelTitle: chats()[0] || S.config.default_chat || 'Канал' }));
   if (post.comment) {
