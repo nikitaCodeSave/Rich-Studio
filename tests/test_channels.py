@@ -96,3 +96,20 @@ def test_topic_needs_one_forum_chat(client, tg):
         r = client.post(path, json={"post": post, "chat_id": "-100555", "dry_run": True, **extra})
         assert r.status_code == 400 and "не форум" in r.json()["detail"], path
     assert not [c for c in tg.calls if c["method"] == "sendRichMessage"]
+
+
+def test_channel_list_is_normalized_and_an_empty_item_refused(client, tg):
+    r = client.post("/api/send", json={"post": BLOCKS_POST, "chat_ids": ["@Chan", " @chan ", "-1001", -1001]})
+    assert r.status_code == 200, r.text
+    assert [c["body"]["chat_id"] for c in tg.calls if c["method"] == "sendRichMessage"] == ["@Chan", -1001]
+    for bad in (["@a", ""], ["  "], ["chan"], ["@a b"]):
+        r = client.post("/api/send", json={"post": BLOCKS_POST, "chat_ids": bad})
+        assert r.status_code == 400, bad
+    assert len([c for c in tg.calls if c["method"] == "sendRichMessage"]) == 2
+    d = client.post("/api/drafts", json={"title": "A", "post": BLOCKS_POST, "chat_ids": [" @x", "@X", "-100"]}).json()
+    assert d["chat_ids"] == ["@x", "-100"]
+    assert (
+        client.post("/api/drafts", json={"title": "B", "post": BLOCKS_POST, "chat_ids": ["@x", ""]}).status_code == 400
+    )
+    r = client.post("/api/send", json={"post": BLOCKS_POST, "chat_id": " @trim "})
+    assert r.status_code == 200 and tg.last("sendRichMessage")["body"]["chat_id"] == "@trim"

@@ -26,7 +26,8 @@ export const S = {
 export const chats = () => $('#chat').value.split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean);
 export const chat = () => chats()[0];
 // body fields for one or several channels
-export const target = () => { const c = chats(); return c.length > 1 ? { chat_ids: c } : { chat_id: c[0] }; };
+// always the explicit list the confirmation showed, never "whatever the saved draft says"
+export const target = () => { const c = chats(); return { chat_ids: c.length ? c : [S.config.default_chat].filter(Boolean) }; };
 /** @param {string | undefined} id */
 export function channelOf(id) {
   if (!id) return null;

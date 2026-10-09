@@ -46,7 +46,9 @@ function bindActions() {
   $('#btn-new').onclick = () => { if (!dirty.value || confirm('Есть несохранённые изменения. Создать новый черновик?')) newDraft(); };
   $('#title').oninput = () => { dirty.value = true; autosave(); };
   // the channel belongs to the draft: changing it is a change of the draft
-  $('#chat').oninput = debounce(() => { showTarget(); dirty.value = true; autosave(); renderPreview(); }, 300);
+  // dirty at once: a publish right after the change must not go by the old saved channels; only the redraw waits
+  const redrawTarget = debounce(() => { showTarget(); renderPreview(); }, 300);
+  $('#chat').oninput = () => { dirty.value = true; saveState.value = 'есть изменения'; autosave(); redrawTarget(); };
   bindTarget();
   addEventListener('keydown', (e) => {
     if (!(e.ctrlKey || e.metaKey)) return;

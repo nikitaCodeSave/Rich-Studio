@@ -238,7 +238,7 @@ def build() -> MCPServer:
         old = store.get_draft(draft_id) if draft_id else None
         if draft_id and not old:
             raise NotFound(f"черновика {draft_id} нет")
-        chats = chat_ids if chat_ids is not None else (old or {}).get("chat_ids")
+        chats = (publisher.normalize_chats(chat_ids) or None) if chat_ids is not None else (old or {}).get("chat_ids")
         d = store.save_draft(
             draft_id, title or (old or {}).get("title") or "", _post(post), version, (old or {}).get("post_id"), chats
         )

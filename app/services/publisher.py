@@ -24,14 +24,33 @@ RESERVED_PARAMS = {"chat_id", "rich_message", "reply_markup", "message_id"}
 MAY_HAVE_GONE = "Пост мог уйти в канал, проверьте перед повтором"
 
 
+_CHAT = re.compile(r"@\w+|-?\d+")
+
+
 def resolve_chat(chat_id) -> int | str:
     """@username stays a string, numeric ids become int; empty means TG_DEFAULT_CHAT."""
-    c = chat_id if chat_id not in (None, "") else settings.get().default_chat
+    c = chat_id.strip() if isinstance(chat_id, str) else chat_id
+    if c in (None, ""):
+        c = settings.get().default_chat
     if c in (None, ""):
         raise StudioError("не указан chat_id и не задан TG_DEFAULT_CHAT")
     if isinstance(c, str) and re.fullmatch(r"-?\d+", c):
         return int(c)
     return c
+
+
+def normalize_chats(chat_ids) -> list[str]:
+    """A list of channels as the person typed it: trimmed, checked, each channel once (@Chan and @chan,
+    -100… as a string and as a number are the same). An empty item is an error, never the default channel."""
+    out: dict[str, str] = {}
+    for raw in chat_ids or []:
+        c = str(raw).strip()
+        if not c:
+            raise StudioError("в списке каналов пустой элемент: уберите его или впишите канал")
+        if not _CHAT.fullmatch(c):
+            raise StudioError(f"канал {c!r}: нужен @username или числовой id (-100…)")
+        out.setdefault(c.lower(), c)
+    return list(out.values())
 
 
 def targets(chat_id, chat_ids, draft_id: str | None = None) -> list:
@@ -42,7 +61,7 @@ def targets(chat_id, chat_ids, draft_id: str | None = None) -> list:
             raise StudioError(f"черновика {draft_id} нет: укажите chat_id явно")
         chat_ids = d.get("chat_ids")
     if chat_ids:
-        return [resolve_chat(c) for c in dict.fromkeys(chat_ids)]
+        return [resolve_chat(c) for c in normalize_chats(chat_ids)]
     return [resolve_chat(chat_id)]
 
 
