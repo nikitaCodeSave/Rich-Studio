@@ -277,9 +277,14 @@ def report() -> dict:
         except Exception as e:  # noqa: BLE001 - a broken check is itself a finding, never a broken report
             checks.append(_check(name, "fail", f"проверка не выполнилась: {type(e).__name__}: {e}"))
     status = max((c["status"] for c in checks), key=ORDER.__getitem__)
+    now = time.time()
     return {
         "status": status,
-        "checked_at": int(time.time()),
+        # which build is answering: an agent comparing two reports must know whether the studio was upgraded
+        "version": settings.VERSION,
+        "bot_api": spec.current.version,
+        "time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)),
+        "checked_at": int(now),
         "problems": [f"{c['name']}: {c['summary']}" for c in checks if c["status"] != "ok"],
         "checks": checks,
         "metrics": metrics.snapshot(),

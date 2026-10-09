@@ -117,6 +117,7 @@ async def lifespan(app):
     for t in tasks:
         t.cancel()
     log.info("studio stopped", extra={"event": "stop"})
+    logs.flush()
 
 
 async def _studio_error(request: Request, e: Exception):
@@ -141,7 +142,7 @@ def create_app(cfg: settings.Settings | None = None) -> FastAPI:
         settings.use(cfg)
     app = FastAPI(
         title="Rich Studio API",
-        version="0.1.0",
+        version=settings.VERSION,
         lifespan=lifespan,
         description=(
             "Локальный сервис для rich-постов Telegram (sendRichMessage). Поле `post` везде имеет вид "

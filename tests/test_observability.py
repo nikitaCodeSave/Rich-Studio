@@ -2,6 +2,7 @@
 
 import json
 import logging
+import logging.handlers
 import os
 import re
 import time
@@ -38,6 +39,7 @@ def _check(rep: dict, name: str) -> dict:
 def test_api_calls_and_telegram_calls_go_to_the_json_log(client, tg, log_file):
     client.post("/api/send", json={"post": BLOCKS_POST}, headers={"X-Studio-Client": "mcp:test"})
     client.get("/api/health")  # polled endpoints stay out of the log
+    logs.flush()
     lines = [json.loads(s) for s in log_file.read_text("utf-8").splitlines()]
     http = [x for x in lines if x.get("event") == "http"]
     assert [(x["method"], x["path"], x["status"], x["client"]) for x in http] == [
@@ -55,6 +57,7 @@ def test_token_never_reaches_the_log(log_file, capsys):
         raise RuntimeError(f"boom {TOKEN}")
     except RuntimeError:
         logging.getLogger("rich-studio.test").exception("failed")
+    logs.flush()
     text = log_file.read_text("utf-8")
     assert TOKEN not in text and TOKEN not in capsys.readouterr().err
     assert "<token>" in text and "boom" in text
@@ -68,6 +71,7 @@ def test_log_is_rotated_and_never_grows_past_the_cap(fresh_data, monkeypatch):
     log = logging.getLogger("rich-studio.test")
     for i in range(1000):
         log.info("line %d %s", i, "x" * 100)
+    logs.flush()
     names = sorted(p.name for p in cfg.log_dir.iterdir())
     assert names == ["studio.log", "studio.log.1", "studio.log.2"]
     assert logs.disk_bytes() <= 3 * 0.01 * 1024 * 1024 + 1024
@@ -99,7 +103,7 @@ def test_logs_endpoint_filters_by_level_logger_and_text(client, log_file):
 def test_request_id_ties_together_every_line_of_a_request(client, tg, log_file):
     r = client.post("/api/send", json={"post": BLOCKS_POST})
     rid = r.headers["X-Request-ID"]
-    assert re.fullmatch(r"[0-9a-f]{16}", rid)
+    assert re.fullmatch(r"[0-9a-f]{32}", rid)  # a valid W3C trace id
     lines = client.get("/api/logs", params={"q": rid}).json()["lines"]
     assert {x["event"] for x in lines} == {"telegram.call", "http"}
     assert all(x["request_id"] == rid for x in lines)
@@ -112,9 +116,15 @@ def test_callers_id_is_kept_and_a_traceparent_is_understood(client, log_file):
     tp = f"00-{trace}-00f067aa0ba902b7-01"
     assert client.get("/api/drafts", headers={"traceparent": tp}).headers["X-Request-ID"] == trace
     bad = client.get("/api/drafts", headers={"X-Request-ID": "x" * 65 + "\n"}).headers["X-Request-ID"]
-    assert re.fullmatch(r"[0-9a-f]{16}", bad)  # never echo an unsafe header back
+    assert re.fullmatch(r"[0-9a-f]{32}", bad)  # never echo an unsafe header back
     zero = "00-" + "0" * 32 + "-00f067aa0ba902b7-01"
     assert client.get("/api/drafts", headers={"traceparent": zero}).headers["X-Request-ID"] != "0" * 32
+    no_parent = f"00-{trace}-{'0' * 16}-01"
+    assert client.get("/api/drafts", headers={"traceparent": no_parent}).headers["X-Request-ID"] != trace
+    future = f"cc-{trace}-00f067aa0ba902b7-01-what-the-future-will-be"  # a newer version may add fields
+    assert client.get("/api/drafts", headers={"traceparent": future}).headers["X-Request-ID"] == trace
+    v00_extra = f"00-{trace}-00f067aa0ba902b7-01-extra"  # version 00 has exactly four fields
+    assert client.get("/api/drafts", headers={"traceparent": v00_extra}).headers["X-Request-ID"] != trace
 
 
 def test_background_rounds_and_updates_get_their_own_id(client, tg, log_file):
@@ -191,10 +201,46 @@ def test_readiness_is_public_and_says_only_which_checks_fail(client, log_file, m
     assert client.get("/api/health").status_code == 401  # the details stay behind the key
 
 
+# ---------- writing off the event loop ----------
+def test_timestamps_are_utc_and_since_filters_by_them(log_file):
+    logging.getLogger("rich-studio.test").info("now")
+    line = logs.read("INFO")[-1]
+    assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z", line["ts"])
+    assert line["ts"][:16] == time.strftime("%Y-%m-%dT%H:%M", time.gmtime(time.time()))[:16]
+    assert logs.read("INFO", since=time.time() - 60)[-1]["msg"] == "now"
+    assert logs.read("INFO", since=time.time() + 3600) == []
+
+
+def test_the_caller_does_not_write_the_file_itself(log_file):
+    import threading
+
+    writers = []
+    file_handler = next(w for w in logs._writers if isinstance(w, logging.handlers.RotatingFileHandler))
+    real_emit = file_handler.emit
+
+    def spy(record):
+        writers.append(threading.current_thread().name)
+        real_emit(record)
+
+    file_handler.emit = spy
+    try:
+        try:
+            raise ValueError("kept")
+        except ValueError:
+            logging.getLogger("rich-studio.test").exception("with traceback")
+        logs.flush()
+    finally:
+        file_handler.emit = real_emit
+    assert writers and threading.current_thread().name not in writers
+    line = logs.read("ERROR")[-1]
+    assert line["msg"] == "with traceback" and "ValueError: kept" in line["exc"]  # the traceback survives the queue
+
+
 # ---------- health ----------
 def test_health_of_a_fresh_studio_is_ok_where_it_matters(client, log_file):
     rep = client.get("/api/health").json()
     assert [c["name"] for c in rep["checks"]] == list(health.CHECKS)
+    assert rep["version"] == settings.VERSION and rep["bot_api"].startswith("Bot API") and rep["time"].endswith("Z")
     for name in ("database", "telegram", "scheduler", "posts", "sends", "storage", "log", "loops"):
         assert _check(rep, name)["status"] == "ok", _check(rep, name)
     assert rep["status"] in ("ok", "warn") and isinstance(rep["problems"], list)
