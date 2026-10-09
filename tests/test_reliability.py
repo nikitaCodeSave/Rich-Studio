@@ -258,3 +258,26 @@ def test_draft_deleted_in_another_tab_does_not_come_back(client):
     r = client.put(f"/api/drafts/{d['id']}", json={"title": "A", "post": {"v": 2}, "version": d["version"]})
     assert r.status_code == 409 and r.json()["detail"]["current"] is None
     assert client.get(f"/api/drafts/{d['id']}").status_code == 404
+
+
+# ---------- button clicks (found on real Telegram) ----------
+def _click(mid, chat=-1001, cq="cq"):
+    return {
+        "update_id": 1,
+        "callback_query": {"id": cq, "data": "like", "message": {"message_id": mid, "chat": {"id": chat}}},
+    }
+
+
+def test_buttons_of_a_preview_answer_like_in_the_channel(client, tg):
+    post = {**BLOCKS_POST, "reply_markup": BUTTON, "callbacks": {"like": "Спасибо"}}
+    mid = client.post("/api/preview-send", json={"post": post}).json()["message_id"]
+    asyncio.run(updates.handle_update(_click(mid, chat=777)))
+    assert tg.last("answerCallbackQuery")["body"]["text"] == "Спасибо"
+
+
+def test_click_too_old_to_answer_still_counts(client, tg):
+    # the studio was off while someone clicked: Telegram refuses the late answer
+    pid = client.post("/api/send", json={"post": {**BLOCKS_POST, "reply_markup": BUTTON}}).json()["post"]["id"]
+    tg.fail["answerCallbackQuery"] = "Bad Request: query is too old and response timeout expired or query ID is invalid"
+    asyncio.run(updates.handle_update(_click(store.get_post(pid)["message_id"])))
+    assert store.get_post(pid)["clicks"] == {"like": 1}
