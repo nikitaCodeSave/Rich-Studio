@@ -7,6 +7,7 @@ Telegram transport in telegram/, storage in store/, the Bot API spec in spec/.
 import asyncio
 import contextlib
 import logging
+import time
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -14,35 +15,73 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from mcp.server.transport_security import TransportSecuritySettings
 
+import logs
 import mcp_tools
+import metrics
 import settings
 import spec
 import store
 import telegram as tg
 from api import backup as backup_api
-from api import drafts, media, posts, preview, raw, service, specs
+from api import drafts, health, media, posts, preview, raw, service, specs
 from errors import StudioError
 from security import guard
-from services import backup, scheduler, updates
+from services import backup, housekeeping, scheduler, updates
 
 STATIC = Path(__file__).parent / "static"
 SPEC_CHECK_INTERVAL = 1800  # seconds; Spec.refresh itself skips while the copy is fresh
 
 log = logging.getLogger("rich-studio")
+access = logging.getLogger("rich-studio.http")
+# polled by Docker and by agents; a line per call would bury everything else
+NOT_LOGGED = ("/healthz", "/api/health", "/api/logs", "/static/", "/favicon.ico")
 
 
 async def _spec_loop():
     while True:
+        error = None
         try:
             await spec.current.refresh()
-        except Exception:
+        except Exception as e:
             log.exception("spec refresh failed")
+            error = f"{type(e).__name__}: {e}"
+        metrics.beat("spec", SPEC_CHECK_INTERVAL, error)
         await asyncio.sleep(SPEC_CHECK_INTERVAL)
+
+
+async def _access_log(request: Request, call_next):
+    """One line per API call: method, path, status, time, who called (X-Studio-Client). No query, no body."""
+    started = time.monotonic()
+    status = 500
+    try:
+        response = await call_next(request)
+        status = response.status_code
+        return response
+    finally:
+        metrics.requests[f"{status // 100}xx"] += 1
+        path = request.url.path
+        if not path.startswith(NOT_LOGGED):
+            access.log(
+                logging.WARNING if status >= 500 else logging.INFO,
+                "%s %s %s",
+                request.method,
+                path,
+                status,
+                extra={
+                    "event": "http",
+                    "method": request.method,
+                    "path": path,
+                    "status": status,
+                    "ms": int((time.monotonic() - started) * 1000),
+                    "client": request.headers.get("x-studio-client") or None,
+                },
+            )
 
 
 @contextlib.asynccontextmanager
 async def lifespan(app):
     cfg = settings.get()
+    logs.setup()
     store.init()
     stale = store.recover_stale_sending()
     if stale:
@@ -53,14 +92,17 @@ async def lifespan(app):
     tasks = []
     if cfg.background:
         tasks = [asyncio.create_task(_spec_loop()), asyncio.create_task(scheduler.loop())]
+        tasks.append(asyncio.create_task(housekeeping.loop()))
         if cfg.backup_keep > 0:
             tasks.append(asyncio.create_task(backup.loop()))
         if cfg.updates_on:
             tasks.append(asyncio.create_task(updates.loop()))
+    log.info("studio started", extra={"event": "start", "spec": spec.current.version, "background": cfg.background})
     async with app.state.mcp.session_manager.run():
         yield
     for t in tasks:
         t.cancel()
+    log.info("studio stopped", extra={"event": "stop"})
 
 
 async def _studio_error(request: Request, e: Exception):
@@ -95,10 +137,11 @@ def create_app(cfg: settings.Settings | None = None) -> FastAPI:
         ),
     )
     app.middleware("http")(guard)
+    app.middleware("http")(_access_log)  # added last = runs first: also sees what the guard refused
     app.add_exception_handler(StudioError, _studio_error)
     app.add_exception_handler(tg.TelegramError, _telegram_error)
     app.add_exception_handler(tg.NoAnswer, _no_answer)
-    for module in (service, specs, preview, drafts, posts, raw, media, backup_api):
+    for module in (service, health, specs, preview, drafts, posts, raw, media, backup_api):
         app.include_router(module.router)
 
     @app.get("/", include_in_schema=False)

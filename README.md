@@ -17,7 +17,7 @@
 | Публикация | сразу, по расписанию, «мне в личку», в несколько каналов, замена текста или только кнопок, удаление |
 | Канал | закреп без уведомления, первый комментарий в обсуждении, ответы на callback-кнопки, опросы и викторины для каналов, счётчики реакций и нажатий |
 | Свежесть | редактор строится из машиночитаемой спецификации Bot API, новые поля работают в день релиза |
-| Агенты | HTTP API, MCP-сервер на `/mcp` с 20 инструментами и предпросмотром прямо в чате, `dry_run`, `Idempotency-Key`, отметка о том, кто отправил пост |
+| Агенты | HTTP API, MCP-сервер на `/mcp` с 22 инструментами и предпросмотром прямо в чате, `dry_run`, `Idempotency-Key`, отметка о том, кто отправил пост |
 
 ## Быстрый старт
 
@@ -156,6 +156,8 @@ docker compose up -d --build
 | `GET /api/posts/{id}/versions`, `POST /api/posts/{id}/reschedule` | как пост выглядел до каждой замены; перенести отложенный или вернуть пропущенный |
 | `POST /api/poll`, `POST /api/posts/{id}/stop-poll` | опрос или викторина (сразу или с `at`), закрыть опрос |
 | `GET /api/updates` | состояние приёма событий от Telegram |
+| `GET /api/health` | состояние студии: проверки `ok/warn/fail` с подсказкой, что делать, счётчики, последние ошибки |
+| `GET /api/logs?level=&limit=&since=&logger=&q=` | журнал студии (строки JSON) с фильтрами |
 | `GET /api/export` | бэкап: zip с базой и файлами |
 | `POST /api/media`, `GET /api/media`, `POST /api/media/cleanup`, `DELETE /api/media/{name}` | загрузка файлов; `used` у файла, удаление всех ненужных; удаление файла, нужного отложенному посту или черновику, даёт 409 (`?force=true` удаляет всё равно) |
 | `POST /api/raw/{method}` | любой метод Bot API как есть |
@@ -232,7 +234,7 @@ claude mcp add --transport http rich-studio http://localhost:8080/mcp
 claude mcp add --transport http rich-studio http://localhost:8080/mcp --header "X-API-Key: <ключ>"
 ```
 
-Инструменты: `bot_api_status`, `refresh_bot_api` (скачать спецификацию сейчас), `studio_status` (что работает: токен, приём событий, предел опоздания отложки), `describe_type`, `validate_post`, `preview_post`, `save_draft` (новый или обновить существующий с проверкой версии), `list_drafts`, `get_draft`, `list_media`, `send_preview_to_me`, `check_channel`, `publish_post` (с `idempotency_key` и `dry_run`), `schedule_post` (тоже с `dry_run`), `list_posts`, `get_post`, `post_history`, `edit_post`, `reschedule_post`, `cancel_scheduled_post`.
+Инструменты: `bot_api_status`, `refresh_bot_api` (скачать спецификацию сейчас), `studio_status` (что работает: токен, приём событий, предел опоздания отложки), `studio_health` (что сломано и что делать), `studio_logs` (журнал), `describe_type`, `validate_post`, `preview_post`, `save_draft` (новый или обновить существующий с проверкой версии), `list_drafts`, `get_draft`, `list_media`, `send_preview_to_me`, `check_channel`, `publish_post` (с `idempotency_key` и `dry_run`), `schedule_post` (тоже с `dry_run`), `list_posts`, `get_post`, `post_history`, `edit_post`, `reschedule_post`, `cancel_scheduled_post`.
 
 Агент продолжает вашу работу, а не плодит копии: читает черновик (`get_draft`) и сохраняет его же; перед заменой поста читает его (`get_post`), а прежняя версия остаётся в истории. Если агент не передал `idempotency_key`, ключом считается сам запрос: повтор того же поста в тот же канал в течение суток не опубликует его второй раз.
 
@@ -262,6 +264,16 @@ claude mcp add --transport http rich-studio http://localhost:8080/mcp --header "
 
 Там же, во вкладке «Файлы», файлы без отметки нужности (их нет ни в одном черновике, отложенном, пропущенном или опубликованном посте) можно удалить одной кнопкой «Удалить ненужные».
 
+## Журнал и состояние
+
+Студия следит за собой сама. Журнал пишется в `./data/logs/studio.log` строками JSON (запросы к API, вызовы Bot API, сбои, смены состояния) и не растёт больше 20 МБ: файл до `LOG_MAX_MB` (5) и `LOG_FILES` (3) старых копий. Вывод контейнера ограничен 3 × 10 МБ в `docker-compose.yml`. Токена и текста постов в журнале нет.
+
+`GET /api/health` отвечает, что сломано и что делать: база, место на диске, связь с Telegram, фоновые циклы, застрявшая очередь, не ушедшие и «могли уйти» посты, бэкап, размер данных, ошибки за час. Раз в 5 минут студия сравнивает отчёт с прошлым и пишет каждую смену в журнал, так что видно, когда сломалось и когда починилось.
+
+Для Claude Code: skill `studio-health` объясняет каждую проверку, субагент `studio-monitor` только читает и коротко докладывает (попросите «проверь студию» или запустите `/loop 30m` с ним). Через MCP то же дают `studio_health` и `studio_logs`. Устройство и планы: [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md).
+
+Уборка раз в час удаляет ключи повтора старше суток. Сделанное вами удаляется, только если вы так настроили: `VERSIONS_KEEP` (сколько версий хранить у поста) и `MEDIA_UNUSED_DAYS` (через сколько дней удалять загрузки, которые ничему не нужны). Без них отчёт просто предупредит, если ненужные файлы занимают больше 200 МБ.
+
 ## Безопасность
 
 - Принимаются только запросы с `localhost`/`127.0.0.1` (другие имена добавляются в `ALLOWED_HOSTS`). Запросы с чужих сайтов и не-JSON отклоняются, так что открытая в браузере вкладка не может отправить пост от вашего бота.
@@ -277,7 +289,7 @@ claude mcp add --transport http rich-studio http://localhost:8080/mcp --header "
 
 ```
 pip install -r requirements-dev.txt
-pytest                          # 141 тест API и MCP на подставном Telegram, без сети и токена
+pytest                          # 201 тест API и MCP на подставном Telegram, без сети и токена
 ruff check . && ruff format --check . && mypy   # линтер, формат, типы (настройки в pyproject.toml)
 npm ci && npm run lint && npm run typecheck   # ESLint и проверка типов редактора; Node нужен только для проверок
 npm run test:render             # 33 проверки очистки HTML в предпросмотре (Playwright, без студии)
@@ -299,6 +311,7 @@ npm ci && npx playwright install chromium && make e2e
 ```
 app/main.py        сборка приложения: middleware, роутеры, фоновые циклы
 app/settings.py    все настройки из окружения
+app/logs.py        журнал с ротацией; app/metrics.py — счётчики для /api/health
 app/security.py    защита: Host, CSRF, ключ API, CSP
 app/api/           маршруты HTTP (тонкие)
 app/mcp_tools/     MCP-сервер для агентов и страница предпросмотра для чата (MCP App)
@@ -310,9 +323,9 @@ app/static/        редактор (js/, ES-модули без сборки), 
 app/static/vendor  KaTeX 0.16.11, markdown-it 14.1.0, @preact/signals-core 1.14.4 (MIT), Lit 3.3.3 (BSD-3), чтобы работало без CDN
 app/bundled/       встроенная копия спецификации Bot API 10.3
 examples/          примеры постов (HTML и JSON-блоки)
-.claude/skills/    skill для Claude Code (+ хук форматирования в .claude/hooks)
+.claude/skills/    skills для Claude Code: посты и здоровье студии (+ субагент в .claude/agents, хук форматирования в .claude/hooks)
 tests/             тесты API (pytest) и браузера (Playwright)
-docs/              устройство кода (ARCHITECTURE.md), контракт API (openapi.json), чек-лист ревью, картинки для README
+docs/              устройство кода (ARCHITECTURE.md), наблюдаемость (OBSERVABILITY.md), контракт API (openapi.json), чек-лист ревью, картинки для README
 ```
 
 Что ещё есть в Bot API для каналов и чего нет: `posting-features.md` в общей папке проекта.

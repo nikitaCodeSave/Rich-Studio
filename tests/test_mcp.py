@@ -8,6 +8,8 @@ from test_api import BLOCKS_POST
 
 HEADERS = {"Accept": "application/json, text/event-stream", "MCP-Protocol-Version": "2025-06-18"}
 EXPECTED_TOOLS = {
+    "studio_health",
+    "studio_logs",
     "bot_api_status",
     "refresh_bot_api",
     "describe_type",

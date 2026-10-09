@@ -5,11 +5,13 @@ import json
 import logging
 import mimetypes
 import re
+import time
 from pathlib import Path
 from typing import Any
 
 import httpx
 
+import metrics
 import settings
 from errors import StudioError
 
@@ -22,6 +24,7 @@ MAX_RETRY_AFTER = 30
 MAX_RETRIES = 3
 _sleep = asyncio.sleep  # tests replace this, not asyncio.sleep itself
 _TOKEN_RE = re.compile(r"/bot\d+:[\w-]+/")
+QUIET = {"getUpdates"}  # long polling every 25 s: only its failures are worth a log line
 
 
 class _HideToken(logging.Filter):
@@ -72,6 +75,31 @@ def _token() -> str:
 
 
 async def call(method: str, params: dict | None = None, timeout: float = 60) -> Any:  # noqa: ASYNC109
+    """One Bot API call; every outcome is counted for the health report and logged without the URL."""
+    started = time.monotonic()
+    chat = (params or {}).get("chat_id")
+    try:
+        result = await _call(method, params, timeout)
+    except (TelegramError, NoAnswer) as e:
+        ms = int((time.monotonic() - started) * 1000)
+        text = e.description if isinstance(e, TelegramError) else str(e)
+        code = e.code if isinstance(e, TelegramError) else None
+        metrics.telegram_call(method, False, text)
+        log.warning(
+            "%s failed: %s",
+            method,
+            text,
+            extra={"event": "telegram.error", "method": method, "ms": ms, "code": code, "chat_id": chat},
+        )
+        raise
+    if method not in QUIET:
+        ms = int((time.monotonic() - started) * 1000)
+        log.info("%s ok", method, extra={"event": "telegram.call", "method": method, "ms": ms, "chat_id": chat})
+    metrics.telegram_call(method, True)
+    return result
+
+
+async def _call(method: str, params: dict | None, timeout: float) -> Any:  # noqa: ASYNC109
     cfg = settings.get()
     files: dict[str, Path] = {}
     try:

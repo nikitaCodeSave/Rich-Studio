@@ -6,6 +6,7 @@ import logging
 import time
 from dataclasses import asdict, dataclass
 
+import metrics
 import settings
 import store
 import telegram as tg
@@ -138,6 +139,8 @@ async def loop() -> None:
     saved = store.get_meta(OFFSET_KEY)
     offset = int(saved) if saved else None
     while True:
+        # one round is a long poll (up to 40 s) or a wait after an error (up to 60 s)
+        metrics.beat("updates", 60, STATUS.error if STATUS.state in ("error", "conflict") else None)
         if not settings.get().bot_token:
             STATUS.state = "no_token"
             await _sleep(30)

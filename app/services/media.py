@@ -58,12 +58,31 @@ def list_files() -> list[dict]:
     return [{**describe(p.name), "size": p.stat().st_size, "used": p.name in refs} for p in files]
 
 
-def delete_unused() -> list[str]:
-    """Remove files nothing mentions any more (drafts, scheduled, missed and published posts)."""
-    gone = [f["name"] for f in list_files() if not f["used"]]
+def delete_unused(older_than: float | None = None) -> list[str]:
+    """Remove files nothing mentions any more (drafts, scheduled, missed and published posts).
+
+    older_than: unix time; only files last changed before it (housekeeping keeps fresh uploads).
+    """
+    gone = [
+        f["name"]
+        for f in list_files()
+        if not f["used"] and (older_than is None or (media_dir() / f["name"]).stat().st_mtime < older_than)
+    ]
     for name in gone:
         path_of(name, must_exist=False).unlink(missing_ok=True)
     return gone
+
+
+def usage() -> dict:
+    """How much the uploads take, and how much of it nothing needs."""
+    files = list_files() if media_dir().exists() else []
+    unused = [f for f in files if not f["used"]]
+    return {
+        "files": len(files),
+        "bytes": sum(f["size"] for f in files),
+        "unused_files": len(unused),
+        "unused_bytes": sum(f["size"] for f in unused),
+    }
 
 
 def free_name(filename: str | None) -> str:

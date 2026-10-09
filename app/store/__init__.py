@@ -1,6 +1,6 @@
 """SQLite storage for drafts and posts (published or scheduled)."""
 
-from . import backup, idempotency
+from . import backup, idempotency, stats
 from .db import conn, init
 from .drafts import delete_draft, drafts_using, get_draft, list_drafts, save_draft
 from .meta import get_meta, set_meta
@@ -57,6 +57,7 @@ __all__ = [
     "retry_later",
     "save_draft",
     "set_meta",
+    "stats",
     "update_post",
     "using_upload",
 ]

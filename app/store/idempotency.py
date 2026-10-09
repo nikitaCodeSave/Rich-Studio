@@ -38,3 +38,9 @@ def release(key: str) -> None:
     """Nothing was sent: the same key may be used again."""
     with conn() as c:
         c.execute("delete from idempotency where key=?", (key,))
+
+
+def purge(now: int | None = None) -> int:
+    """Forget keys older than TTL (claim does it too, but only when someone sends)."""
+    with conn() as c:
+        return c.execute("delete from idempotency where created_at < ?", (int(now or time.time()) - TTL,)).rowcount

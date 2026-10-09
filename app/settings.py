@@ -40,6 +40,14 @@ class Settings:
     schedule_late_min: float = 60.0
     # daily copies of the database in DATA_DIR/backups, the newest N are kept; 0 = off
     backup_keep: int = 7
+    # JSON log in DATA_DIR/logs: one file up to LOG_MAX_MB plus LOG_FILES rotated copies; 0 MB = stderr only
+    log_level: str = "INFO"
+    log_max_mb: float = 5.0
+    log_files: int = 3
+    # housekeeping of what the person made: uploads nothing mentions for N days are deleted (0 = never);
+    # only the newest N versions of each published post are kept (0 = all)
+    media_unused_days: float = 0.0
+    versions_keep: int = 0
 
     @property
     def media_dir(self) -> Path:
@@ -52,6 +60,10 @@ class Settings:
     @property
     def backup_dir(self) -> Path:
         return self.data_dir / "backups"
+
+    @property
+    def log_dir(self) -> Path:
+        return self.data_dir / "logs"
 
     @classmethod
     def from_env(cls, env=None) -> "Settings":
@@ -73,6 +85,11 @@ class Settings:
         s.mcp_publish = _flag(env, "MCP_PUBLISH")
         s.schedule_late_min = float(env.get("SCHEDULE_LATE_MIN", "60"))
         s.backup_keep = int(env.get("BACKUP_KEEP", "7"))
+        s.log_level = env.get("LOG_LEVEL", "INFO").strip().upper() or "INFO"
+        s.log_max_mb = float(env.get("LOG_MAX_MB", "5"))
+        s.log_files = int(env.get("LOG_FILES", "3"))
+        s.media_unused_days = float(env.get("MEDIA_UNUSED_DAYS", "0"))
+        s.versions_keep = int(env.get("VERSIONS_KEEP", "0"))
         return s
 
 
