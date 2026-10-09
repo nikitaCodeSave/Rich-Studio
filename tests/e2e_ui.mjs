@@ -278,6 +278,15 @@ check('MCP App preview renders the tool result in a sandboxed frame',
   JSON.stringify({ hostLog, appView, appErrors }));
 await host.close();
 
+// 13. the header stays one row on a wide screen: «Опубликовать» is not pushed to a second line
+await page.setViewportSize({ width: 1440, height: 900 });
+await page.fill('#title', 'Довольно длинное название черновика');
+const header = await page.evaluate(() => {
+  const at = (sel) => document.querySelector(sel).getBoundingClientRect();
+  return { pub: Math.round(at('#btn-publish').top), brand: Math.round(at('.brand').top), right: Math.round(at('#btn-publish').right), width: innerWidth };
+});
+check('Header fits one row at 1440px', Math.abs(header.pub - header.brand) < 12 && header.right <= header.width, JSON.stringify(header));
+
 check('No CSP violations or JS errors in the editor', errors.length === 0 && csp.length === 0, [...errors, ...csp].join(' | '));
 await browser.close();
 const failed = results.filter((x) => !x.ok).length;

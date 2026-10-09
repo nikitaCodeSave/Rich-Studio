@@ -36,6 +36,10 @@ code { background: var(--soft); padding: 0 4px; border-radius: 4px; font-size: 1
 .chat-input { width: 150px; flex: 0 1 150px; text-overflow: ellipsis; min-width: 100px; }
 .top button { padding: 5px 9px; font-size: 13px; white-space: nowrap; }
 .top .grow { min-width: 0; }
+#save-state { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#btn-undo, #btn-redo { padding: 5px 7px; }
+/* wide screens keep one row: the inputs and the save note shrink instead of pushing «Опубликовать» down */
+@media (min-width: 1280px) { .top { flex-wrap: nowrap; } }
 .badge { background: var(--soft); color: var(--text); border-color: var(--border); font-size: 12px; padding: 4px 10px; border-radius: 999px; }
 .badge.new { background: #ffefc2; color: #6b4b00; border-color: #f2c94c; }
 
