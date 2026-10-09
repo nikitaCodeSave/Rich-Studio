@@ -431,6 +431,15 @@ def test_log_files_zero_still_rotates_and_stray_files_are_ignored(fresh_data, mo
     logs.setup()
 
 
+def test_copy_rotated_away_while_reading_is_skipped(log_file, monkeypatch):
+    # the writer thread rotates while /api/health or /api/logs walks the list: a listed copy can vanish
+    logging.getLogger("rich-studio.test").info("kept")
+    gone = log_file.with_name(log_file.name + ".1")
+    monkeypatch.setattr(logs, "files", lambda: [gone, log_file])
+    assert logs.disk_bytes() == log_file.stat().st_size
+    assert logs.read("INFO", limit=1)[0]["msg"] == "kept"
+
+
 def test_log_is_readable_only_by_its_owner(log_file):
     logging.getLogger("rich-studio.test").info("x")
     assert os.stat(log_file).st_mode & 0o777 == 0o600

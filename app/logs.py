@@ -305,8 +305,15 @@ def files() -> list[Path]:
     return [p for p in [*reversed(rotated), _file] if p.exists()]
 
 
+def _size(p: Path) -> int:
+    try:
+        return p.stat().st_size
+    except FileNotFoundError:  # the writer thread rotated it away after files() listed it
+        return 0
+
+
 def disk_bytes() -> int:
-    return sum(p.stat().st_size for p in files())
+    return sum(_size(p) for p in files())
 
 
 def read(
@@ -321,7 +328,11 @@ def read(
         return []
     out: deque[dict] = deque(maxlen=max(1, limit))
     for path in files():
-        with path.open(encoding="utf-8", errors="replace") as f:
+        try:
+            f = path.open(encoding="utf-8", errors="replace")
+        except FileNotFoundError:  # rotated away after files() listed it
+            continue
+        with f:
             for raw in f:
                 try:
                     line = json.loads(raw)
