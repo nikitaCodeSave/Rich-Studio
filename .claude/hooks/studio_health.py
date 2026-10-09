@@ -1,16 +1,20 @@
 """Claude Code hook (SessionStart): one line when the local studio is not healthy, nothing otherwise.
 
-Silent when the studio is ok, not running or refuses the key: a session must never start slower or noisier
-because of it. The key comes from STUDIO_API_KEY or the project's .env; it is sent, never printed.
+Not healthy: the person and the agent both get the line. Not running or refusing the key: only the agent gets
+a line (its rich-studio MCP tools will fail, and it should say why instead of guessing). Silent when the studio
+is ok or slow to answer: a session must never start slower or noisier because of it.
+The key comes from STUDIO_API_KEY or the project's .env; it is sent, never printed.
 """
 
 import json
 import os
 import sys
+import urllib.error
 import urllib.request
 from pathlib import Path
 
-URL = os.environ.get("STUDIO_URL", "http://localhost:8080").rstrip("/") + "/api/health"
+BASE = os.environ.get("STUDIO_URL", "http://localhost:8080").rstrip("/")
+URL = BASE + "/api/health"
 TIMEOUT = 1.5  # s; the report walks the media folder, a busy studio may take a moment
 WORD = {"warn": "требует внимания", "fail": "есть сбой"}
 
@@ -29,7 +33,8 @@ def api_key() -> str:
     return ""
 
 
-def fetch() -> dict | None:
+def fetch() -> dict | str | None:
+    """The report; "down" when nothing listens, "locked" on 401; None when slow or anything else odd."""
     req = urllib.request.Request(URL, headers={"X-Studio-Client": "claude-code-hook"})  # noqa: S310 - local URL
     if key := api_key():
         req.add_header("X-API-Key", key)
@@ -38,6 +43,12 @@ def fetch() -> dict | None:
     try:
         with opener.open(req, timeout=TIMEOUT) as r:
             return json.load(r)
+    except urllib.error.HTTPError as e:
+        return "locked" if e.code == 401 else None
+    except urllib.error.URLError as e:
+        return "down" if isinstance(e.reason, ConnectionRefusedError) else None
+    except ConnectionRefusedError:
+        return "down"
     except (OSError, ValueError):
         return None
 
@@ -56,8 +67,20 @@ def line(report: dict) -> str | None:
     return text[:400] + ". Подробности: skill studio-health или /api/health."
 
 
+AGENT_ONLY = {
+    "down": f"Rich Studio на {BASE} не запущена: инструменты rich-studio не ответят. Запуск: docker compose up -d "
+    "в папке студии; без него можно править код, но не проверять и не публиковать посты через студию.",
+    "locked": "Rich Studio ответила 401: STUDIO_API_KEY в окружении или .env не совпадает с ключом студии, "
+    "инструменты rich-studio не ответят. Ключ не печатайте; попросите пользователя проверить его.",
+}
+
+
 def main() -> None:
     report = fetch()
+    if isinstance(report, str):
+        out = {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": AGENT_ONLY[report]}}
+        json.dump(out, sys.stdout, ensure_ascii=False)
+        return
     text = line(report) if report else None
     if text:
         # systemMessage is shown to the person, additionalContext goes to the agent; the problems quote Telegram

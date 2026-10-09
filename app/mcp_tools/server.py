@@ -29,9 +29,10 @@ from services import health, idempotency, media, posts, publisher, updates
 ACTOR = "mcp"
 
 INSTRUCTIONS = """Rich Studio: write, check, preview and publish rich posts for the user's Telegram channel.
-Order: bot_api_status (what is new; refresh_bot_api if the user asks for the newest) → validate_post (fix every error) → preview_post (the user sees the post
-as in Telegram right in the chat) → save_draft and/or send_preview_to_me
-→ publish_post or schedule_post only after the user explicitly confirmed that exact post and channel.
+Order: bot_api_status (what is new; refresh_bot_api if the user asks for the newest) → save_draft (returns validation:
+fix every error and save again) → preview_post with draft_id (the user sees the post as in Telegram right in the chat)
+→ publish_post or schedule_post with draft_id and version only after the user explicitly confirmed that exact post
+and channel. Pass the post JSON once, to save_draft; later calls take draft_id. validate_post checks without saving.
 To continue the user's work: list_drafts → get_draft → save_draft with draft_id and version (the editor shows it).
 To change a published post: list_posts → get_post (read it first) → edit_post; post_history shows earlier versions.
 studio_status says whether scheduled posts, button answers and first comments will actually work.
@@ -43,6 +44,20 @@ fields of any Bot API type. Uploaded files are referenced as upload:<name>."""
 PostArg = Annotated[
     dict[str, Any],
     Field(description="Пост: {rich_message: {html|markdown|blocks, media?}, reply_markup?, options?, pin?, comment?}"),
+]
+OptPostArg = Annotated[
+    dict[str, Any] | None,
+    Field(
+        description="Пост: {rich_message: {html|markdown|blocks, media?}, reply_markup?, options?, pin?, comment?}; "
+        "или вместо него draft_id"
+    ),
+]
+DraftArg = Annotated[
+    str | None, Field(description="id черновика из save_draft вместо post: пост берётся из черновика, JSON не нужен")
+]
+VersionArg = Annotated[
+    int | None,
+    Field(description="version из save_draft/get_draft: если черновик успели изменить, будет ошибка, а не другой пост"),
 ]
 ChatArg = Annotated[str | None, Field(description="@канал или числовой id; пусто — канал по умолчанию")]
 ChatsArg = Annotated[list[str] | None, Field(description="Несколько каналов сразу вместо chat_id")]
@@ -70,6 +85,28 @@ def _post(raw: dict) -> dict:
         return Post.model_validate(raw).model_dump()
     except ValueError as e:
         raise ToolError(f"неверный пост: {e}") from None
+
+
+def _source(post: dict | None, draft_id: str | None, version: int | None, *, publish: bool) -> dict:
+    """The post itself or the one saved in a draft, so an agent sends the JSON once (to save_draft).
+    Publishing from a draft needs its version: the user may have changed it in the editor after the preview."""
+    if (post is None) == (draft_id is None):
+        raise ToolError("передайте post или draft_id, одно из двух")
+    if post is not None:
+        return _post(post)
+    d = store.get_draft(draft_id or "")
+    if not d:
+        raise NotFound(f"черновика {draft_id} нет")
+    if publish and version is None:
+        raise ToolError(
+            "с draft_id передайте version из save_draft или get_draft: публикуется то, что видел пользователь"
+        )
+    if version is not None and d["version"] != version:
+        raise Conflict(
+            f"черновик изменили (version {d['version']}, а не {version}): покажите его пользователю заново через "
+            "get_draft и preview_post"
+        )
+    return _post(d["payload"])
 
 
 def _key(given: str | None, scope: str, body: dict) -> str:
@@ -106,10 +143,10 @@ def build() -> MCPServer:
 
     @apps.tool(resource_uri=preview_app.URI, annotations=READ)
     @_errors_as_tool_errors
-    async def preview_post(post: PostArg) -> dict:
+    async def preview_post(post: OptPostArg = None, draft_id: DraftArg = None) -> dict:
         """Показать пост пользователю прямо в чате так, как его отрисует Telegram, вместе с ошибками проверки.
         Ничего не отправляет. Файлы upload:<имя> в чате не загружаются."""
-        p = _post(post)
+        p = _source(post, draft_id, None, publish=False)
         return {"post": p, "validation": spec.validate_rich_message(spec.current, p["rich_message"])}
 
     server = MCPServer(name="rich-studio", title="Rich Studio", instructions=INSTRUCTIONS, extensions=[apps])
@@ -172,7 +209,8 @@ def build() -> MCPServer:
             ),
         ] = None,
     ) -> dict:
-        """Сохранить черновик: он появится в редакторе, предпросмотр по адресу preview_path.
+        """Сохранить черновик и сразу проверить его (validation: ошибки исправить и сохранить снова). Он появится
+        в редакторе, предпросмотр по адресу preview_path; дальше preview_post и publish_post принимают draft_id.
         С draft_id обновляет существующий черновик (связь с правкой опубликованного поста сохраняется)."""
         old = store.get_draft(draft_id) if draft_id else None
         if draft_id and not old:
@@ -187,6 +225,7 @@ def build() -> MCPServer:
             "title": d["title"],
             "version": d["version"],
             "preview_path": f"/render/draft/{d['id']}",
+            "validation": spec.validate_rich_message(spec.current, d["payload"]["rich_message"]),
         }
 
     @tool(READ)
@@ -255,39 +294,47 @@ def build() -> MCPServer:
 
     @tool(PUBLIC)
     async def publish_post(
-        post: PostArg,
+        post: OptPostArg = None,
         chat_id: ChatArg = None,
         chat_ids: ChatsArg = None,
         idempotency_key: KeyArg = None,
         dry_run: Annotated[bool, Field(description="Только показать запросы к Telegram, ничего не отправлять")] = False,
+        draft_id: DraftArg = None,
+        version: VersionArg = None,
     ) -> dict:
-        """Опубликовать пост в канал. Только после явного подтверждения пользователя для этого поста и канала."""
-        p = _post(post)
+        """Опубликовать пост в канал. Только после явного подтверждения пользователя для этого поста и канала.
+        Пост или draft_id с version; опубликованный из черновика пост связан с ним, как из редактора."""
+        p = _source(post, draft_id, version, publish=not dry_run)
         if dry_run:
             return await posts.send(p, chat_id, chat_ids, dry_run=True)
-        body = {"post": p, "chat_id": chat_id, "chat_ids": chat_ids, "draft_id": None, "dry_run": False}
+        body = {"post": p, "chat_id": chat_id, "chat_ids": chat_ids, "draft_id": draft_id, "dry_run": False}
         return await idempotency.run(
-            _key(idempotency_key, "send", body), "send", body, lambda: posts.send(p, chat_id, chat_ids, actor=ACTOR)
+            _key(idempotency_key, "send", body),
+            "send",
+            body,
+            lambda: posts.send(p, chat_id, chat_ids, draft_id, actor=ACTOR),
         )
 
     @tool(PUBLIC)
     async def schedule_post(
-        post: PostArg,
         at: Annotated[str, Field(description="Когда: ISO 8601 с часовым поясом, например 2026-10-10T09:00:00+03:00")],
+        post: OptPostArg = None,
         chat_id: ChatArg = None,
         chat_ids: ChatsArg = None,
         idempotency_key: KeyArg = None,
         dry_run: Annotated[bool, Field(description="Только показать запросы и время, ничего не откладывать")] = False,
+        draft_id: DraftArg = None,
+        version: VersionArg = None,
     ) -> dict:
         """Отложить публикацию. Только после явного подтверждения пользователя. Студия должна работать в это время;
         если она была выключена и пост опоздал больше schedule_late_min, он станет missed и не уйдёт сам."""
-        p = _post(post)
+        p = _source(post, draft_id, version, publish=not dry_run)
         if dry_run:
             return posts.schedule(p, at, chat_id, chat_ids, dry_run=True)
-        body = {"post": p, "chat_id": chat_id, "chat_ids": chat_ids, "draft_id": None, "dry_run": False, "at": at}
+        body = {"post": p, "chat_id": chat_id, "chat_ids": chat_ids, "draft_id": draft_id, "dry_run": False, "at": at}
 
         async def action():
-            return posts.schedule(p, at, chat_id, chat_ids, actor=ACTOR)
+            return posts.schedule(p, at, chat_id, chat_ids, draft_id, actor=ACTOR)
 
         return await idempotency.run(_key(idempotency_key, "schedule", body), "schedule", body, action)
 

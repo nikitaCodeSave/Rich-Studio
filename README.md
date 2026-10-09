@@ -235,7 +235,9 @@ claude mcp add --transport http rich-studio http://localhost:8080/mcp
 claude mcp add --transport http rich-studio http://localhost:8080/mcp --header "X-API-Key: <ключ>"
 ```
 
-Инструменты: `bot_api_status`, `refresh_bot_api` (скачать спецификацию сейчас), `studio_status` (что работает: токен, приём событий, предел опоздания отложки), `studio_health` (что сломано и что делать), `studio_logs` (журнал), `describe_type`, `validate_post`, `preview_post`, `save_draft` (новый или обновить существующий с проверкой версии), `list_drafts`, `get_draft`, `list_media`, `send_preview_to_me`, `check_channel`, `publish_post` (с `idempotency_key` и `dry_run`), `schedule_post` (тоже с `dry_run`), `list_posts`, `get_post`, `post_history`, `edit_post`, `reschedule_post`, `cancel_scheduled_post`.
+Инструменты: `bot_api_status`, `refresh_bot_api` (скачать спецификацию сейчас), `studio_status` (что работает: токен, приём событий, предел опоздания отложки), `studio_health` (что сломано и что делать), `studio_logs` (журнал), `describe_type`, `validate_post`, `preview_post`, `save_draft` (новый или обновить существующий с проверкой версии; сразу возвращает результат проверки), `list_drafts`, `get_draft`, `list_media`, `send_preview_to_me`, `check_channel`, `publish_post` (с `idempotency_key` и `dry_run`), `schedule_post` (тоже с `dry_run`), `list_posts`, `get_post`, `post_history`, `edit_post`, `reschedule_post`, `cancel_scheduled_post`.
+
+Агент передаёт JSON поста один раз, в `save_draft`; дальше `preview_post`, `publish_post` и `schedule_post` берут пост по `draft_id`. Публикация по `draft_id` требует `version` и откажет, если вы успели изменить черновик в редакторе после предпросмотра.
 
 Агент продолжает вашу работу, а не плодит копии: читает черновик (`get_draft`) и сохраняет его же; перед заменой поста читает его (`get_post`), а прежняя версия остаётся в истории. Если агент не передал `idempotency_key`, ключом считается сам запрос: повтор того же поста в тот же канал в течение суток не опубликует его второй раз.
 
@@ -273,7 +275,7 @@ claude mcp add --transport http rich-studio http://localhost:8080/mcp --header "
 
 В шапке редактора тот же отчёт виден точкой слева от версии Bot API: зелёная, когда всё в порядке, жёлтая или красная с числом проблем, когда нет. Обновляется раз в минуту, по нажатию открывается список проверок с подсказками.
 
-Для Claude Code: когда сессия открывается в папке студии, хук `SessionStart` (`.claude/hooks/studio_health.py`) одной строкой говорит, если студия не в порядке, и молчит, если всё хорошо или студия не запущена. Skill `studio-health` объясняет каждую проверку, субагент `studio-monitor` только читает и коротко докладывает (попросите «проверь студию» или запустите `/loop 30m` с ним). Через MCP то же дают `studio_health` и `studio_logs`. Устройство и планы: [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md).
+Для Claude Code: когда сессия открывается в папке студии, хук `SessionStart` (`.claude/hooks/studio_health.py`) одной строкой говорит, если студия не в порядке, и молчит, если всё хорошо. Если студия не запущена или не приняла ключ, строку получает только агент (вам она не показывается): так он знает, почему инструменты `rich-studio` не отвечают. Skill `studio-health` объясняет каждую проверку, субагент `studio-monitor` только читает и коротко докладывает (попросите «проверь студию» или запустите `/loop 30m` с ним). Через MCP то же дают `studio_health` и `studio_logs`. Устройство и планы: [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md).
 
 Уборка раз в час удаляет ключи повтора старше суток. Сделанное вами удаляется, только если вы так настроили: `VERSIONS_KEEP` (сколько версий хранить у поста) и `MEDIA_UNUSED_DAYS` (через сколько дней удалять загрузки, которые ничему не нужны). Без них отчёт просто предупредит, если ненужные файлы занимают больше 200 МБ.
 
