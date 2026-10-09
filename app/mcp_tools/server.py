@@ -158,7 +158,7 @@ def build() -> MCPServer:
         Ничего не отправляет. Файлы upload:<имя> в чате не загружаются."""
         p, version = _source(post, draft_id, None, publish=False)
         # version: what to pass to publish_post/edit_post, so exactly the version shown here goes out
-        out = {"post": p, "validation": spec.validate_rich_message(spec.current, p["rich_message"])}
+        out = {"post": p, "validation": publisher.check(p)}
         return out if version is None else {**out, "version": version}
 
     server = MCPServer(name="rich-studio", title="Rich Studio", instructions=INSTRUCTIONS, extensions=[apps])
@@ -205,7 +205,7 @@ def build() -> MCPServer:
     @tool(READ)
     async def validate_post(post: PostArg) -> dict:
         """Проверить пост по спецификации: ошибки (исправить обязательно), предупреждения, длина."""
-        return spec.validate_rich_message(spec.current, _post(post)["rich_message"])
+        return publisher.check(_post(post))
 
     @tool(LOCAL)
     async def save_draft(
@@ -237,7 +237,7 @@ def build() -> MCPServer:
             "title": d["title"],
             "version": d["version"],
             "preview_path": f"/render/draft/{d['id']}",
-            "validation": spec.validate_rich_message(spec.current, d["payload"]["rich_message"]),
+            "validation": publisher.check(d["payload"]),
         }
 
     @tool(READ)

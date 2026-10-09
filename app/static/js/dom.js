@@ -14,7 +14,7 @@ export function h(tag, attrs, ...kids) {
     else if (k === 'checked') e.checked = !!v;
     else e.setAttribute(k, v === true ? '' : v);
   }
-  for (const k of kids.flat()) if (k !== null && k !== undefined && k !== false) e.append(k instanceof Node ? k : document.createTextNode(String(k)));
+  for (const k of kids.flat(Infinity)) if (k !== null && k !== undefined && k !== false) e.append(k instanceof Node ? k : document.createTextNode(String(k)));
   return e;
 }
 export const clone = (x) => JSON.parse(JSON.stringify(x));
