@@ -124,6 +124,7 @@ pytest                          # 105 тестов API на подставном
 ruff check . && ruff format --check . && mypy   # линтер, формат, типы (настройки в pyproject.toml)
 npm ci && npm run lint && npm run typecheck   # ESLint и проверка типов редактора; Node нужен только для проверок
 npm run test:render             # 33 проверки очистки HTML в предпросмотре (Playwright, без студии)
+npm run test:shots              # примеры из examples/ в обеих темах: вёрстка и скриншоты в test-results/preview/
 ```
 
 Проверки в браузере (`tests/e2e_ui.mjs`, 13 штук) запускаются против работающей студии, направленной на подставной API из `tests/mock_telegram.py`:
