@@ -393,6 +393,16 @@ check('Header fits one row at 1440px', Math.abs(header.pub - header.brand) < 12 
     JSON.stringify({ barText: barText.replace(/\s+/g, ' ').trim(), edits: edits.length, history }));
 }
 
+// 15b. while a post is open for editing, «Опубликовать» posts a new copy on purpose (as_new), never a 409
+{
+  const before = (await mockLog()).filter((c) => c.method === 'sendRichMessage').length;
+  await page.click('#btn-publish');
+  await page.waitForTimeout(1200);
+  const after = (await mockLog()).filter((c) => c.method === 'sendRichMessage').length;
+  const errs = await page.locator('.toast.err').allTextContents();
+  check('Publishing while editing posts a new copy on purpose', after === before + 1 && !errs.length, JSON.stringify({ before, after, errs }));
+}
+
 // 16. the Files tab downloads a backup zip
 {
   await page.click('#side-tabs [data-tab=uploads]');

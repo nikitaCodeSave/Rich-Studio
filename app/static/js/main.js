@@ -66,7 +66,7 @@ function bindActions() {
     if (!where) { toast('Укажите канал (@username или id) в поле справа сверху', 'err'); return; }
     const e = editing.value;
     if (!confirm((e ? `Это опубликует НОВЫЙ пост. Чтобы изменить пост ${e.message_id ? '#' + e.message_id : ''} в ${e.chat_id}, нажмите «Обновить пост» над редактором.\n\n` : '') + 'Опубликовать пост в ' + where + '?')) return;
-    await act(async () => { if (dirty.value || !S.draftId) await saveDraft(true); return api('POST', '/api/send', { post: buildPost(), ...target(), draft_id: S.draftId }); },
+    await act(async () => { if (dirty.value || !S.draftId) await saveDraft(true); return api('POST', '/api/send', { post: buildPost(), ...target(), draft_id: S.draftId, as_new: true }); },
       (r) => {
         const bad = (r.results || []).filter((x) => !x.ok);
         return (r.results && r.results.length > 1 ? `Опубликовано в ${r.results.length - bad.length} из ${r.results.length}` : 'Опубликовано, message_id ' + r.message.message_id)
@@ -78,11 +78,14 @@ function bindActions() {
   $('#btn-schedule').onclick = () => {
     const d = new Date(Date.now() + 3600e3 - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
     const inp = h('input', { type: 'datetime-local', value: d });
-    openDialog([h('h3', { text: 'Отложить публикацию' }), h('p', { class: 'muted small', text: 'Пост отправит сервис в указанное время, поэтому контейнер должен работать в этот момент.' }), inp],
+    const e = editing.value;
+    openDialog([h('h3', { text: 'Отложить публикацию' }),
+      ...(e ? [h('p', { class: 'err small', text: `Это отложит НОВЫЙ пост. Чтобы изменить пост ${e.message_id ? '#' + e.message_id : ''} в ${e.chat_id}, нажмите «Обновить пост» над редактором.` })] : []),
+      h('p', { class: 'muted small', text: 'Пост отправит сервис в указанное время, поэтому контейнер должен работать в этот момент.' }), inp],
       [h('button', { class: 'ghost', value: 'cancel', text: 'Отмена' }), h('button', { type: 'button', text: 'Запланировать', onclick: async () => {
         const at = Math.floor(new Date(inp.value).getTime() / 1000);
         closeDialog();
-        await act(async () => { if (dirty.value || !S.draftId) await saveDraft(true); return api('POST', '/api/schedule', { post: buildPost(), ...target(), draft_id: S.draftId, at }); }, 'Запланировано на ' + new Date(at * 1000).toLocaleString('ru-RU'));
+        await act(async () => { if (dirty.value || !S.draftId) await saveDraft(true); return api('POST', '/api/schedule', { post: buildPost(), ...target(), draft_id: S.draftId, at, as_new: true }); }, 'Запланировано на ' + new Date(at * 1000).toLocaleString('ru-RU'));
         loadPosts();
       } })]);
   };

@@ -275,6 +275,12 @@
    },
    "PublishReq": {
     "properties": {
+     "as_new": {
+      "default": false,
+      "description": "draft_id — правка опубликованного поста, а вы хотите выпустить её копией новым постом (без флага 409: правку заменяют через /api/posts/{id}/edit)",
+      "title": "As New",
+      "type": "boolean"
+     },
      "chat_id": {
       "anyOf": [
        {
@@ -362,6 +368,12 @@
    },
    "ScheduleReq": {
     "properties": {
+     "as_new": {
+      "default": false,
+      "description": "draft_id — правка опубликованного поста, а вы хотите выпустить её копией новым постом (без флага 409: правку заменяют через /api/posts/{id}/edit)",
+      "title": "As New",
+      "type": "boolean"
+     },
      "at": {
       "anyOf": [
        {

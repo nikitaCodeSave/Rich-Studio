@@ -33,6 +33,11 @@ class PublishReq(SendReq):
     dry_run: bool = Field(
         False, description="Только показать, какие запросы уйдут в Telegram: без отправки и без записи в историю"
     )
+    as_new: bool = Field(
+        False,
+        description="draft_id — правка опубликованного поста, а вы хотите выпустить её копией новым постом "
+        "(без флага 409: правку заменяют через /api/posts/{id}/edit)",
+    )
 
 
 class EditReq(BaseModel):
