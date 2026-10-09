@@ -1,6 +1,7 @@
 """MCP server at /mcp: tool list, a full JSON-RPC round trip, and that publishing keeps the studio rules."""
 
 import json
+import re
 
 import store
 from test_api import BLOCKS_POST
@@ -164,3 +165,14 @@ def test_preview_app(client, tg):
     res, data, _ = call(client, "preview_post", post={"rich_message": {}})
     assert data["validation"]["errors"]
     assert not tg.calls
+
+
+def test_readme_lists_every_tool():
+    """README is where a person learns what agents can do: it must not drift from the server."""
+    from pathlib import Path
+
+    readme = (Path(__file__).resolve().parent.parent / "README.md").read_text("utf-8")
+    line = next(s for s in readme.splitlines() if s.startswith("Инструменты: "))
+    listed = set(re.findall(r"`([a-z_]+)`", line)) - {"idempotency_key", "dry_run"}
+    assert listed == EXPECTED_TOOLS
+    assert f"с {len(EXPECTED_TOOLS)} инструментами" in readme
