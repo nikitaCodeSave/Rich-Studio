@@ -140,16 +140,25 @@ def url_error(url) -> str | None:
     return None
 
 
+# InlineKeyboardButton fields that only change how a button looks; any other field (a newer one too) is its action
+BUTTON_LOOKS = {"text", "icon_custom_emoji_id", "style", "disabled"}
+
+
 def keyboard_errors(markup) -> list[str]:
     """Buttons under the post whose links Telegram would reject (the whole post fails, not only the button)."""
     rows = markup.get("inline_keyboard") if isinstance(markup, dict) else None
     errors = []
     for ri, row in enumerate(rows if isinstance(rows, list) else []):
         for bi, button in enumerate(row if isinstance(row, list) else []):
-            if isinstance(button, dict) and "url" in button and (bad := url_error(button["url"])):
+            if not isinstance(button, dict):
+                continue
+            where = f"кнопка «{button.get('text', '')}» (ряд {ri + 1}, №{bi + 1})"
+            if not set(button) - BUTTON_LOOKS:
+                errors.append(f"{where}: не задано, что она делает (ссылка, ответ на нажатие, копирование…)")
+            elif "url" in button and (bad := url_error(button["url"])):
                 if bad == "пустая ссылка":  # often a button meant to be of another kind, with the link field left over
                     bad += ": впишите адрес или выберите кнопке другой тип (уберите поле url)"
-                errors.append(f"кнопка «{button.get('text', '')}» (ряд {ri + 1}, №{bi + 1}): {bad}")
+                errors.append(f"{where}: {bad}")
     return errors
 
 
