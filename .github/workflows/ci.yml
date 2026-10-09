@@ -63,6 +63,11 @@ jobs:
              uvicorn main:app --port 8080 &)
           for i in $(seq 30); do curl -sf localhost:8080/api/config && break; sleep 1; done
       - run: node tests/e2e_ui.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: editor-screenshots
+          path: test-results/ui/
 
   docker:
     runs-on: ubuntu-latest

@@ -2,6 +2,7 @@
 // pointed at the fake Bot API from tests/mock_telegram.py (MOCK, default http://localhost:8081),
 // and Playwright: `npm i playwright && npx playwright install chromium`.
 // Run: node tests/e2e_ui.mjs
+import { mkdirSync } from 'node:fs';
 import { chromium } from 'playwright';
 
 const BASE = process.env.BASE || 'http://localhost:8080';
@@ -301,6 +302,15 @@ const header = await page.evaluate(() => {
 check('Header fits one row at 1440px', Math.abs(header.pub - header.brand) < 12 && header.right <= header.width, JSON.stringify(header));
 
 check('No CSP violations or JS errors in the editor', errors.length === 0 && csp.length === 0, [...errors, ...csp].join(' | '));
+// screenshots of the editor for a person to look at (CI keeps them as an artifact): a PR that changes the UI shows them
+mkdirSync('test-results/ui', { recursive: true });
+const shot = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+await shot.goto(BASE);
+await shot.waitForSelector('.block');
+await shot.screenshot({ path: 'test-results/ui/editor-1400.png' });
+await shot.setViewportSize({ width: 390, height: 844 });
+await shot.screenshot({ path: 'test-results/ui/editor-390.png', fullPage: true });
+
 await browser.close();
 const failed = results.filter((x) => !x.ok).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);
