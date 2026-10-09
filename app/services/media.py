@@ -1,10 +1,13 @@
 """Uploaded files that posts reference as upload:<name>."""
 
+import asyncio
 import base64
 import binascii
+import ipaddress
 import re
+import socket
 from pathlib import Path
-from urllib.parse import unquote, urlsplit
+from urllib.parse import unquote, urljoin, urlsplit
 
 import httpx
 
@@ -57,7 +60,9 @@ def describe(name: str) -> dict:
 
 def list_files() -> list[dict]:
     """Uploads, newest first; `used` is false when no draft and no live post mentions the file."""
-    files = [p for p in media_dir().iterdir() if p.is_file()]
+    files = [
+        p for p in media_dir().iterdir() if p.is_file() and not p.name.startswith(".")
+    ]  # .name.part: a download in progress
     files.sort(key=lambda p: -p.stat().st_mtime)
     refs = store.backup.upload_refs()
     return [{**describe(p.name), "size": p.stat().st_size, "used": p.name in refs} for p in files]
@@ -150,31 +155,69 @@ def save_base64(filename: str, data: str) -> dict:
     return describe(name)
 
 
+FETCH_REDIRECTS = 5
+FETCH_DEADLINE = 300  # seconds for the whole download, however slowly the server answers
+
+
+async def _public_only(host: str, port: int) -> None:
+    """Refuse a host that resolves to the studio itself, the local network or any other non-public address."""
+    if settings.get().media_fetch_private:
+        return
+    try:
+        infos = await asyncio.get_running_loop().getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except OSError:
+        raise StudioError(f"не удалось скачать: адрес {host} не найден") from None
+    for *_, addr in infos:
+        ip = ipaddress.ip_address(str(addr[0]).split("%")[0])
+        if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
+            ip = ip.ipv4_mapped
+        if not ip.is_global or ip.is_multicast:
+            raise StudioError(
+                f"url: {host} — локальный или внутренний адрес, студия туда не ходит "
+                "(свой сервер в локальной сети: MEDIA_FETCH_PRIVATE=1)"
+            )
+
+
 async def fetch(url: str, filename: str | None = None) -> dict:
-    """Download a file by http(s) link into the uploads, so a post can use it as upload:<name>."""
-    parts = urlsplit(url)
-    if parts.scheme not in ("http", "https") or not parts.hostname:
-        raise StudioError("url: нужна ссылка http(s)")
-    name = free_name(filename or unquote(Path(parts.path).name) or "file")
-    path = media_dir() / name
+    """Download a file by http(s) link into the uploads, so a post can use it as upload:<name>.
+    Only public addresses, checked again on every redirect; written under a temporary name until complete."""
+    name = free_name(filename or unquote(Path(urlsplit(url).path).name) or "file")
+    part = media_dir() / f".{name}.part"
     size = 0
     try:
-        async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client, client.stream("GET", url) as r:
-            if r.status_code != 200:
-                raise StudioError(f"не удалось скачать: HTTP {r.status_code}")
-            with path.open("wb") as f:
-                async for chunk in r.aiter_bytes(1 << 20):
-                    size += len(chunk)
-                    if size > _limit():
-                        break
-                    f.write(chunk)
-    except httpx.HTTPError as e:
-        path.unlink(missing_ok=True)
-        raise StudioError(f"не удалось скачать: {type(e).__name__}") from None
+        async with asyncio.timeout(FETCH_DEADLINE), httpx.AsyncClient(timeout=60, follow_redirects=False) as client:
+            for _ in range(FETCH_REDIRECTS + 1):
+                parts = urlsplit(url)
+                if parts.scheme not in ("http", "https") or not parts.hostname:
+                    raise StudioError("url: нужна ссылка http(s)")
+                await _public_only(parts.hostname, parts.port or (443 if parts.scheme == "https" else 80))
+                async with client.stream("GET", url) as r:
+                    if r.is_redirect and r.headers.get("location"):
+                        url = urljoin(url, r.headers["location"])
+                        continue
+                    if r.status_code != 200:
+                        raise StudioError(f"не удалось скачать: HTTP {r.status_code}")
+                    with part.open("wb") as f:
+                        async for chunk in r.aiter_bytes(1 << 20):
+                            size += len(chunk)
+                            if size > _limit():
+                                raise _too_big()
+                            f.write(chunk)
+                    break
+            else:
+                raise StudioError(f"не удалось скачать: больше {FETCH_REDIRECTS} перенаправлений")
     except StudioError:
-        path.unlink(missing_ok=True)
+        part.unlink(missing_ok=True)
         raise
-    if size > _limit():
-        path.unlink(missing_ok=True)
-        raise _too_big()
-    return describe(name)
+    except TimeoutError:
+        part.unlink(missing_ok=True)
+        raise StudioError(f"не удалось скачать за {FETCH_DEADLINE} с") from None
+    except httpx.HTTPError as e:
+        part.unlink(missing_ok=True)
+        raise StudioError(f"не удалось скачать: {type(e).__name__}") from None
+    except BaseException:  # a full disk, a cancelled request: no half-written file stays in the uploads
+        part.unlink(missing_ok=True)
+        raise
+    path = media_dir() / free_name(name)
+    part.rename(path)
+    return describe(path.name)

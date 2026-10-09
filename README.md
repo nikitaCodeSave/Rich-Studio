@@ -164,7 +164,7 @@ HTML и Markdown предпросмотр разбирает так же, как
 | `GET /api/logs?level=&limit=&since=&logger=&q=` | журнал студии (строки JSON) с фильтрами; `q=<request_id>` — всё, что сделал один запрос |
 | `GET /healthz`, `GET /readyz` | жив ли процесс; готова ли студия работать (503 и имена сбойных проверок), обе без ключа |
 | `GET /api/export` | бэкап: zip с базой и файлами |
-| `POST /api/media`, `POST /api/media/fetch` (по ссылке), `GET /api/media`, `POST /api/media/cleanup`, `DELETE /api/media/{name}` | загрузка файлов; `used` у файла, удаление всех ненужных; удаление файла, нужного отложенному посту или черновику, даёт 409 (`?force=true` удаляет всё равно) |
+| `POST /api/media`, `POST /api/media/fetch` (по ссылке), `GET /api/media`, `POST /api/media/cleanup`, `DELETE /api/media/{name}` | загрузка файлов (`fetch` ходит только на публичные адреса, проверяя каждый редирект; локальная сеть: `MEDIA_FETCH_PRIVATE=1`); `used` у файла, удаление всех ненужных; удаление файла, нужного отложенному посту или черновику, даёт 409 (`?force=true` удаляет всё равно) |
 | `POST /api/raw/{method}` | любой метод Bot API как есть |
 
 Время в `/api/schedule` передавайте как unix или ISO 8601 с часовым поясом (`2026-10-10T09:00:00+03:00`). Контракт API записан в `docs/openapi.json`.

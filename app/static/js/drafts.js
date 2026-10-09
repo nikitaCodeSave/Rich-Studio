@@ -4,7 +4,7 @@ import { closeDialog, openDialog } from './dialogs.js';
 import { $, h, store, toast } from './dom.js';
 import { draftPayload, flushSave, loadPost } from './editor.js';
 import { followDraft } from './editing.js';
-import { resetHistory } from './history.js';
+import { pushHistory, resetHistory } from './history.js';
 import { dirty, editing, S, saveState } from './state.js';
 
 // ---------- drafts ----------
@@ -27,14 +27,20 @@ function showDrafts(list) {
 export async function openDraft(id) {
   await flushSave();
   const d = await api('GET', '/api/drafts/' + id);
+  await followDraft(d);
+  showDraft(d, false);
+}
+
+/** Put the draft as the server has it into the editor; synchronous, so nothing typed in between is lost.
+ * @param {Json} d @param {boolean} keepHistory an outside change becomes one more undo step */
+function showDraft(d, keepHistory) {
   S.draftId = d.id; S.draftVersion = d.version;
   $('#title').value = d.title || '';
-  await followDraft(d);
   loadPost(d.payload);
-  resetHistory();
+  if (keepHistory) pushHistory(); else resetHistory();
   dirty.value = false; saveState.value = 'сохранено';
-  store.set('lastDraft', id);
-  showAddress(id);
+  store.set('lastDraft', d.id);
+  showAddress(d.id);
   loadDrafts();
 }
 
@@ -56,13 +62,16 @@ export async function watchDrafts() {
   if (key !== lastSeen) { lastSeen = key; showDrafts(list); }
   const mine = S.draftId && list.find((d) => d.id === S.draftId);
   if (!mine || S.draftVersion === null || mine.version <= S.draftVersion) return;
-  if (!dirty.value) {
-    await openDraft(mine.id);
-    toast('Черновик изменили в другом месте (агент или другая вкладка): показана новая версия', 'ok');
-    return;
-  }
   const current = await api('GET', '/api/drafts/' + mine.id).catch(() => null);
-  draftConflict({ message: 'черновик изменили в другом месте (агент или другая вкладка), пока вы печатали', current });
+  if (!current || pending || S.draftId !== current.id) return;
+  const conflict = () => draftConflict({ message: 'черновик изменили в другом месте (агент или другая вкладка), пока вы печатали', current });
+  if (dirty.value) { conflict(); return; }
+  await followDraft(current);
+  // typed something while the requests were on the way: ask instead of overwriting it
+  if (pending || S.draftId !== current.id) return;
+  if (dirty.value) { conflict(); return; }
+  showDraft(current, true);
+  toast('Черновик изменили в другом месте (агент или другая вкладка): показана новая версия. Ctrl+Z вернёт прежнюю', 'ok');
 }
 
 // one save at a time: a second one sent before the first returns would carry a stale version and get 409

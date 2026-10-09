@@ -485,6 +485,7 @@ check('Header fits one row at 1440px', Math.abs(header.pub - header.brand) < 12 
   const v2 = await api('PUT', '/api/drafts/' + d.id, { title: 'От агента 2', post: text('Вторая версия'), version: d.version });
   await page.waitForTimeout(5000); // the editor looks every 4 s
   const reloaded = await page.inputValue('#title');
+  const undoBack = await page.locator('#btn-undo').isEnabled();
   const reloadedText = await page.evaluate(() => document.querySelector('#preview').shadowRoot.textContent);
   await page.fill('#title', 'Моя правка');
   await api('PUT', '/api/drafts/' + d.id, { title: 'От агента 3', post: text('Третья версия'), version: v2.version });
@@ -494,8 +495,8 @@ check('Header fits one row at 1440px', Math.abs(header.pub - header.brand) < 12 
   await page.waitForTimeout(600);
   const theirs = await page.inputValue('#title');
   check('A draft link opens the draft; an agent\'s new version reloads it or asks when there are unsaved edits',
-    opened === 'От агента' && addr === '?draft=' + d.id && reloaded === 'От агента 2' && /Вторая версия/.test(reloadedText) && /Черновик изменился/.test(asked) && theirs === 'От агента 3',
-    JSON.stringify({ opened, addr, reloaded, asked: asked.slice(0, 80), theirs }));
+    opened === 'От агента' && addr === '?draft=' + d.id && reloaded === 'От агента 2' && /Вторая версия/.test(reloadedText) && undoBack && /Черновик изменился/.test(asked) && theirs === 'От агента 3',
+    JSON.stringify({ opened, addr, reloaded, undoBack, asked: asked.slice(0, 80), theirs }));
 }
 
 check('No CSP violations or JS errors in the editor', errors.length === 0 && csp.length === 0, [...errors, ...csp].join(' | '));
