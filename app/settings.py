@@ -38,6 +38,8 @@ class Settings:
     # a scheduled post later than this (the service or the computer was off) is not sent but marked "missed";
     # 0 = send however late
     schedule_late_min: float = 60.0
+    # daily copies of the database in DATA_DIR/backups, the newest N are kept; 0 = off
+    backup_keep: int = 7
 
     @property
     def media_dir(self) -> Path:
@@ -46,6 +48,10 @@ class Settings:
     @property
     def db_path(self) -> Path:
         return self.data_dir / "studio.db"
+
+    @property
+    def backup_dir(self) -> Path:
+        return self.data_dir / "backups"
 
     @classmethod
     def from_env(cls, env=None) -> "Settings":
@@ -66,6 +72,7 @@ class Settings:
         s.max_upload_mb = float(env.get("MAX_UPLOAD_MB", "2000" if own_server else "50"))
         s.mcp_publish = _flag(env, "MCP_PUBLISH")
         s.schedule_late_min = float(env.get("SCHEDULE_LATE_MIN", "60"))
+        s.backup_keep = int(env.get("BACKUP_KEEP", "7"))
         return s
 
 

@@ -45,6 +45,10 @@
     <div class="side-body" data-pane="posts" hidden><p id="updates-state" class="small"></p><ul id="posts" class="list"></ul></div>
     <div class="side-body" data-pane="uploads" hidden>
       <label class="upload"><input id="upload" type="file" multiple hidden>＋ Загрузить файлы</label>
+      <div class="row files-tools">
+        <a id="export" class="btn ghost small-btn" href="/api/export" download title="Zip с базой (черновики, посты, история правок) и всеми файлами">Скачать бэкап</a>
+        <button id="media-cleanup" class="ghost small-btn" hidden title="Файлы, которых нет ни в одном черновике и ни в одном живом посте"></button>
+      </div>
       <p class="muted small">Файлы хранятся в сервисе и отправляются в Telegram при публикации. В посте указываются как <code>upload:имя</code>.</p>
       <ul id="uploads" class="list uploads"></ul>
     </div>

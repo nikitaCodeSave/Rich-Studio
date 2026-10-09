@@ -19,10 +19,11 @@ import settings
 import spec
 import store
 import telegram as tg
+from api import backup as backup_api
 from api import drafts, media, posts, preview, raw, service, specs
 from errors import StudioError
 from security import guard
-from services import scheduler, updates
+from services import backup, scheduler, updates
 
 STATIC = Path(__file__).parent / "static"
 SPEC_CHECK_INTERVAL = 1800  # seconds; Spec.refresh itself skips while the copy is fresh
@@ -52,6 +53,8 @@ async def lifespan(app):
     tasks = []
     if cfg.background:
         tasks = [asyncio.create_task(_spec_loop()), asyncio.create_task(scheduler.loop())]
+        if cfg.backup_keep > 0:
+            tasks.append(asyncio.create_task(backup.loop()))
         if cfg.updates_on:
             tasks.append(asyncio.create_task(updates.loop()))
     async with app.state.mcp.session_manager.run():
@@ -92,7 +95,7 @@ def create_app(cfg: settings.Settings | None = None) -> FastAPI:
     app.add_exception_handler(StudioError, _studio_error)
     app.add_exception_handler(tg.TelegramError, _telegram_error)
     app.add_exception_handler(tg.NoAnswer, _no_answer)
-    for module in (service, specs, preview, drafts, posts, raw, media):
+    for module in (service, specs, preview, drafts, posts, raw, media, backup_api):
         app.include_router(module.router)
 
     @app.get("/", include_in_schema=False)
