@@ -227,7 +227,7 @@ curl -s 'localhost:8080/api/check?chat_id=@my_channel'
 
 ## MCP для Claude и других агентов
 
-Студия сама работает как MCP-сервер по адресу `http://localhost:8080/mcp` (Streamable HTTP). Подключение в Claude Code:
+Студия сама работает как MCP-сервер по адресу `http://localhost:8080/mcp` (Streamable HTTP). Claude Code, открытый в папке студии, подключает его сам из `.mcp.json` (при первом запуске спросит разрешение; если задан `STUDIO_API_KEY`, он берётся из окружения, поэтому экспортируйте его в shell). Из других папок подключение вручную:
 
 ```
 claude mcp add --transport http rich-studio http://localhost:8080/mcp
@@ -292,14 +292,14 @@ claude mcp add --transport http rich-studio http://localhost:8080/mcp --header "
 
 ```
 pip install -r requirements-dev.txt
-pytest                          # 208 тестов API и MCP на подставном Telegram, без сети и токена
+pytest                          # 224 теста API и MCP на подставном Telegram, без сети и токена
 ruff check . && ruff format --check . && mypy   # линтер, формат, типы (настройки в pyproject.toml)
 npm ci && npm run lint && npm run typecheck   # ESLint и проверка типов редактора; Node нужен только для проверок
 npm run test:render             # 33 проверки очистки HTML в предпросмотре (Playwright, без студии)
 npm run test:shots              # примеры из examples/ в обеих темах: вёрстка и скриншоты в test-results/preview/
 ```
 
-Проверки в браузере (`tests/e2e_ui.mjs`, 17 штук: публикация, закреп, опрос, отмена правок, MCP App, шапка и другие) запускаются против работающей студии, направленной на подставной API из `tests/mock_telegram.py`:
+Проверки в браузере (`tests/e2e_ui.mjs`, 24 штуки: публикация, закреп, опрос, отмена правок, MCP App, шапка и другие) запускаются против работающей студии, направленной на подставной API из `tests/mock_telegram.py`:
 
 ```
 make mock    # подставной Telegram на :8081

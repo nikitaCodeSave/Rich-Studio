@@ -548,3 +548,20 @@ def test_session_hook_is_registered_next_to_the_format_hook():
     hooks = json.loads((ROOT / ".claude/settings.json").read_text())["hooks"]
     assert "studio_health.py" in hooks["SessionStart"][0]["hooks"][0]["command"]
     assert "format.py" in hooks["PostToolUse"][0]["hooks"][0]["command"]
+
+
+def test_post_being_sent_right_now_is_not_a_problem(client, monkeypatch):
+    """Health ran in the second the scheduler was sending a due post: that "sending" is normal, a leftover is not."""
+    from services import scheduler
+
+    p = client.post("/api/schedule", json={"post": BLOCKS_POST, "at": int(time.time()) + 3600}).json()
+    store.update_post(p["id"], status="sending")
+
+    def flagged() -> bool:
+        return p["id"] in [x["id"] for x in health.posts().get("details", {}).get("posts", [])]
+
+    monkeypatch.setattr(scheduler, "in_flight", {p["id"]})
+    assert not flagged()
+    monkeypatch.setattr(scheduler, "in_flight", set())
+    assert flagged()
+    store.update_post(p["id"], status="failed", error="test")
