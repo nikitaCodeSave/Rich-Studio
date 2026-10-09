@@ -228,8 +228,11 @@ def reschedule(pid: str, at) -> dict | None:
 
 
 async def delete(pid: str) -> dict | None:
-    """Cancel a scheduled post or delete a published one from the channel."""
+    """Cancel a scheduled post, delete a published one from the channel, or drop a failed send from the list."""
     p = _get(pid)
+    if p["status"] == "failed":  # nothing is in the channel: only the row goes
+        store.delete_post(pid)
+        return {**p, "status": "removed"}
     if p["status"] == "sent" and p["message_id"]:
         await tg.call("deleteMessage", {"chat_id": publisher.resolve_chat(p["chat_id"]), "message_id": p["message_id"]})
         return store.update_post(pid, status="deleted")

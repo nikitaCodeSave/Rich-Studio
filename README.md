@@ -156,7 +156,7 @@ HTML и Markdown предпросмотр разбирает так же, как
 | `POST /api/preview-send` | отправить себе в личку; в ответе `parsed`: блоки, на которые Telegram разобрал пост, и они же для повторной отправки (`input_blocks`) |
 | `GET /api/check?chat_id=` | бот админ канала? права? |
 | `GET /api/posts?status=&chat=` | посты студии, новые сверху: первая строка (`title`), миниатюра (`thumb`), ссылка t.me (`link`); неудачные отправки со статусом `failed` и ошибкой |
-| `POST /api/send`, `/api/schedule`, `/api/edit`, `/api/posts/{id}/edit`, `DELETE /api/posts/{id}` | публикация (`chat_ids` для нескольких каналов), отложка, замена, удаление |
+| `POST /api/send`, `/api/schedule`, `/api/edit`, `/api/posts/{id}/edit`, `DELETE /api/posts/{id}` | публикация (`chat_ids` для нескольких каналов), отложка, замена, удаление; `DELETE` неудачной отправки убирает её из списка |
 | `POST/DELETE /api/posts/{id}/pin`, `POST /api/posts/{id}/buttons` | закрепить, открепить, заменить только кнопки |
 | `GET /api/posts/{id}/versions`, `POST /api/posts/{id}/reschedule` | как пост выглядел до каждой замены; перенести отложенный или вернуть пропущенный |
 | `POST /api/poll`, `POST /api/posts/{id}/stop-poll` | опрос или викторина (сразу или с `at`), закрыть опрос |

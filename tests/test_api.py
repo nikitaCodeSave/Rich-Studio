@@ -153,6 +153,36 @@ def test_one_failed_channel_of_two_is_listed(client, tg):
     assert client.get("/api/posts?status=sent").json() == []
 
 
+def test_refusal_leaves_the_list_once_the_draft_goes_out(client, tg):
+    d = client.post("/api/drafts", json={"title": "A", "post": BLOCKS_POST}).json()
+    tg.fail["sendRichMessage"] = "Bad Request: inline keyboard button URL 'https://' is invalid"
+    assert (
+        post_json(client, "/api/send", {"post": BLOCKS_POST, "draft_id": d["id"], "chat_id": "@c"}).status_code == 422
+    )
+    post_json(client, "/api/send", {"post": BLOCKS_POST, "draft_id": d["id"], "chat_id": "@other"})
+    tg.fail.clear()
+    assert (
+        post_json(client, "/api/send", {"post": BLOCKS_POST, "draft_id": d["id"], "chat_id": "@c"}).status_code == 200
+    )
+    # the refusal to @c is gone; the one to @other (not resent) stays and can be removed by hand
+    rows = client.get("/api/posts").json()
+    assert [(p["status"], p["chat_id"]) for p in rows] == [("sent", "@c"), ("failed", "@other")]
+    assert client.delete("/api/posts/" + rows[1]["id"]).json()["status"] == "removed"
+    assert [p["status"] for p in client.get("/api/posts").json()] == ["sent"]
+
+
+def test_failed_row_never_hides_telegrams_error(client, tg, monkeypatch):
+    import store
+
+    def broken(*a, **kw):
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(store, "add_post", broken)
+    tg.fail["sendRichMessage"] = "Bad Request: chat not found"
+    r = post_json(client, "/api/send", {"post": BLOCKS_POST})
+    assert r.status_code == 422 and "chat not found" in r.json()["detail"]
+
+
 def test_posts_list_shows_what_the_post_is(client, tg):
     up = client.post("/api/media", files={"file": ("cover.png", b"\x89PNG fake", "image/png")}).json()
     html = '<figure><img src="tg://photo?id=c"></figure><h1>Анонс &amp; эфир</h1><p>Подробности</p>'
@@ -451,10 +481,14 @@ def test_post_state_transitions(client, tg):
     import store
 
     p = client.post("/api/schedule", json={"post": BLOCKS_POST, "at": int(time.time()) + 3600}).json()
-    store.update_post(p["id"], status="failed", error="x")
+    store.update_post(p["id"], status="deleted")
     assert client.delete("/api/posts/" + p["id"]).status_code == 400
-    assert client.get("/api/posts/" + p["id"]).json()["status"] == "failed"
+    assert client.get("/api/posts/" + p["id"]).json()["status"] == "deleted"
+    store.update_post(p["id"], status="failed", error="x")
     assert client.post(f"/api/posts/{p['id']}/edit", json=BLOCKS_POST).status_code == 400
+    # a failed send is not in the channel: DELETE only drops the row
+    assert client.delete("/api/posts/" + p["id"]).json()["status"] == "removed"
+    assert client.get("/api/posts/" + p["id"]).status_code == 404
 
 
 def test_only_media_fields_are_treated_as_uploads(client, tg):

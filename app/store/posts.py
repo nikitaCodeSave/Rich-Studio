@@ -84,6 +84,22 @@ def list_posts(limit: int = 100, status: str | None = None, chat: str | None = N
         return [row(r) for r in rows]  # type: ignore[misc]
 
 
+def drop_refused(chat_id, draft_id: str, keep_with: str) -> int:
+    """After a successful send: earlier refusals of the same draft to the same chat are history, not a problem.
+    Rows whose error contains `keep_with` (the post may have gone) stay: the channel may hold a duplicate."""
+    with conn() as c:
+        return c.execute(
+            "delete from posts where status='failed' and draft_id=? and chat_id=? and instr(coalesce(error, ''), ?)=0",
+            (draft_id, str(chat_id), keep_with),
+        ).rowcount
+
+
+def delete_post(pid: str) -> None:
+    with conn() as c:
+        c.execute("delete from post_versions where post_id=?", (pid,))
+        c.execute("delete from posts where id=?", (pid,))
+
+
 def find_post(chat_num, message_id) -> dict | None:
     """The studio post behind a channel message, by numeric chat id and message id."""
     with conn() as c:
