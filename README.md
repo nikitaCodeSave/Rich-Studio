@@ -99,6 +99,8 @@ docker compose up -d --build
 
 ## Тесты
 
+Одной командой: `make check` (всё ниже плюс проверка слоёв `lint-imports`). Правила для агентов: [AGENTS.md](AGENTS.md).
+
 ```
 pip install -r requirements-dev.txt
 pytest                          # 105 тестов API на подставном Telegram, без сети и токена

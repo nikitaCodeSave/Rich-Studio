@@ -60,3 +60,24 @@ branch = true
 fail_under = 85
 show_missing = true
 skip_covered = true
+
+[tool.importlinter]
+# Слои из docs/ARCHITECTURE.md, проверяются командой `lint-imports` (запуск из корня, PYTHONPATH=app).
+# Модули-файлы (main, settings, errors, models, security) инструмент не принимает, проверяются только пакеты.
+root_packages = ["api", "services", "telegram", "store", "spec"]
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Слои: api → services → telegram / store / spec"
+type = "layers"
+layers = [
+  "api",
+  "services",
+  "telegram | store | spec",
+]
+
+[[tool.importlinter.contracts]]
+name = "Сервисы и нижние слои не знают про FastAPI"
+type = "forbidden"
+source_modules = ["services", "telegram", "store", "spec"]
+forbidden_modules = ["fastapi", "starlette"]
