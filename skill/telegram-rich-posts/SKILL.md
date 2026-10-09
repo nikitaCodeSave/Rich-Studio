@@ -57,6 +57,8 @@ Limits: 32 768 characters (client folds after ~8 000), 1-8 buttons per row, call
 
 ## 4. Workflow with Rich Studio (http://localhost:8080, API docs at /docs)
 
+If the `rich-studio` MCP tools are available (`validate_post`, `save_draft`, `send_preview_to_me`, `publish_post`…), use them instead of curl: same steps and rules, `publish_post` takes `idempotency_key` and `dry_run`. Otherwise use the HTTP API below.
+
 `post` = `{"rich_message": {...}, "reply_markup": {...}?, "options": {...}?}`. Uploaded files are referenced as `upload:<name>`. If `STUDIO_API_KEY` is set, add `-H "X-API-Key: $STUDIO_API_KEY"`.
 
 ```bash
