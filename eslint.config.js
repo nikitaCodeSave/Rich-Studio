@@ -30,6 +30,14 @@ export default [
     },
   },
   {
+    // one place talks to the server: headers, API key, CSRF and errors are handled in api.js
+    files: ['app/static/js/**/*.js'],
+    ignores: ['app/static/js/api.js'],
+    rules: {
+      'no-restricted-globals': ['error', { name: 'fetch', message: "Use api() from './api.js'." }, { name: 'XMLHttpRequest', message: "Use api() from './api.js'." }],
+    },
+  },
+  {
     files: ['app/static/*.js'],
     languageOptions: {
       sourceType: 'script',
