@@ -5,6 +5,8 @@ import re
 
 import store
 
+from . import channels
+
 TITLE_LEN = 120
 # a closing block tag or a line break ends a line of the post
 _LINE_END = re.compile(
@@ -101,7 +103,12 @@ def link(chat_id, message_id) -> str | None:
 
 def list_posts(limit: int = 100, status: str | None = None, chat: str | None = None) -> list[dict]:
     out = []
+    titles: dict[str, str | None] = {}
     for p in store.list_posts(limit, status=status, chat=chat):
+        c = str(p["chat_id"])
+        if c not in titles:
+            titles[c] = channels.title_of(c)
+        p["chat_title"] = titles[c]
         payload = p.pop("payload", None) or {}
         p["title"] = title(payload)
         p["thumb"] = thumb(payload)

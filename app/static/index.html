@@ -26,8 +26,9 @@
   <rs-health id="health"></rs-health>
   <button id="spec-badge" class="badge" title="Версия Bot API, по которой строится редактор">Bot API …</button>
   <button id="spec-refresh" class="ghost icon-btn" title="Обновить спецификацию Bot API сейчас">↻</button>
-  <input id="chat" class="chat-input" placeholder="@канал или id" title="Можно несколько каналов через запятую: пост уйдёт в каждый">
-  <button id="btn-check" class="ghost" title="Бот админ? Есть права?">Проверить</button>
+  <input id="chat" type="text" hidden>
+  <button id="btn-check" class="ghost chat-btn" title="Канал этого черновика: выбрать, проверить права бота, темы форума">Канал</button>
+  <select id="topic" class="topic-select" title="Тема форума, в которую уйдёт пост" hidden></select>
   <button id="btn-me" class="ghost" title="Отправить пост себе в личку (TG_PREVIEW_CHAT)">Мне в личку</button>
   <button id="btn-poll" class="ghost" title="Опрос или викторина в канал">Опрос</button>
   <button id="btn-schedule" class="ghost">Отложить</button>

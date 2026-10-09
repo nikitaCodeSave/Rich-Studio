@@ -18,6 +18,7 @@ EXPECTED_TOOLS = {
     "list_drafts",
     "send_preview_to_me",
     "check_channel",
+    "list_channels",
     "publish_post",
     "schedule_post",
     "edit_post",
@@ -86,6 +87,23 @@ def test_publish_is_idempotent_and_marked_mcp(client, tg):
     assert len([c for c in tg.calls if c["method"] == "sendRichMessage"]) == 1
     [p] = store.list_posts()
     assert p["actor"] == "mcp" and p["status"] == "sent"
+
+
+def test_draft_channel_from_save_draft_is_used_by_publish(client, tg):
+    _, d, _ = call(client, "save_draft", post=BLOCKS_POST, title="Анонс", chat_ids=["@agent_chan"])
+    assert d["chat_ids"] == ["@agent_chan"]
+    _, again, _ = call(client, "save_draft", post=BLOCKS_POST, draft_id=d["id"], version=d["version"])
+    assert again["chat_ids"] == ["@agent_chan"]  # kept when not passed
+    # the dry run shows the channel the real send will use, not the default one
+    for tool, extra in (("publish_post", {}), ("schedule_post", {"at": "2099-01-01T09:00:00+03:00"})):
+        _, dry, _ = call(client, tool, draft_id=d["id"], version=again["version"], dry_run=True, **extra)
+        assert [r["params"]["chat_id"] for r in dry["requests"]] == ["@agent_chan"], tool
+    assert not tg.calls
+    res, _, _ = call(client, "publish_post", draft_id=d["id"], version=again["version"])
+    assert not res.get("isError"), res
+    assert tg.last("sendRichMessage")["body"]["chat_id"] == "@agent_chan"
+    call(client, "check_channel", chat_id="@agent_chan")
+    assert [c["title"] for c in call_list(client, "list_channels") if c["chat_id"] == "@agent_chan"] == ["Тест"]
 
 
 def test_list_posts_says_what_each_post_is_and_keeps_failures(client, tg):
@@ -345,3 +363,28 @@ def test_edit_post_by_draft_checks_the_version_and_the_post(client, tg):
     res, _, text = call(client, "edit_post", post_id=one["id"], draft_id=d["id"])
     assert res["isError"] and "version" in text
     assert not [c for c in tg.calls if c["method"] == "editMessageText"]
+
+
+def test_channels_are_named_wherever_a_post_goes(client, tg, monkeypatch):
+    import settings
+
+    monkeypatch.setattr(settings.get(), "default_chat", "@main")
+    call(client, "check_channel", chat_id="@named")  # the mock answers with the title «Тест»
+    _, d, _ = call(client, "save_draft", post=BLOCKS_POST, title="A", chat_ids=["@named"])
+    assert d["goes_to"] == [{"chat_id": "@named", "title": "Тест", "default": False}]
+    _, plain, _ = call(client, "save_draft", post=BLOCKS_POST, title="B")
+    assert plain["goes_to"] == [{"chat_id": "@main", "title": None, "default": True}]
+    drafts = {x["title"]: x["goes_to"] for x in call_list(client, "list_drafts")}
+    assert drafts["A"][0]["title"] == "Тест" and drafts["B"][0]["default"] is True
+    _, got, _ = call(client, "get_draft", draft_id=d["id"])
+    assert got["goes_to"][0]["title"] == "Тест"
+    _, dry, _ = call(client, "publish_post", draft_id=d["id"], version=d["version"], dry_run=True)
+    assert dry["requests"][0]["chat_title"] == "Тест"
+    _, sent, _ = call(client, "publish_post", draft_id=d["id"], version=d["version"])
+    assert sent["results"][0]["chat_title"] == "Тест"
+    _, later, _ = call(client, "schedule_post", post=BLOCKS_POST, chat_id="@named", at="2099-01-01T09:00:00+03:00")
+    assert later["chat_title"] == "Тест"
+    rows = call_list(client, "list_posts")
+    assert {p["chat_title"] for p in rows} == {"Тест"}
+    _, one, _ = call(client, "get_post", post_id=rows[0]["id"])
+    assert one["chat_title"] == "Тест"

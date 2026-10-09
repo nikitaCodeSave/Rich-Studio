@@ -5,6 +5,7 @@ from fastapi import APIRouter
 import store
 from errors import Conflict, NotFound
 from models import DraftReq
+from services import publisher
 
 router = APIRouter(tags=["drafts"])
 
@@ -24,12 +25,16 @@ def draft(did: str):
 
 @router.post("/api/drafts")
 def create_draft(req: DraftReq):
-    return store.save_draft(None, req.title, req.post, post_id=req.post_id)
+    return store.save_draft(
+        None, req.title, req.post, post_id=req.post_id, chat_ids=publisher.normalize_chats(req.chat_ids) or None
+    )
 
 
 @router.put("/api/drafts/{did}")
 def put_draft(did: str, req: DraftReq):
-    d = store.save_draft(did, req.title, req.post, req.version, req.post_id)
+    old = (store.get_draft(did) or {}).get("chat_ids")
+    chat_ids = (publisher.normalize_chats(req.chat_ids) or None) if req.chat_ids is not None else old
+    d = store.save_draft(did, req.title, req.post, req.version, req.post_id, chat_ids)
     if d is None:
         current = store.get_draft(did)
         raise Conflict(

@@ -12,6 +12,8 @@ import settings
 import store
 import telegram as tg
 
+from . import channels
+
 log = logging.getLogger("rich-studio.updates")
 # tests replace this one name; patching asyncio.sleep itself would also stop the fake Telegram server
 _sleep = asyncio.sleep
@@ -92,6 +94,12 @@ async def handle_update(u: dict) -> str | None:
                 raise
             log.warning("button click came too late to answer: %s", e.description)
         return "callback"
+    if (m := u.get("message")) and (topic := m.get("forum_topic_created") or m.get("forum_topic_edited")):
+        # the Bot API cannot list a forum's topics: the ones created or renamed while the studio runs are learned here
+        if topic.get("name"):
+            channels.remember_topic((m.get("chat") or {}).get("id"), m.get("message_thread_id"), topic["name"])
+            return "topic"
+        return None
     if (m := u.get("message")) and m.get("is_automatic_forward"):
         origin = m.get("forward_origin") or {}
         if origin.get("type") != "channel":

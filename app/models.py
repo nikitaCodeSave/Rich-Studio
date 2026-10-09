@@ -86,3 +86,21 @@ class DraftReq(BaseModel):
     post_id: str | None = Field(
         None, description="id опубликованного или отложенного поста, который правится в этом черновике"
     )
+    chat_ids: list[str | int] | None = Field(
+        None,
+        description="Каналы, для которых черновик: публикация из него без chat_id уходит туда. "
+        "Без поля остаются прежние, [] — канал по умолчанию",
+    )
+
+
+class ChannelReq(BaseModel):
+    chat_id: str | int = Field(..., description="@канал или числовой id")
+
+
+class Topic(BaseModel):
+    id: int = Field(..., description="message_thread_id темы: число в ссылке t.me/c/<канал>/<тема>/<сообщение>")
+    name: str = ""
+
+
+class TopicsReq(BaseModel):
+    topics: list[Topic]

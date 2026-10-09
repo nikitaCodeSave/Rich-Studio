@@ -9,6 +9,7 @@
  */
 import { api, setKeyCookie } from './api.js';
 import { bindCode, snippetBar } from './code.js';
+import { bindTarget, loadChannels, showTarget } from './channels.js';
 import { closeDialog, openDialog } from './dialogs.js';
 import { $, $$, act, debounce, h, store, toast } from './dom.js';
 import { effect } from '../vendor/signals-core.js';
@@ -44,7 +45,11 @@ function bindActions() {
   $('#btn-redo').onclick = redo;
   $('#btn-new').onclick = () => { if (!dirty.value || confirm('Есть несохранённые изменения. Создать новый черновик?')) newDraft(); };
   $('#title').oninput = () => { dirty.value = true; autosave(); };
-  $('#chat').oninput = debounce(() => { store.set('chat', $('#chat').value); renderPreview(); }, 300);
+  // the channel belongs to the draft: changing it is a change of the draft
+  // dirty at once: a publish right after the change must not go by the old saved channels; only the redraw waits
+  const redrawTarget = debounce(() => { showTarget(); renderPreview(); }, 300);
+  $('#chat').oninput = () => { dirty.value = true; saveState.value = 'есть изменения'; autosave(); redrawTarget(); };
+  bindTarget();
   addEventListener('keydown', (e) => {
     if (!(e.ctrlKey || e.metaKey)) return;
     const key = e.key.toLowerCase();
@@ -55,13 +60,6 @@ function bindActions() {
   });
   addEventListener('beforeunload', (e) => { if (dirty.value) { if (S.draftId) saveDraft(true).catch(() => {}); e.preventDefault(); e.returnValue = ''; } });
 
-  $('#btn-check').onclick = () => act(async () => {
-    const r = await api('GET', '/api/check' + (chat() ? '?chat_id=' + encodeURIComponent(chat()) : ''));
-    openDialog([h('h3', { text: 'Проверка бота' }),
-      h('p', {}, `Бот @${r.bot.username} в «${r.chat.title || r.chat.username || r.chat.id}» (${r.chat.type}), статус: `, h('b', { text: r.status })),
-      h('p', { class: r.can_post ? 'ok' : 'err', text: r.can_post ? '✓ Может публиковать посты' : '✕ Нет права публиковать. Сделайте бота админом с правом «Публикация сообщений».' }),
-      h('pre', { class: 'code', text: JSON.stringify(r.rights, null, 1) })]);
-  });
   $('#btn-me').onclick = () => act(async () => {
     const post = buildPost();
     const r = await api('POST', '/api/preview-send', { post });
@@ -158,7 +156,7 @@ async function boot() {
   } catch (e) { document.body.prepend(h('p', { class: 'err', style: 'padding:12px', text: 'Не удалось загрузить сервис: ' + e.message })); return; }
   dark.value = store.get('dark', dark.value);
   if (store.get('apiKey', '')) setKeyCookie(store.get('apiKey', ''));
-  $('#chat').value = store.get('chat', '') || S.config.default_chat || '';
+  $('#chat').value = S.config.default_chat || '';
   $('#chat').placeholder = S.config.default_chat || '@канал или id';
   if (!S.config.token_set) toast('TG_BOT_TOKEN не задан: редактор и предпросмотр работают, отправка нет. Добавьте токен в .env и перезапустите.', 'err');
   updateBadge();
@@ -166,6 +164,7 @@ async function boot() {
   bindEffects();
   bindActions();
   watchHealth();
+  await loadChannels().catch(() => {}); // the lists below name channels by title
   await Promise.all([loadUploads().catch(() => {}), loadPosts().catch(() => {})]);
   const last = store.get('lastDraft', null);
   await loadDrafts();
