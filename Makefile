@@ -2,7 +2,7 @@
 # Инструменты запускаются тем же Python, куда ставили requirements-dev.txt.
 PY ?= python3
 
-.PHONY: check check-py check-js fmt test openapi e2e mock dev
+.PHONY: check check-py check-js fmt test openapi e2e mock dev spec-update
 
 check: check-py check-js
 
@@ -43,3 +43,7 @@ dev:
 # Браузерные проверки: сначала `make mock` и `make dev` в соседних терминалах.
 e2e:
 	npm run --silent test:e2e
+
+# newer Bot API spec into app/bundled/api.json; exit 10 = updated, then make tests/test_spec_coverage.py green
+spec-update:
+	$(PY) scripts/update_spec.py
