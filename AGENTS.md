@@ -48,7 +48,9 @@ make fmt                                        # автоисправление
 | инструмент MCP для агентов | `app/mcp_tools/server.py` + тест в `tests/test_mcp.py` |
 | редактор | `app/static/js/` (см. AGENTS.md там) |
 | предпросмотр | `app/static/render.js`, стили `tg.css`; в чате Claude: `app/static/preview-app.js` + `app/mcp_tools/preview_app.py` |
+| журнал, `/api/health`, уборка | `app/logs.py`, `app/metrics.py`, `app/services/health.py`, `housekeeping.py`; устройство в `docs/OBSERVABILITY.md` |
 | тесты | `tests/` (см. AGENTS.md там) |
 | skill для пользователя | `.claude/skills/telegram-rich-posts/SKILL.md` |
+| здоровье работающей студии (skill и субагент) | `.claude/skills/studio-health/SKILL.md`, `.claude/agents/studio-monitor.md` |
 
 Сообщения коммитов и описания PR пиши по-русски или по-английски, коротко: что видно снаружи и зачем.

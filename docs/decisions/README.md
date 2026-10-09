@@ -13,3 +13,4 @@
 | [0003](0003-spec-source.md) | Спецификация Bot API из telegram-bot-api-spec, а не со страницы Telegram |
 | [0004](0004-no-retry-after-send.md) | Нет автоповтора, если пост мог уйти |
 | [0005](0005-missed-scheduled-posts.md) | Опоздавший отложенный пост не отправляется сам |
+| [0006](0006-observability-in-process.md) | Наблюдаемость внутри процесса: журнал с ротацией и `/api/health`, без Prometheus и Grafana |

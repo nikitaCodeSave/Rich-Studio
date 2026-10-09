@@ -869,6 +869,127 @@
     ]
    }
   },
+  "/api/health": {
+   "get": {
+    "operationId": "health_report_api_health_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Состояние студии: проверки ok/warn/fail с подсказкой, что делать, счётчики и последние ошибки",
+    "tags": [
+     "service"
+    ]
+   }
+  },
+  "/api/logs": {
+   "get": {
+    "operationId": "read_logs_api_logs_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "level",
+      "required": false,
+      "schema": {
+       "default": "INFO",
+       "enum": [
+        "DEBUG",
+        "INFO",
+        "WARNING",
+        "ERROR",
+        "CRITICAL"
+       ],
+       "title": "Level",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "limit",
+      "required": false,
+      "schema": {
+       "default": 100,
+       "maximum": 1000,
+       "minimum": 1,
+       "title": "Limit",
+       "type": "integer"
+      }
+     },
+     {
+      "description": "unix-время: только строки не старше",
+      "in": "query",
+      "name": "since",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "number"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "unix-время: только строки не старше",
+       "title": "Since"
+      }
+     },
+     {
+      "description": "начало имени, например rich-studio.telegram",
+      "in": "query",
+      "name": "logger",
+      "required": false,
+      "schema": {
+       "default": "",
+       "description": "начало имени, например rich-studio.telegram",
+       "title": "Logger",
+       "type": "string"
+      }
+     },
+     {
+      "description": "подстрока в строке журнала",
+      "in": "query",
+      "name": "q",
+      "required": false,
+      "schema": {
+       "default": "",
+       "description": "подстрока в строке журнала",
+       "title": "Q",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Журнал студии (строки JSON), новые в конце; без токена и текста постов",
+    "tags": [
+     "service"
+    ]
+   }
+  },
   "/api/media": {
    "get": {
     "operationId": "media_list_api_media_get",

@@ -7,6 +7,8 @@
 | `app/main.py` | `create_app()`: middleware, обработчики ошибок, роутеры, фоновые циклы | логики нет |
 | `app/settings.py` | все переменные окружения в одном `Settings`; модули вызывают `settings.get()` в момент использования | не читает env при импорте других модулей |
 | `app/security.py` | Host, CSRF, Content-Type, X-API-Key, CSP | |
+| `app/logs.py` | журнал: stderr для человека, JSON с ротацией в `DATA_DIR/logs` для агента, вычистка токена, чтение с фильтрами | |
+| `app/metrics.py` | счётчики и пульс фоновых циклов в памяти процесса; его можно звать из любого слоя | не пишет на диск |
 | `app/errors.py` | `StudioError` (400), `NotFound`, `Invalid` (422), `Upstream` (502) | |
 | `app/models.py` | тела запросов (pydantic), описания полей на русском для /docs | |
 | `app/api/*.py` | роутеры: разобрать запрос → вызвать сервис → вернуть результат | не ходят в Telegram напрямую, кроме `raw` и `check` |
@@ -15,6 +17,8 @@
 | `app/services/posts.py` | что можно сделать с постом: опубликовать, предпросмотр, отложить, заменить, закрепить, кнопки, удалить, опросы | |
 | `app/services/scheduler.py` | отложенные посты | |
 | `app/services/updates.py` | getUpdates: нажатия, первый комментарий, реакции, опросы; `STATUS` | |
+| `app/services/health.py` | отчёт о состоянии: проверки `ok/warn/fail` с подсказкой `action` | только читает |
+| `app/services/housekeeping.py` | раз в 5 минут пишет смену статуса проверок в журнал, раз в час уборка | не удаляет сделанное человеком без `VERSIONS_KEEP` / `MEDIA_UNUSED_DAYS` |
 | `app/services/media.py` | имена загрузок, путь внутри папки media | |
 | `app/telegram/` | транспорт к Bot API, `upload:` → `attach://`, проверка прав бота | не меняет payload, кроме `upload:` |
 | `app/store/` | SQLite: соединения, миграции (`PRAGMA user_version`), черновики, посты | |
@@ -39,6 +43,7 @@
 - Новое событие от Telegram: ветка в `services/updates.handle_update` и тип в `ALLOWED_UPDATES`.
 - Новая колонка в БД: `EXTRA_COLUMNS` в `store/db.py`, если это колонка; иначе новый шаг в `MIGRATIONS` (только добавлять в конец).
 - Новая настройка: поле в `Settings` + `from_env` + строка в `.env.example`.
+- Новая проверка состояния, событие в журнале или фоновый цикл: [OBSERVABILITY.md](OBSERVABILITY.md#куда-добавлять-новое).
 
 ## Тесты
 

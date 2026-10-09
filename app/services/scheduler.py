@@ -4,6 +4,7 @@ import asyncio
 import logging
 import time
 
+import metrics
 import settings
 import store
 import telegram as tg
@@ -70,8 +71,11 @@ async def run_due_posts() -> int:
 
 async def loop() -> None:
     while True:
+        error = None
         try:
             await run_due_posts()
-        except Exception:
+        except Exception as e:
             log.exception("scheduler iteration failed")
+            error = f"{type(e).__name__}: {e}"
+        metrics.beat("scheduler", INTERVAL, error)
         await asyncio.sleep(INTERVAL)

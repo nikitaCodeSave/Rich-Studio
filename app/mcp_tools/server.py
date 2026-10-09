@@ -16,6 +16,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
+import logs
 import settings
 import spec
 import store
@@ -23,7 +24,7 @@ import telegram as tg
 from errors import Conflict, NotFound, StudioError
 from mcp_tools import preview_app
 from models import Post
-from services import idempotency, media, posts, publisher, updates
+from services import health, idempotency, media, posts, publisher, updates
 
 ACTOR = "mcp"
 
@@ -34,6 +35,7 @@ as in Telegram right in the chat) → save_draft and/or send_preview_to_me
 To continue the user's work: list_drafts → get_draft → save_draft with draft_id and version (the editor shows it).
 To change a published post: list_posts → get_post (read it first) → edit_post; post_history shows earlier versions.
 studio_status says whether scheduled posts, button answers and first comments will actually work.
+studio_health lists what is wrong and what to do (status ok|warn|fail per check); studio_logs reads the log.
 A post is {"rich_message": InputRichMessage with exactly one of html|markdown|blocks, "reply_markup"?,
 "options"?, "pin"?, "comment"?, "callbacks"?}; it reaches the Bot API unchanged. describe_type gives exact
 fields of any Bot API type. Uploaded files are referenced as upload:<name>."""
@@ -219,6 +221,25 @@ def build() -> MCPServer:
             "mcp_publish": cfg.mcp_publish,
             "note": "отложенные посты отправляет сама студия: в это время она должна работать",
         }
+
+    @tool(READ)
+    async def studio_health() -> dict:
+        """Состояние студии целиком: проверки (база, диск, Telegram, фоновые циклы, очередь, сбойные и неясные
+        отправки, спецификация, бэкап, место, ошибки в журнале) со статусом ok/warn/fail и подсказкой action,
+        счётчики вызовов и последние предупреждения. Ничего не меняет."""
+        return health.report()
+
+    @tool(READ)
+    async def studio_logs(
+        level: Annotated[str, Field(description="DEBUG | INFO | WARNING | ERROR | CRITICAL: этот и выше")] = "WARNING",
+        limit: Annotated[int, Field(ge=1, le=500)] = 50,
+        since: Annotated[float | None, Field(description="unix-время: только строки не старше")] = None,
+        logger: Annotated[str, Field(description="начало имени: rich-studio.telegram, rich-studio.http…")] = "",
+        text: Annotated[str, Field(description="подстрока в строке")] = "",
+    ) -> list:
+        """Последние строки журнала студии (JSON: ts, level, logger, msg, event и поля события), новые в конце.
+        Токена и текста постов в журнале нет."""
+        return logs.read(level, limit, since, logger, text)
 
     @tool(TO_ME)
     async def send_preview_to_me(post: PostArg) -> dict:
