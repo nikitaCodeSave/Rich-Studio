@@ -3,7 +3,6 @@
 import time
 
 import httpx
-import pytest
 
 import store
 from test_api import BLOCKS_POST
@@ -75,8 +74,7 @@ def test_error_after_telegram_accepted_never_resends_with_same_key(client, tg, m
 
     h = {"Idempotency-Key": "post-5"}
     monkeypatch.setattr(store, "add_post", broken)
-    with pytest.raises(RuntimeError):
-        client.post("/api/send", json={"post": BLOCKS_POST}, headers=h)
+    assert client.post("/api/send", json={"post": BLOCKS_POST}, headers=h).status_code == 500
     monkeypatch.setattr(store, "add_post", real)
     again = client.post("/api/send", json={"post": BLOCKS_POST}, headers=h)
     assert again.status_code == 502 and "мог уйти" in again.json()["detail"]

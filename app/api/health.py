@@ -9,6 +9,7 @@ import logs
 from services import health
 
 router = APIRouter(tags=["service"])
+SINCE_MAX = 4102444800  # 2100-01-01: time.localtime() fails on larger values
 
 
 @router.get(
@@ -22,7 +23,7 @@ def health_report():
 @router.get("/readyz", include_in_schema=False)
 def ready():
     """Readiness, unlike /healthz (liveness): 503 while any check fails. Public, so it says only which checks."""
-    failing = [c["name"] for c in health.report()["checks"] if c["status"] == "fail"]
+    failing = [c["name"] for c in health.cached_report()["checks"] if c["status"] == "fail"]
     return JSONResponse({"ready": not failing, "failing": failing}, status_code=503 if failing else 200)
 
 
@@ -30,7 +31,7 @@ def ready():
 def read_logs(
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO",
     limit: int = Query(100, ge=1, le=1000),
-    since: float | None = Query(None, description="unix-время: только строки не старше"),
+    since: float | None = Query(None, ge=0, le=SINCE_MAX, description="unix-время: только строки не старше"),
     logger: str = Query("", description="начало имени, например rich-studio.telegram"),
     q: str = Query("", description="подстрока в строке журнала"),
 ):

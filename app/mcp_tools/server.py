@@ -233,7 +233,9 @@ def build() -> MCPServer:
     async def studio_logs(
         level: Annotated[str, Field(description="DEBUG | INFO | WARNING | ERROR | CRITICAL: этот и выше")] = "WARNING",
         limit: Annotated[int, Field(ge=1, le=500)] = 50,
-        since: Annotated[float | None, Field(description="unix-время: только строки не старше")] = None,
+        since: Annotated[
+            float | None, Field(ge=0, le=4102444800, description="unix-время: только строки не старше")
+        ] = None,
         logger: Annotated[str, Field(description="начало имени: rich-studio.telegram, rich-studio.http…")] = "",
         text: Annotated[str, Field(description="подстрока в строке")] = "",
     ) -> list:

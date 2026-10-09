@@ -242,7 +242,7 @@ def storage() -> dict:
 
 def log_problems() -> dict:
     since = time.time() - RECENT_ERRORS
-    errors = [r for r in metrics.recent if r["level"] in ("ERROR", "CRITICAL") and r["at"] >= since]
+    errors = [r for r in metrics.errors if r["at"] >= since]
     if errors:
         return _check(
             "log",
@@ -269,6 +269,17 @@ CHECKS: dict[str, Callable[[], dict]] = {
 }
 
 
+READY_CACHE_S = 30
+_ready_cache: dict[str, Any] = {"at": 0.0, "report": None}
+
+
+def cached_report() -> dict:
+    """For the public /readyz: the full report walks the media folder, so anyone polling it gets a recent copy."""
+    if time.time() - _ready_cache["at"] > READY_CACHE_S or _ready_cache["report"] is None:
+        _ready_cache.update(at=time.time(), report=report())
+    return _ready_cache["report"]
+
+
 def report() -> dict:
     checks = []
     for name, fn in CHECKS.items():
@@ -278,15 +289,18 @@ def report() -> dict:
             checks.append(_check(name, "fail", f"проверка не выполнилась: {type(e).__name__}: {e}"))
     status = max((c["status"] for c in checks), key=ORDER.__getitem__)
     now = time.time()
-    return {
-        "status": status,
-        # which build is answering: an agent comparing two reports must know whether the studio was upgraded
-        "version": settings.VERSION,
-        "bot_api": spec.current.version,
-        "time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)),
-        "checked_at": int(now),
-        "problems": [f"{c['name']}: {c['summary']}" for c in checks if c["status"] != "ok"],
-        "checks": checks,
-        "metrics": metrics.snapshot(),
-        "recent_problems": list(metrics.recent)[-10:],
-    }
+    # error texts come from Telegram, proxies and exceptions; a proxy's 404 page may echo the URL with the token
+    return logs.scrub_all(
+        {
+            "status": status,
+            # which build is answering: an agent comparing two reports must know whether the studio was upgraded
+            "version": settings.VERSION,
+            "bot_api": spec.current.version,
+            "time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)),
+            "checked_at": int(now),
+            "problems": [f"{c['name']}: {c['summary']}" for c in checks if c["status"] != "ok"],
+            "checks": checks,
+            "metrics": metrics.snapshot(),
+            "recent_problems": list(metrics.recent)[-10:],
+        }
+    )
