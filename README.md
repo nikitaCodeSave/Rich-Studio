@@ -98,7 +98,9 @@ claude mcp add --transport http rich-studio http://localhost:8080/mcp
 claude mcp add --transport http rich-studio http://localhost:8080/mcp --header "X-API-Key: <ключ>"
 ```
 
-Инструменты: `bot_api_status`, `describe_type`, `validate_post`, `save_draft`, `list_drafts`, `send_preview_to_me`, `check_channel`, `publish_post` (с `idempotency_key` и `dry_run`), `schedule_post`, `edit_post`, `list_posts`. Публикация помечена как действие с внешним эффектом, так что клиент спросит подтверждение. Посты от агента записываются с отметкой `mcp`. Удаление постов и произвольные методы Bot API (`/api/raw`) через MCP недоступны.
+Инструменты: `bot_api_status`, `describe_type`, `validate_post`, `save_draft`, `list_drafts`, `send_preview_to_me`, `check_channel`, `publish_post` (с `idempotency_key` и `dry_run`), `schedule_post`, `edit_post`, `list_posts`, `preview_post`. Публикация помечена как действие с внешним эффектом, так что клиент спросит подтверждение. Посты от агента записываются с отметкой `mcp`. Удаление постов и произвольные методы Bot API (`/api/raw`) через MCP недоступны.
+
+`preview_post` показывает пост прямо в чате так, как его нарисует Telegram (MCP App `ui://rich-studio/preview`, тот же `render.js`), вместе с ошибками проверки. Это работает в клиентах с поддержкой MCP Apps, например в Claude; остальные получают тот же результат текстом. Картинки `upload:<имя>` в чате не загружаются: окно предпросмотра не имеет доступа к сети.
 
 ## Skill для Claude Code
 

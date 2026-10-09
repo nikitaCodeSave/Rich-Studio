@@ -40,7 +40,7 @@ make fmt                                        # автоисправление
 | новая настройка | `app/settings.py` + `.env.example` |
 | инструмент MCP для агентов | `app/mcp_tools/server.py` + тест в `tests/test_mcp.py` |
 | редактор | `app/static/js/` (см. AGENTS.md там) |
-| предпросмотр | `app/static/render.js`, стили `tg.css` |
+| предпросмотр | `app/static/render.js`, стили `tg.css`; в чате Claude: `app/static/preview-app.js` + `app/mcp_tools/preview_app.py` |
 | тесты | `tests/` (см. AGENTS.md там) |
 | skill для пользователя | `skill/telegram-rich-posts/SKILL.md` |
 
