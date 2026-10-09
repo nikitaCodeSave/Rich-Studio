@@ -20,7 +20,7 @@ export const S = {
   spec: /** @type {SpecSummary} */ (/** @type {unknown} */ (null)), config: {}, draftId: null, draftVersion: null, conflict: false, format: 'blocks', mode: 'blocks',
   buf: { blocks: [], html: '', markdown: '' }, media: [], flags: {}, keyboard: [], options: {},
   extra: { pin: false, comment: '', commentObj: null, callbacks: {} }, updates: null,
-  uploads: [], posts: [], drafts: [], channels: [],
+  uploads: [], posts: [], drafts: [], channels: [], topicChat: undefined,
 };
 
 export const chats = () => $('#chat').value.split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean);

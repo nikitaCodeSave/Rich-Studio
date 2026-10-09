@@ -344,7 +344,7 @@ def build() -> MCPServer:
         черновика, а если их нет, в канал по умолчанию. Опубликованный из черновика пост связан с ним."""
         p, _ = _source(post, draft_id, version, publish=not dry_run)
         if dry_run:
-            return await posts.send(p, chat_id, chat_ids, dry_run=True)
+            return await posts.send(p, chat_id, chat_ids, draft_id, dry_run=True)
         body = {"post": p, "chat_id": chat_id, "chat_ids": chat_ids, "draft_id": draft_id, "dry_run": False}
         return await idempotency.run(
             _key(idempotency_key, "send", body),
@@ -368,7 +368,7 @@ def build() -> MCPServer:
         если она была выключена и пост опоздал больше schedule_late_min, он станет missed и не уйдёт сам."""
         p, _ = _source(post, draft_id, version, publish=not dry_run)
         if dry_run:
-            return posts.schedule(p, at, chat_id, chat_ids, dry_run=True)
+            return posts.schedule(p, at, chat_id, chat_ids, draft_id, dry_run=True)
         body = {"post": p, "chat_id": chat_id, "chat_ids": chat_ids, "draft_id": draft_id, "dry_run": False, "at": at}
 
         async def action():

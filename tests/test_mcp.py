@@ -94,6 +94,11 @@ def test_draft_channel_from_save_draft_is_used_by_publish(client, tg):
     assert d["chat_ids"] == ["@agent_chan"]
     _, again, _ = call(client, "save_draft", post=BLOCKS_POST, draft_id=d["id"], version=d["version"])
     assert again["chat_ids"] == ["@agent_chan"]  # kept when not passed
+    # the dry run shows the channel the real send will use, not the default one
+    for tool, extra in (("publish_post", {}), ("schedule_post", {"at": "2099-01-01T09:00:00+03:00"})):
+        _, dry, _ = call(client, tool, draft_id=d["id"], version=again["version"], dry_run=True, **extra)
+        assert [r["params"]["chat_id"] for r in dry["requests"]] == ["@agent_chan"], tool
+    assert not tg.calls
     res, _, _ = call(client, "publish_post", draft_id=d["id"], version=again["version"])
     assert not res.get("isError"), res
     assert tg.last("sendRichMessage")["body"]["chat_id"] == "@agent_chan"

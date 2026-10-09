@@ -3,14 +3,18 @@ import { api } from './api.js';
 import { showTarget } from './channels.js';
 import { closeDialog, openDialog } from './dialogs.js';
 import { $, h, store, toast } from './dom.js';
-import { draftPayload, flushSave, loadPost } from './editor.js';
+import { changed, draftPayload, flushSave, loadPost } from './editor.js';
 import { followDraft } from './editing.js';
 import { resetHistory } from './history.js';
 import { chats, dirty, editing, S, saveState } from './state.js';
 
-// the draft's own channels; one without them goes to the default channel
+// the draft's own channels; one without them goes to the channel the editor used to remember
+// (rs.chat, before drafts kept channels; dropped once a draft saves it) or to the default channel.
+// Returns true when that old choice was taken, so the draft saves it.
 function setChannels(ids) {
-  /** @type {HTMLInputElement} */ ($('#chat')).value = ids && ids.length ? ids.join(', ') : S.config.default_chat || '';
+  const legacy = ids && ids.length ? '' : store.get('chat', '');
+  /** @type {HTMLInputElement} */ ($('#chat')).value = ids && ids.length ? ids.join(', ') : legacy || S.config.default_chat || '';
+  return !!legacy;
 }
 
 // ---------- drafts ----------
@@ -30,12 +34,13 @@ export async function openDraft(id) {
   const d = await api('GET', '/api/drafts/' + id);
   S.draftId = d.id; S.draftVersion = d.version;
   $('#title').value = d.title || '';
-  setChannels(d.chat_ids);
+  const migrated = setChannels(d.chat_ids);
   await followDraft(d);
   loadPost(d.payload);
   showTarget();
   resetHistory();
   dirty.value = false; saveState.value = 'сохранено';
+  if (migrated) changed(); // the old remembered channel moves into the draft
   store.set('lastDraft', id);
   loadDrafts();
 }
@@ -62,6 +67,7 @@ async function doSave(silent, overwrite) {
   S.draftId = d.id; S.draftVersion = d.version; $('#title').value = d.title;
   dirty.value = false; saveState.value = 'сохранено ' + new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
   store.set('lastDraft', d.id);
+  if (body.chat_ids.length) store.del('chat'); // the channel lives in the draft now
   if (!silent) toast('Черновик сохранён', 'ok');
   loadDrafts();
   return d;

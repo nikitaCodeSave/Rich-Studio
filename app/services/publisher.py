@@ -34,10 +34,25 @@ def resolve_chat(chat_id) -> int | str:
 def targets(chat_id, chat_ids, draft_id: str | None = None) -> list:
     """Where a post goes: the chats given, else the ones its draft is meant for, else TG_DEFAULT_CHAT."""
     if not chat_ids and chat_id in (None, "") and draft_id:
-        chat_ids = (store.get_draft(draft_id) or {}).get("chat_ids")
+        d = store.get_draft(draft_id)
+        if d is None:  # a deleted draft must not silently send to the default channel
+            raise StudioError(f"черновика {draft_id} нет: укажите chat_id явно")
+        chat_ids = d.get("chat_ids")
     if chat_ids:
         return [resolve_chat(c) for c in dict.fromkeys(chat_ids)]
     return [resolve_chat(chat_id)]
+
+
+def check_thread(chats: list, post: dict) -> None:
+    """A forum topic belongs to one chat: refuse it for several chats or for a known non-forum one."""
+    tid = (post.get("options") or {}).get("message_thread_id")
+    if tid in (None, ""):
+        return
+    if len(chats) > 1:
+        raise StudioError("тема форума (message_thread_id) задаётся для одного канала, а каналов несколько")
+    ch = store.get_channel(chats[0])
+    if ch and ch.get("type") and not ch.get("is_forum"):
+        raise StudioError(f"{ch.get('title') or chats[0]} не форум: уберите message_thread_id из options")
 
 
 def options(post: dict) -> dict:

@@ -177,6 +177,8 @@ interface EditorState {
   posts: PostRow[];
   drafts: DraftRow[];
   channels: Channel[];
+  /** the chat the forum topic in options was chosen for; another chat drops the topic */
+  topicChat?: string;
 }
 
 /** one entry of GET /api/health `checks` */

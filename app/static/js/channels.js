@@ -24,13 +24,14 @@ export function showTarget() {
   btn.title = (list.length ? 'Пост уйдёт в: ' + list.map((id, i) => names[i] === id ? id : `${names[i]} (${id})`).join(', ') + '\n' : '') + 'Выбрать канал, проверить права бота, темы форума';
   const one = list.length === 1 ? channelOf(list[0]) : null;
   const sel = /** @type {HTMLSelectElement} */ ($('#topic'));
-  const topic = S.options.message_thread_id;
-  if (!one || !one.is_forum) {
-    sel.hidden = true;
-    // a topic of another chat would send the post nowhere: it goes with the channel
-    if (topic !== undefined && list.length !== 1) { delete S.options.message_thread_id; changed(); }
-    return;
+  let topic = S.options.message_thread_id;
+  if (topic === undefined) S.topicChat = undefined;
+  else if (S.topicChat === undefined && list.length === 1) S.topicChat = list[0];
+  // a topic belongs to its chat: in another chat it would send the post nowhere or to a wrong thread
+  else if (list.length !== 1 || list[0] !== S.topicChat) {
+    delete S.options.message_thread_id; S.topicChat = undefined; topic = undefined; changed();
   }
+  if (!one || !one.is_forum) { sel.hidden = true; return; }
   const topics = one.topics || [];
   sel.replaceChildren(h('option', { value: '', text: 'Тема: General' }),
     ...topics.map((t) => h('option', { value: String(t.id), text: 'Тема: ' + t.name, selected: t.id === topic ? true : null })),
@@ -43,7 +44,7 @@ export function bindTarget() {
   const sel = /** @type {HTMLSelectElement} */ ($('#topic'));
   sel.onchange = () => {
     if (sel.value === '+') { showChannels(); showTarget(); return; }
-    if (sel.value) S.options.message_thread_id = Number(sel.value); else delete S.options.message_thread_id;
+    if (sel.value) { S.options.message_thread_id = Number(sel.value); S.topicChat = chats()[0]; } else delete S.options.message_thread_id;
     changed();
   };
   $('#btn-check').onclick = showChannels;

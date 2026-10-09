@@ -75,3 +75,24 @@ def test_topic_goes_to_telegram_as_message_thread_id(client, tg):
     client.post("/api/send", json={"post": post, "chat_id": "-1002627012139"})
     body = tg.last("sendRichMessage")["body"]
     assert body["message_thread_id"] == 7 and body["chat_id"] == -1002627012139
+
+
+def test_deleted_draft_needs_an_explicit_channel(client, tg):
+    d = client.post("/api/drafts", json={"title": "A", "post": BLOCKS_POST, "chat_ids": ["@chan_a"]}).json()
+    client.delete(f"/api/drafts/{d['id']}")
+    r = client.post("/api/send", json={"post": BLOCKS_POST, "draft_id": d["id"]})
+    assert r.status_code == 400 and "chat_id" in r.json()["detail"]
+    r = client.post("/api/send", json={"post": BLOCKS_POST, "draft_id": d["id"], "chat_id": "@chan_b"})
+    assert r.status_code == 200 and tg.last("sendRichMessage")["body"]["chat_id"] == "@chan_b"
+
+
+def test_topic_needs_one_forum_chat(client, tg):
+    post = {**BLOCKS_POST, "options": {"message_thread_id": 7}}
+    r = client.post("/api/send", json={"post": post, "chat_ids": ["@a", "@b"]})
+    assert r.status_code == 400 and "несколько" in r.json()["detail"]
+    tg.queue["getChat"] = [{"ok": True, "result": {"id": -100555, "type": "channel", "title": "Канал"}}]
+    client.post("/api/channels", json={"chat_id": "-100555"})
+    for path, extra in (("/api/send", {}), ("/api/schedule", {"at": "2099-01-01T09:00:00+03:00"})):
+        r = client.post(path, json={"post": post, "chat_id": "-100555", "dry_run": True, **extra})
+        assert r.status_code == 400 and "не форум" in r.json()["detail"], path
+    assert not [c for c in tg.calls if c["method"] == "sendRichMessage"]

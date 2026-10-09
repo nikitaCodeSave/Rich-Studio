@@ -54,6 +54,7 @@ export function loadPost(post) {
   post = clone(post || {});
   const studio = post._studio;
   delete post._studio;
+  S.topicChat = undefined; // the loaded post's topic belongs to the channel it is opened with
   const rm = post.rich_message || {};
   S.buf = { blocks: [], html: '', markdown: '' };
   S.format = rm.blocks ? 'blocks' : rm.markdown !== undefined ? 'markdown' : rm.html !== undefined ? 'html' : 'blocks';
