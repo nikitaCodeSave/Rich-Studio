@@ -237,7 +237,7 @@ claude mcp add --transport http rich-studio http://localhost:8080/mcp --header "
 
 Инструменты: `bot_api_status`, `refresh_bot_api` (скачать спецификацию сейчас), `studio_status` (что работает: токен, приём событий, предел опоздания отложки), `studio_health` (что сломано и что делать), `studio_logs` (журнал), `describe_type`, `validate_post`, `preview_post`, `save_draft` (новый или обновить существующий с проверкой версии; сразу возвращает результат проверки), `list_drafts`, `get_draft`, `list_media`, `send_preview_to_me`, `check_channel`, `publish_post` (с `idempotency_key` и `dry_run`), `schedule_post` (тоже с `dry_run`), `list_posts`, `get_post`, `post_history`, `edit_post`, `reschedule_post`, `cancel_scheduled_post`.
 
-Агент передаёт JSON поста один раз, в `save_draft`; дальше `preview_post`, `publish_post` и `schedule_post` берут пост по `draft_id`. Публикация по `draft_id` требует `version` и откажет, если вы успели изменить черновик в редакторе после предпросмотра.
+Агент передаёт JSON поста один раз, в `save_draft`; дальше `preview_post`, `publish_post` и `schedule_post` берут пост по `draft_id`. Публикация по `draft_id` требует `version`, которую вернул `preview_post`, и откажет, если вы успели изменить черновик в редакторе после предпросмотра. Черновик-правка опубликованного поста уходит только через `edit_post` с `draft_id`, вторым постом в канал он не попадёт.
 
 Агент продолжает вашу работу, а не плодит копии: читает черновик (`get_draft`) и сохраняет его же; перед заменой поста читает его (`get_post`), а прежняя версия остаётся в истории. Если агент не передал `idempotency_key`, ключом считается сам запрос: повтор того же поста в тот же канал в течение суток не опубликует его второй раз.
 
