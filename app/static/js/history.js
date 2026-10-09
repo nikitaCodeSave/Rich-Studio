@@ -1,7 +1,7 @@
 // Undo/redo for the whole post: a stack of draft snapshots, one per pause in editing.
 import { computed, signal } from '../vendor/signals-core.js';
 import { autosave, draftPayload, loadPost } from './editor.js';
-import { dirty, saveState } from './state.js';
+import { dirty, parsed, saveState, showParsed } from './state.js';
 
 const LIMIT = 100;
 const PAUSE_MS = 400; // edits closer than this become one undo step
@@ -29,8 +29,10 @@ function commit() {
   current = snap;
 }
 
-/** A new draft is open: its loaded state is the bottom of the stack. */
+/** A new draft is open: its loaded state is the bottom of the stack. Telegram's check was for another post. */
 export function resetHistory() {
+  parsed.value = null;
+  showParsed.value = false;
   clearTimeout(timer);
   timer = undefined;
   past.value = [];

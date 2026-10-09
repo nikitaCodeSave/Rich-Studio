@@ -1,0 +1,1673 @@
+{
+ "example-post-extras": {
+  "blocks": [
+   {
+    "size": 2,
+    "text": "Экспериментальные элементы",
+    "type": "heading"
+   },
+   {
+    "text": "Синтаксис этих тегов взят из сторонней библиотеки, а не из официального описания. Проверьте на тестовом канале.",
+    "type": "paragraph"
+   },
+   {
+    "blocks": [
+     {
+      "text": "Длинная цитата, которая показывается свёрнутой. Читатель раскрывает её нажатием. Удобно для расшифровок, логов и длинных выдержек.",
+      "type": "paragraph"
+     }
+    ],
+    "type": "blockquote"
+   },
+   {
+    "text": [
+     "Эфир начнётся ",
+     {
+      "date_time_format": "wDT",
+      "text": "1 января 2027 в 03:00 МСК",
+      "type": "date_time",
+      "unix_time": 1798761600
+     },
+     ": у каждого читателя время покажется в его часовом поясе."
+    ],
+    "type": "paragraph"
+   },
+   {
+    "text": [
+     "Утверждение со сноской",
+     {
+      "reference_name": "src1",
+      "text": {
+       "text": "1",
+       "type": "superscript"
+      },
+      "type": "reference_link"
+     },
+     "."
+    ],
+    "type": "paragraph"
+   },
+   {
+    "align": "center",
+    "buttons": [
+     {
+      "style": "primary",
+      "text": "Открыть канал",
+      "url": "https://t.me/telegram"
+     },
+     {
+      "copy_text": {
+       "text": "PROMO2026"
+      },
+      "text": "Скопировать промокод"
+     }
+    ],
+    "type": "buttons"
+   },
+   {
+    "text": {
+     "name": "src1",
+     "text": "1. Источник: core.telegram.org/bots/api",
+     "type": "reference"
+    },
+    "type": "footer"
+   }
+  ],
+  "captured_at": "2026-10-09",
+  "format": "html",
+  "source": "<h2>Экспериментальные элементы</h2>\n<p>Синтаксис этих тегов взят из сторонней библиотеки, а не из официального описания. Проверьте на тестовом канале.</p>\n\n<blockquote collapsed>\n  Длинная цитата, которая показывается свёрнутой. Читатель раскрывает её нажатием.\n  Удобно для расшифровок, логов и длинных выдержек.\n</blockquote>\n\n<p>Эфир начнётся <tg-time unix=\"1798761600\" format=\"wDT\">1 января 2027 в 03:00 МСК</tg-time>: у каждого читателя время покажется в его часовом поясе.</p>\n\n<p>Утверждение со сноской<a href=\"#src1\"><sup>1</sup></a>.</p>\n\n<tg-button-row align=\"center\">\n  <tg-button type=\"url\" url=\"https://t.me/telegram\" style=\"primary\">Открыть канал</tg-button>\n  <tg-button type=\"copy_text\" text=\"PROMO2026\">Скопировать промокод</tg-button>\n</tg-button-row>\n\n<footer><tg-reference name=\"src1\">1. Источник: core.telegram.org/bots/api</tg-reference></footer>\n",
+  "spec": "Bot API 10.3"
+ },
+ "example-post-showcase": {
+  "blocks": [
+   {
+    "size": 1,
+    "text": "Rich-пост: витрина возможностей",
+    "type": "heading"
+   },
+   {
+    "text": [
+     "Этот пост отправлен ботом через ",
+     {
+      "text": "sendRichMessage",
+      "type": "code"
+     },
+     ". В обычном посте есть только ",
+     {
+      "text": "жирный",
+      "type": "bold"
+     },
+     ", ",
+     {
+      "text": "курсив",
+      "type": "italic"
+     },
+     ", ",
+     {
+      "text": "подчёркивание",
+      "type": "underline"
+     },
+     ", ",
+     {
+      "text": "зачёркивание",
+      "type": "strikethrough"
+     },
+     " и ",
+     {
+      "text": "спойлер",
+      "type": "spoiler"
+     },
+     ". Здесь к ним добавляются ",
+     {
+      "text": "выделение маркером",
+      "type": "marked"
+     },
+     ", H",
+     {
+      "text": "2",
+      "type": "subscript"
+     },
+     "O и x",
+     {
+      "text": "2",
+      "type": "superscript"
+     },
+     ", формулы вроде ",
+     {
+      "expression": "e^{i\\pi} + 1 = 0",
+      "type": "mathematical_expression"
+     },
+     " и ",
+     {
+      "text": "обычные ссылки",
+      "type": "url",
+      "url": "https://core.telegram.org/bots/api"
+     },
+     "."
+    ],
+    "type": "paragraph"
+   },
+   {
+    "size": 2,
+    "text": "Содержание",
+    "type": "heading"
+   },
+   {
+    "items": [
+     {
+      "blocks": [
+       {
+        "text": {
+         "anchor_name": "table",
+         "text": "Таблица",
+         "type": "anchor_link"
+        },
+        "type": "paragraph"
+       }
+      ],
+      "label": "1.",
+      "type": "1",
+      "value": 1
+     },
+     {
+      "blocks": [
+       {
+        "text": {
+         "anchor_name": "lists",
+         "text": "Списки и чек-лист",
+         "type": "anchor_link"
+        },
+        "type": "paragraph"
+       }
+      ],
+      "label": "2.",
+      "type": "1",
+      "value": 2
+     },
+     {
+      "blocks": [
+       {
+        "text": {
+         "anchor_name": "quotes",
+         "text": "Цитаты",
+         "type": "anchor_link"
+        },
+        "type": "paragraph"
+       }
+      ],
+      "label": "3.",
+      "type": "1",
+      "value": 3
+     },
+     {
+      "blocks": [
+       {
+        "text": {
+         "anchor_name": "more",
+         "text": "Раскрывающийся блок и код",
+         "type": "anchor_link"
+        },
+        "type": "paragraph"
+       }
+      ],
+      "label": "4.",
+      "type": "1",
+      "value": 4
+     }
+    ],
+    "type": "list"
+   },
+   {
+    "type": "divider"
+   },
+   {
+    "name": "table",
+    "type": "anchor"
+   },
+   {
+    "size": 2,
+    "text": "Таблица",
+    "type": "heading"
+   },
+   {
+    "caption": "Тарифы канала",
+    "cells": [
+     [
+      {
+       "align": "center",
+       "is_header": true,
+       "text": "Тариф",
+       "valign": "middle"
+      },
+      {
+       "align": "right",
+       "is_header": true,
+       "text": "Цена",
+       "valign": "middle"
+      },
+      {
+       "align": "center",
+       "is_header": true,
+       "text": "Доступ",
+       "valign": "middle"
+      }
+     ],
+     [
+      {
+       "align": "left",
+       "text": "Базовый",
+       "valign": "middle"
+      },
+      {
+       "align": "right",
+       "text": "0 ₽",
+       "valign": "middle"
+      },
+      {
+       "align": "center",
+       "text": "посты",
+       "valign": "middle"
+      }
+     ],
+     [
+      {
+       "align": "left",
+       "text": "Клуб",
+       "valign": "middle"
+      },
+      {
+       "align": "right",
+       "text": "490 ₽",
+       "valign": "middle"
+      },
+      {
+       "align": "center",
+       "text": "посты + чат",
+       "valign": "middle"
+      }
+     ],
+     [
+      {
+       "align": "left",
+       "colspan": 2,
+       "text": "Годовая подписка со скидкой",
+       "valign": "middle"
+      },
+      {
+       "align": "center",
+       "text": {
+        "text": "−20%",
+        "type": "bold"
+       },
+       "valign": "middle"
+      }
+     ]
+    ],
+    "is_bordered": true,
+    "is_striped": true,
+    "type": "table"
+   },
+   {
+    "name": "lists",
+    "type": "anchor"
+   },
+   {
+    "size": 2,
+    "text": "Списки и чек-лист",
+    "type": "heading"
+   },
+   {
+    "items": [
+     {
+      "blocks": [
+       {
+        "text": "Обычный пункт",
+        "type": "paragraph"
+       }
+      ],
+      "label": "•"
+     },
+     {
+      "blocks": [
+       {
+        "text": [
+         "Пункт со ",
+         {
+          "text": "вложенным",
+          "type": "bold"
+         },
+         " списком"
+        ],
+        "type": "paragraph"
+       },
+       {
+        "items": [
+         {
+          "blocks": [
+           {
+            "text": "второй уровень",
+            "type": "paragraph"
+           }
+          ],
+          "label": "•"
+         }
+        ],
+        "type": "list"
+       }
+      ],
+      "label": "•"
+     }
+    ],
+    "type": "list"
+   },
+   {
+    "items": [
+     {
+      "blocks": [
+       {
+        "text": "Написать пост",
+        "type": "paragraph"
+       }
+      ],
+      "has_checkbox": true,
+      "is_checked": true,
+      "label": "•"
+     },
+     {
+      "blocks": [
+       {
+        "text": "Сверстать таблицу",
+        "type": "paragraph"
+       }
+      ],
+      "has_checkbox": true,
+      "is_checked": true,
+      "label": "•"
+     },
+     {
+      "blocks": [
+       {
+        "text": "Опубликовать",
+        "type": "paragraph"
+       }
+      ],
+      "has_checkbox": true,
+      "label": "•"
+     }
+    ],
+    "type": "list"
+   },
+   {
+    "name": "quotes",
+    "type": "anchor"
+   },
+   {
+    "size": 2,
+    "text": "Цитаты",
+    "type": "heading"
+   },
+   {
+    "blocks": [
+     {
+      "text": "Хорошее оформление экономит читателю время.",
+      "type": "paragraph"
+     }
+    ],
+    "credit": "Редакция канала",
+    "type": "blockquote"
+   },
+   {
+    "credit": "pull quote",
+    "text": "Крупная центрированная цитата для акцента",
+    "type": "pullquote"
+   },
+   {
+    "name": "more",
+    "type": "anchor"
+   },
+   {
+    "size": 2,
+    "text": "Раскрывающийся блок и код",
+    "type": "heading"
+   },
+   {
+    "blocks": [
+     {
+      "text": "Внутри может быть что угодно: абзацы, списки, таблицы, медиа.",
+      "type": "paragraph"
+     },
+     {
+      "expression": "\\int_0^1 x^2\\,dx = \\frac{1}{3}",
+      "type": "mathematical_expression"
+     }
+    ],
+    "summary": "Нажмите, чтобы раскрыть подробности",
+    "type": "details"
+   },
+   {
+    "language": "python",
+    "text": "print(\"Привет из rich-поста\")",
+    "type": "pre"
+   },
+   {
+    "text": {
+     "anchor_name": "",
+     "text": "Наверх ↑",
+     "type": "anchor_link"
+    },
+    "type": "paragraph"
+   },
+   {
+    "text": "Подпишитесь, чтобы не пропустить следующие посты",
+    "type": "footer"
+   }
+  ],
+  "captured_at": "2026-10-09",
+  "format": "html",
+  "source": "<h1>Rich-пост: витрина возможностей</h1>\n<p>Этот пост отправлен ботом через <code>sendRichMessage</code>. В обычном посте есть только <b>жирный</b>, <i>курсив</i>, <u>подчёркивание</u>, <s>зачёркивание</s> и <tg-spoiler>спойлер</tg-spoiler>. Здесь к ним добавляются <mark>выделение маркером</mark>, H<sub>2</sub>O и x<sup>2</sup>, формулы вроде <tg-math>e^{i\\pi} + 1 = 0</tg-math> и <a href=\"https://core.telegram.org/bots/api\">обычные ссылки</a>.</p>\n\n<h2>Содержание</h2>\n<ol>\n  <li><a href=\"#table\">Таблица</a></li>\n  <li><a href=\"#lists\">Списки и чек-лист</a></li>\n  <li><a href=\"#quotes\">Цитаты</a></li>\n  <li><a href=\"#more\">Раскрывающийся блок и код</a></li>\n</ol>\n\n<hr/>\n\n<a name=\"table\"></a>\n<h2>Таблица</h2>\n<table bordered striped>\n  <caption>Тарифы канала</caption>\n  <tr><th>Тариф</th><th align=\"right\">Цена</th><th align=\"center\">Доступ</th></tr>\n  <tr><td>Базовый</td><td align=\"right\">0 ₽</td><td align=\"center\">посты</td></tr>\n  <tr><td>Клуб</td><td align=\"right\">490 ₽</td><td align=\"center\">посты + чат</td></tr>\n  <tr><td colspan=\"2\">Годовая подписка со скидкой</td><td align=\"center\"><b>−20%</b></td></tr>\n</table>\n\n<a name=\"lists\"></a>\n<h2>Списки и чек-лист</h2>\n<ul>\n  <li>Обычный пункт</li>\n  <li>Пункт со <b>вложенным</b> списком\n    <ul><li>второй уровень</li></ul>\n  </li>\n</ul>\n<ul>\n  <li><input type=\"checkbox\" checked>Написать пост</li>\n  <li><input type=\"checkbox\" checked>Сверстать таблицу</li>\n  <li><input type=\"checkbox\">Опубликовать</li>\n</ul>\n\n<a name=\"quotes\"></a>\n<h2>Цитаты</h2>\n<blockquote>\n  <p>Хорошее оформление экономит читателю время.</p>\n  <cite>Редакция канала</cite>\n</blockquote>\n<aside>Крупная центрированная цитата для акцента<cite>pull quote</cite></aside>\n\n<a name=\"more\"></a>\n<h2>Раскрывающийся блок и код</h2>\n<details>\n  <summary>Нажмите, чтобы раскрыть подробности</summary>\n  <p>Внутри может быть что угодно: абзацы, списки, таблицы, медиа.</p>\n  <tg-math-block>\\int_0^1 x^2\\,dx = \\frac{1}{3}</tg-math-block>\n</details>\n<pre><code class=\"language-python\">print(\"Привет из rich-поста\")</code></pre>\n\n<p><a href=\"#\">Наверх ↑</a></p>\n<footer>Подпишитесь, чтобы не пропустить следующие посты</footer>\n",
+  "spec": "Bot API 10.3"
+ },
+ "html-blocks": {
+  "blocks": [
+   {
+    "size": 3,
+    "text": "H3",
+    "type": "heading"
+   },
+   {
+    "text": "подвал",
+    "type": "footer"
+   },
+   {
+    "type": "divider"
+   },
+   {
+    "blocks": [
+     {
+      "text": "внутри",
+      "type": "paragraph"
+     }
+    ],
+    "is_open": true,
+    "summary": "Открыто",
+    "type": "details"
+   },
+   {
+    "language": "js",
+    "text": "let a = 1;",
+    "type": "pre"
+   },
+   {
+    "text": "без языка",
+    "type": "pre"
+   }
+  ],
+  "captured_at": "2026-10-09",
+  "format": "html",
+  "source": "<h3>H3</h3><footer>подвал</footer><hr/><details open><summary>Открыто</summary><p>внутри</p></details><pre><code class=\"language-js\">let a = 1;</code></pre><pre>без языка</pre>",
+  "spec": "Bot API 10.3"
+ },
+ "html-inline": {
+  "blocks": [
+   {
+    "text": [
+     {
+      "text": "b",
+      "type": "bold"
+     },
+     " ",
+     {
+      "text": "strong",
+      "type": "bold"
+     },
+     " ",
+     {
+      "text": "i",
+      "type": "italic"
+     },
+     " ",
+     {
+      "text": "em",
+      "type": "italic"
+     },
+     " ",
+     {
+      "text": "u",
+      "type": "underline"
+     },
+     " ",
+     {
+      "text": "ins",
+      "type": "underline"
+     },
+     " ",
+     {
+      "text": "s",
+      "type": "strikethrough"
+     },
+     " ",
+     {
+      "text": "del",
+      "type": "strikethrough"
+     },
+     " ",
+     {
+      "text": "strike",
+      "type": "strikethrough"
+     },
+     " ",
+     {
+      "text": "mark",
+      "type": "marked"
+     },
+     " ",
+     {
+      "text": "sub",
+      "type": "subscript"
+     },
+     " ",
+     {
+      "text": "sup",
+      "type": "superscript"
+     },
+     " ",
+     {
+      "text": "code",
+      "type": "code"
+     },
+     " span ",
+     {
+      "text": "tg",
+      "type": "spoiler"
+     }
+    ],
+    "type": "paragraph"
+   }
+  ],
+  "captured_at": "2026-10-09",
+  "format": "html",
+  "source": "<p><b>b</b> <strong>strong</strong> <i>i</i> <em>em</em> <u>u</u> <ins>ins</ins> <s>s</s> <del>del</del> <strike>strike</strike> <mark>mark</mark> <sub>sub</sub> <sup>sup</sup> <code>code</code> <span class=\"tg-spoiler\">span</span> <tg-spoiler>tg</tg-spoiler></p>",
+  "spec": "Bot API 10.3"
+ },
+ "html-lists": {
+  "blocks": [
+   {
+    "items": [
+     {
+      "blocks": [
+       {
+        "text": "пять",
+        "type": "paragraph"
+       }
+      ],
+      "label": "5.",
+      "type": "1",
+      "value": 5
+     },
+     {
+      "blocks": [
+       {
+        "text": "шесть",
+        "type": "paragraph"
+       }
+      ],
+      "label": "6.",
+      "type": "1",
+      "value": 6
+     }
+    ],
+    "type": "list"
+   },
+   {
+    "items": [
+     {
+      "blocks": [
+       {
+        "text": "да",
+        "type": "paragraph"
+       }
+      ],
+      "has_checkbox": true,
+      "is_checked": true,
+      "label": "•"
+     },
+     {
+      "blocks": [
+       {
+        "text": "нет",
+        "type": "paragraph"
+       }
+      ],
+      "has_checkbox": true,
+      "label": "•"
+     }
+    ],
+    "type": "list"
+   }
+  ],
+  "captured_at": "2026-10-09",
+  "format": "html",
+  "source": "<ol start=\"5\"><li>пять</li><li>шесть</li></ol><ul><li><input type=\"checkbox\" checked> да</li><li><input type=\"checkbox\"> нет</li></ul>",
+  "spec": "Bot API 10.3"
+ },
+ "html-math-time": {
+  "blocks": [
+   {
+    "text": [
+     "Формула ",
+     {
+      "expression": "a^2",
+      "type": "mathematical_expression"
+     }
+    ],
+    "type": "paragraph"
+   },
+   {
+    "expression": "\\sum_i i",
+    "type": "mathematical_expression"
+   },
+   {
+    "text": [
+     {
+      "date_time_format": "wDT",
+      "text": "дата",
+      "type": "date_time",
+      "unix_time": 1798761600
+     },
+     " и "
+    ],
+    "type": "paragraph"
+   }
+  ],
+  "captured_at": "2026-10-09",
+  "format": "html",
+  "source": "<p>Формула <tg-math>a^2</tg-math></p><tg-math-block>\\sum_i i</tg-math-block><p><tg-time unix=\"1798761600\" format=\"wDT\">дата</tg-time> и <tg-time unix=\"1798761600\" format=\"r\"></tg-time></p>",
+  "spec": "Bot API 10.3"
+ },
+ "html-quotes": {
+  "blocks": [
+   {
+    "blocks": [
+     {
+      "text": "обычная",
+      "type": "paragraph"
+     }
+    ],
+    "credit": "Автор",
+    "type": "blockquote"
+   },
+   {
+    "text": "expandable",
+    "type": "expandable_blockquote"
+   },
+   {
+    "blocks": [
+     {
+      "text": "collapsed",
+      "type": "paragraph"
+     }
+    ],
+    "type": "blockquote"
+   },
+   {
+    "credit": "Кто",
+    "text": "акцент",
+    "type": "pullquote"
+   }
+  ],
+  "captured_at": "2026-10-09",
+  "format": "html",
+  "source": "<blockquote>обычная<cite>Автор</cite></blockquote><blockquote expandable>expandable</blockquote><blockquote collapsed>collapsed</blockquote><aside>акцент<cite>Кто</cite></aside>",
+  "spec": "Bot API 10.3"
+ },
+ "html-refs": {
+  "blocks": [
+   {
+    "text": [
+     "Сноска",
+     {
+      "reference_name": "n1",
+      "text": {
+       "text": "1",
+       "type": "superscript"
+      },
+      "type": "reference_link"
+     },
+     " и якорь ",
+     {
+      "anchor_name": "part",
+      "text": "к якорю",
+      "type": "anchor_link"
+     }
+    ],
+    "type": "paragraph"
+   },
+   {
+    "name": "part",
+    "type": "anchor"
+   },
+   {
+    "text": {
+     "name": "n1",
+     "text": "Текст сноски",
+     "type": "reference"
+    },
+    "type": "paragraph"
+   }
+  ],
+  "captured_at": "2026-10-09",
+  "format": "html",
+  "source": "<p>Сноска<a href=\"#n1\"><sup>1</sup></a> и якорь <a href=\"#part\">к якорю</a></p><a name=\"part\"></a><p><tg-reference name=\"n1\">Текст сноски</tg-reference></p>",
+  "spec": "Bot API 10.3"
+ },
+ "html-table-attrs": {
+  "blocks": [
+   {
+    "caption": "Подпись",
+    "cells": [
+     [
+      {
+       "align": "right",
+       "is_header": true,
+       "text": "A",
+       "valign": "middle"
+      },
+      {
+       "align": "center",
+       "is_header": true,
+       "text": "B",
+       "valign": "middle"
+      }
+     ],
+     [
+      {
+       "align": "center",
+       "colspan": 2,
+       "text": "12",
+       "valign": "bottom"
+      }
+     ]
+    ],
+    "is_bordered": true,
+    "is_compact": true,
+    "is_striped": true,
+    "type": "table"
+   }
+  ],
+  "captured_at": "2026-10-09",
+  "format": "html",
+  "source": "<table bordered striped compact><caption>Подпись</caption><tr><th align=\"right\">A</th><th>B</th></tr><tr><td colspan=\"2\" align=\"center\" valign=\"bottom\">12</td></tr></table>",
+  "spec": "Bot API 10.3"
+ },
+ "html-table-plain": {
+  "blocks": [
+   {
+    "cells": [
+     [
+      {
+       "align": "center",
+       "is_header": true,
+       "text": "A",
+       "valign": "middle"
+      },
+      {
+       "align": "center",
+       "is_header": true,
+       "text": "B",
+       "valign": "middle"
+      }
+     ],
+     [
+      {
+       "align": "left",
+       "text": "1",
+       "valign": "middle"
+      },
+      {
+       "align": "left",
+       "text": "2",
+       "valign": "middle"
+      }
+     ]
+    ],
+    "type": "table"
+   }
+  ],
+  "captured_at": "2026-10-09",
+  "format": "html",
+  "source": "<table><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr></table>",
+  "spec": "Bot API 10.3"
+ },
+ "html-text-outside-p": {
+  "blocks": [
+   {
+    "text": "Текст без абзаца вторая строка\nпосле br",
+    "type": "paragraph"
+   },
+   {
+    "text": "абзац",
+    "type": "paragraph"
+   },
+   {
+    "text": "хвост",
+    "type": "paragraph"
+   }
+  ],
+  "captured_at": "2026-10-09",
+  "format": "html",
+  "source": "Текст без абзаца\nвторая строка<br>после br<p>абзац</p>хвост",
+  "spec": "Bot API 10.3"
+ },
+ "md-breaks": {
+  "blocks": [
+   {
+    "text": "строка один строка два",
+    "type": "paragraph"
+   },
+   {
+    "text": "абзац с двумя пробелами\nперенос и обратный слэш\nперенос",
+    "type": "paragraph"
+   }
+  ],
+  "captured_at": "2026-10-09",
+  "format": "markdown",
+  "source": "строка один\nстрока два\n\nабзац с двумя пробелами  \nперенос\nи обратный слэш\\\nперенос",
+  "spec": "Bot API 10.3"
+ },
+ "md-code": {
+  "blocks": [
+   {
+    "language": "python",
+    "text": "print('hi')",
+    "type": "pre"
+   },
+   {
+    "text": "отступ код",
+    "type": "pre"
+   },
+   {
+    "text": "без языка",
+    "type": "pre"
+   }
+  ],
+  "captured_at": "2026-10-09",
+  "format": "markdown",
+  "source": "```python\nprint('hi')\n```\n\n    отступ код\n\n```\nбез языка\n```",
+  "spec": "Bot API 10.3"
+ },
+ "md-escape": {
+  "blocks": [
+   {
+    "text": [
+     "*не курсив* и ||не спойлер|| и 2",
+     {
+      "text": "3",
+      "type": "italic"
+     },
+     "4"
+    ],
+    "type": "paragraph"
+   }
+  ],
+  "captured_at": "2026-10-09",
+  "format": "markdown",
+  "source": "\\*не курсив\\* и \\|\\|не спойлер\\|\\| и 2*3*4",
+  "spec": "Bot API 10.3"
+ },
+ "md-footnote": {
+  "blocks": [
+   {
+    "text": [
+     "Текст со сноской",
+     {
+      "text": [
+       {
+        "name": "fnref-1-1",
+        "type": "anchor"
+       },
+       {
+        "reference_name": "fn-1",
+        "text": "1",
+        "type": "reference_link"
+       }
+      ],
+      "type": "superscript"
+     },
+     "."
+    ],
+    "type": "paragraph"
+   },
+   {
+    "text": [
+     "1. ",
+     {
+      "name": "fn-1",
+      "text": "Текст сноски.",
+      "type": "reference"
+     },
+     " ",
+     {
+      "anchor_name": "fnref-1-1",
+      "text": "↩",
+      "type": "anchor_link"
+     }
+    ],
+    "type": "footer"
+   }
+  ],
+  "captured_at": "2026-10-09",
+  "format": "markdown",
+  "source": "Текст со сноской[^1].\n\n[^1]: Текст сноски.",
+  "spec": "Bot API 10.3"
+ },
+ "md-headings": {
+  "blocks": [
+   {
+    "size": 1,
+    "text": "H1",
+    "type": "heading"
+   },
+   {
+    "size": 2,
+    "text": "H2",
+    "type": "heading"
+   },
+   {
+    "size": 3,
+    "text": "H3",
+    "type": "heading"
+   },
+   {
+    "size": 4,
+    "text": "H4",
+    "type": "heading"
+   },
+   {
+    "size": 5,
+    "text": "H5",
+    "type": "heading"
+   },
+   {
+    "size": 6,
+    "text": "H6",
+    "type": "heading"
+   },
+   {
+    "size": 1,
+    "text": "Setext",
+    "type": "heading"
+   }
+  ],
+  "captured_at": "2026-10-09",
+  "format": "markdown",
+  "source": "# H1\n## H2\n### H3\n#### H4\n##### H5\n###### H6\n\nSetext\n======",
+  "spec": "Bot API 10.3"
+ },
+ "md-hr": {
+  "blocks": [
+   {
+    "text": "до",
+    "type": "paragraph"
+   },
+   {
+    "type": "divider"
+   },
+   {
+    "text": "после",
+    "type": "paragraph"
+   },
+   {
+    "type": "divider"
+   },
+   {
+    "text": "конец",
+    "type": "paragraph"
+   }
+  ],
+  "captured_at": "2026-10-09",
+  "format": "markdown",
+  "source": "до\n\n---\n\nпосле\n\n***\n\nконец",
+  "spec": "Bot API 10.3"
+ },
+ "md-html": {
+  "blocks": [
+   {
+    "text": [
+     "Текст ",
+     {
+      "text": "спойлер",
+      "type": "spoiler"
+     }
+    ],
+    "type": "paragraph"
+   },
+   {
+    "blocks": [
+     {
+      "text": [
+       "внутри ",
+       {
+        "text": "жирный",
+        "type": "bold"
+       }
+      ],
+      "type": "paragraph"
+     }
+    ],
+    "summary": "Заголовок",
+    "type": "details"
+   },
+   {
+    "text": "подвал",
+    "type": "footer"
+   },
+   {
+    "text": {
+     "expression": "x^2",
+     "type": "mathematical_expression"
+    },
+    "type": "paragraph"
+   }
+  ],
+  "captured_at": "2026-10-09",
+  "format": "markdown",
+  "source": "Текст <tg-spoiler>спойлер</tg-spoiler>\n\n<details><summary>Заголовок</summary>\n\nвнутри **жирный**\n\n</details>\n\n<footer>подвал</footer>\n\n<tg-math>x^2</tg-math>",
+  "spec": "Bot API 10.3"
+ },
+ "md-inline": {
+  "blocks": [
+   {
+    "text": [
+     {
+      "text": "жирный",
+      "type": "bold"
+     },
+     " ",
+     {
+      "text": "курсив",
+      "type": "italic"
+     },
+     " ",
+     {
+      "text": "курсив2",
+      "type": "italic"
+     },
+     " ",
+     {
+      "text": "подчёркнутый?",
+      "type": "bold"
+     },
+     " ",
+     {
+      "text": "зачёркнутый",
+      "type": "strikethrough"
+     },
+     " ",
+     {
+      "text": "код",
+      "type": "code"
+     },
+     " ",
+     {
+      "text": "маркер?",
+      "type": "marked"
+     },
+     " ",
+     {
+      "text": "спойлер",
+      "type": "spoiler"
+     },
+     " и ",
+     {
+      "text": [
+       "вложенный ",
+       {
+        "text": "спойлер",
+        "type": "spoiler"
+       }
+      ],
+      "type": "bold"
+     }
+    ],
+    "type": "paragraph"
+   }
+  ],
+  "captured_at": "2026-10-09",
+  "format": "markdown",
+  "source": "**жирный** *курсив* _курсив2_ __подчёркнутый?__ ~~зачёркнутый~~ `код` ==маркер?== ||спойлер|| и **вложенный ||спойлер||**",
+  "spec": "Bot API 10.3"
+ },
+ "md-links": {
+  "blocks": [
+   {
+    "text": [
+     {
+      "text": "ссылка",
+      "type": "url",
+      "url": "https://example.com/"
+     },
+     " и ",
+     {
+      "text": "https://t.me/telegram",
+      "type": "url",
+      "url": "https://t.me/telegram"
+     },
+     " и ",
+     {
+      "text": "https://core.telegram.org",
+      "type": "url",
+      "url": "https://core.telegram.org/"
+     },
+     " и ",
+     {
+      "text": "@durov",
+      "type": "mention",
+      "username": "durov"
+     },
+     " и ",
+     {
+      "hashtag": "тег",
+      "text": "#тег",
+      "type": "hashtag"
+     },
+     " и ",
+     {
+      "bot_command": "start",
+      "text": "/start",
+      "type": "bot_command"
+     },
+     " и ",
+     {
+      "email_address": "test@example.com",
+      "text": "test@example.com",
+      "type": "email_address"
+     }
+    ],
+    "type": "paragraph"
+   }
+  ],
+  "captured_at": "2026-10-09",
+  "format": "markdown",
+  "source": "[ссылка](https://example.com) и https://t.me/telegram и <https://core.telegram.org> и @durov и #тег и /start и test@example.com",
+  "spec": "Bot API 10.3"
+ },
+ "md-lists": {
+  "blocks": [
+   {
+    "items": [
+     {
+      "blocks": [
+       {
+        "text": "один",
+        "type": "paragraph"
+       }
+      ],
+      "label": "•"
+     },
+     {
+      "blocks": [
+       {
+        "text": "два",
+        "type": "paragraph"
+       },
+       {
+        "items": [
+         {
+          "blocks": [
+           {
+            "text": "вложенный",
+            "type": "paragraph"
+           }
+          ],
+          "label": "•"
+         }
+        ],
+        "type": "list"
+       }
+      ],
+      "label": "•"
+     }
+    ],
+    "type": "list"
+   },
+   {
+    "items": [
+     {
+      "blocks": [
+       {
+        "text": "три",
+        "type": "paragraph"
+       }
+      ],
+      "label": "3.",
+      "type": "1",
+      "value": 3
+     },
+     {
+      "blocks": [
+       {
+        "text": "четыре",
+        "type": "paragraph"
+       }
+      ],
+      "label": "4.",
+      "type": "1",
+      "value": 4
+     }
+    ],
+    "type": "list"
+   },
+   {
+    "items": [
+     {
+      "blocks": [
+       {
+        "text": "сделано",
+        "type": "paragraph"
+       }
+      ],
+      "has_checkbox": true,
+      "is_checked": true,
+      "label": "•"
+     },
+     {
+      "blocks": [
+       {
+        "text": "нет",
+        "type": "paragraph"
+       }
+      ],
+      "has_checkbox": true,
+      "label": "•"
+     }
+    ],
+    "type": "list"
+   },
+   {
+    "items": [
+     {
+      "blocks": [
+       {
+        "text": "звёздочка",
+        "type": "paragraph"
+       }
+      ],
+      "label": "•"
+     }
+    ],
+    "type": "list"
+   }
+  ],
+  "captured_at": "2026-10-09",
+  "format": "markdown",
+  "source": "- один\n- два\n  - вложенный\n\n3. три\n4. четыре\n\n- [x] сделано\n- [ ] нет\n\n* звёздочка",
+  "spec": "Bot API 10.3"
+ },
+ "md-math": {
+  "blocks": [
+   {
+    "text": "Блок:",
+    "type": "paragraph"
+   },
+   {
+    "expression": "E=mc^2",
+    "type": "mathematical_expression"
+   },
+   {
+    "text": [
+     "В строке ",
+     {
+      "expression": "a^2+b^2",
+      "type": "mathematical_expression"
+     },
+     " и цены ",
+     {
+      "expression": "5 и $10, экранированный \\",
+      "type": "mathematical_expression"
+     },
+     " знак."
+    ],
+    "type": "paragraph"
+   },
+   {
+    "expression": "\\int_0^1 x\\,dx",
+    "type": "mathematical_expression"
+   }
+  ],
+  "captured_at": "2026-10-09",
+  "format": "markdown",
+  "source": "Блок:\n\n$$E=mc^2$$\n\nВ строке $a^2+b^2$ и цены $5 и $10, экранированный \\$ знак.\n\n$$\n\\int_0^1 x\\,dx\n$$",
+  "spec": "Bot API 10.3"
+ },
+ "md-math-edge": {
+  "blocks": [
+   {
+    "text": [
+     "Текст ",
+     {
+      "expression": "x^2",
+      "type": "mathematical_expression"
+     },
+     " в строке, пробелы $ a $ и ",
+     {
+      "expression": "b",
+      "type": "mathematical_expression"
+     },
+     ", деньги 5$ и 10$."
+    ],
+    "type": "paragraph"
+   },
+   {
+    "expression": "a$$ и $$b",
+    "type": "mathematical_expression"
+   }
+  ],
+  "captured_at": "2026-10-09",
+  "format": "markdown",
+  "source": "Текст $$x^2$$ в строке, пробелы $ a $ и $b$, деньги 5$ и 10$.\n\n$$a$$ и $$b$$",
+  "spec": "Bot API 10.3"
+ },
+ "md-nested": {
+  "blocks": [
+   {
+    "text": [
+     {
+      "text": [
+       "жирный ",
+       {
+        "text": [
+         "курсив ",
+         {
+          "text": "спойлер ",
+          "type": "spoiler"
+         }
+        ],
+        "type": "italic"
+       }
+      ],
+      "type": "bold"
+     },
+     {
+      "text": "код",
+      "type": "code"
+     },
+     " и ",
+     {
+      "text": {
+       "text": "зачёркнутый жирный",
+       "type": "strikethrough"
+      },
+      "type": "bold"
+     },
+     " и ",
+     {
+      "text": {
+       "text": "ссылка",
+       "type": "bold"
+      },
+      "type": "url",
+      "url": "https://t.me/"
+     }
+    ],
+    "type": "paragraph"
+   }
+  ],
+  "captured_at": "2026-10-09",
+  "format": "markdown",
+  "source": "**жирный _курсив ||спойлер `код`||_** и ~~**зачёркнутый жирный**~~ и [**ссылка**](https://t.me)",
+  "spec": "Bot API 10.3"
+ },
+ "md-quote": {
+  "blocks": [
+   {
+    "blocks": [
+     {
+      "text": "цитата вторая строка",
+      "type": "paragraph"
+     },
+     {
+      "text": "второй абзац",
+      "type": "paragraph"
+     }
+    ],
+    "type": "blockquote"
+   },
+   {
+    "blocks": [
+     {
+      "blocks": [
+       {
+        "text": "вложенная",
+        "type": "paragraph"
+       }
+      ],
+      "type": "blockquote"
+     }
+    ],
+    "type": "blockquote"
+   }
+  ],
+  "captured_at": "2026-10-09",
+  "format": "markdown",
+  "source": "> цитата\n> вторая строка\n>\n> второй абзац\n\n> > вложенная",
+  "spec": "Bot API 10.3"
+ },
+ "md-sub-sup": {
+  "blocks": [
+   {
+    "text": [
+     "H~2~O и x^2^ и ",
+     {
+      "text": "низ",
+      "type": "subscript"
+     },
+     " ",
+     {
+      "text": "верх",
+      "type": "superscript"
+     }
+    ],
+    "type": "paragraph"
+   }
+  ],
+  "captured_at": "2026-10-09",
+  "format": "markdown",
+  "source": "H~2~O и x^2^ и <sub>низ</sub> <sup>верх</sup>",
+  "spec": "Bot API 10.3"
+ },
+ "md-table": {
+  "blocks": [
+   {
+    "cells": [
+     [
+      {
+       "align": "left",
+       "is_header": true,
+       "text": "Слева",
+       "valign": "middle"
+      },
+      {
+       "align": "center",
+       "is_header": true,
+       "text": "Центр",
+       "valign": "middle"
+      },
+      {
+       "align": "right",
+       "is_header": true,
+       "text": "Справа",
+       "valign": "middle"
+      }
+     ],
+     [
+      {
+       "align": "left",
+       "text": "1",
+       "valign": "middle"
+      },
+      {
+       "align": "center",
+       "text": "2",
+       "valign": "middle"
+      },
+      {
+       "align": "right",
+       "text": "3",
+       "valign": "middle"
+      }
+     ],
+     [
+      {
+       "align": "left",
+       "text": {
+        "text": "ж",
+        "type": "bold"
+       },
+       "valign": "middle"
+      },
+      {
+       "align": "center",
+       "valign": "middle"
+      },
+      {
+       "align": "right",
+       "text": "с",
+       "valign": "middle"
+      }
+     ]
+    ],
+    "is_bordered": true,
+    "is_striped": true,
+    "type": "table"
+   }
+  ],
+  "captured_at": "2026-10-09",
+  "format": "markdown",
+  "source": "| Слева | Центр | Справа |\n|:---|:---:|---:|\n| 1 | 2 | 3 |\n| **ж** | ||с|| | `к` |",
+  "spec": "Bot API 10.3"
+ },
+ "md-table-pipes": {
+  "blocks": [
+   {
+    "cells": [
+     [
+      {
+       "align": "center",
+       "is_header": true,
+       "text": "a",
+       "valign": "middle"
+      },
+      {
+       "align": "center",
+       "is_header": true,
+       "text": "b",
+       "valign": "middle"
+      },
+      {
+       "align": "center",
+       "is_header": true,
+       "text": "c",
+       "valign": "middle"
+      }
+     ],
+     [
+      {
+       "align": "left",
+       "text": "1",
+       "valign": "middle"
+      },
+      {
+       "align": "left",
+       "text": "3",
+       "valign": "middle"
+      },
+      {
+       "align": "left",
+       "valign": "top"
+      }
+     ],
+     [
+      {
+       "align": "left",
+       "text": "x",
+       "valign": "middle"
+      },
+      {
+       "align": "left",
+       "valign": "middle"
+      },
+      {
+       "align": "left",
+       "text": "s",
+       "valign": "middle"
+      }
+     ],
+     [
+      {
+       "align": "left",
+       "text": "p",
+       "valign": "middle"
+      },
+      {
+       "align": "left",
+       "text": "q",
+       "valign": "middle"
+      },
+      {
+       "align": "left",
+       "valign": "top"
+      }
+     ]
+    ],
+    "is_bordered": true,
+    "is_striped": true,
+    "type": "table"
+   }
+  ],
+  "captured_at": "2026-10-09",
+  "format": "markdown",
+  "source": "| a | b | c |\n|---|---|---|\n| 1 || 3 |\n| x | ||s|| | y |\n| p | q |",
+  "spec": "Bot API 10.3"
+ },
+ "md-table-plain": {
+  "blocks": [
+   {
+    "cells": [
+     [
+      {
+       "align": "center",
+       "is_header": true,
+       "text": "a",
+       "valign": "middle"
+      },
+      {
+       "align": "center",
+       "is_header": true,
+       "text": "b",
+       "valign": "middle"
+      }
+     ],
+     [
+      {
+       "align": "left",
+       "text": "1",
+       "valign": "middle"
+      },
+      {
+       "align": "left",
+       "text": "2",
+       "valign": "middle"
+      }
+     ]
+    ],
+    "is_bordered": true,
+    "is_striped": true,
+    "type": "table"
+   }
+  ],
+  "captured_at": "2026-10-09",
+  "format": "markdown",
+  "source": "| a | b |\n|---|---|\n| 1 | 2 |",
+  "spec": "Bot API 10.3"
+ }
+}

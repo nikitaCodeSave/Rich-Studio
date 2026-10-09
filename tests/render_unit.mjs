@@ -69,8 +69,9 @@ for (const [name, url] of Object.entries(URLS)) {
   check('drops href/src ' + name, !has(r.html, /\s(href|src)=/i), r.html);
 }
 {
-  const r = await render({ html: '<a href="https://ok.example/p">a</a><a href="mailto:a@b.c">m</a><a href="tg://resolve?domain=x">t</a><a href="#note">n</a>' });
-  const ok = has(r.html, /href="https:\/\/ok\.example\/p" target="_blank" rel="noopener"/) && has(r.html, /href="mailto:a@b\.c"/) && has(r.html, /href="tg:\/\/resolve\?domain=x"/) && has(r.html, /href="#ref-note"/);
+  const r = await render({ html: '<a href="https://ok.example/p">a</a><a href="mailto:a@b.c">m</a><a href="tg://resolve?domain=x">t</a><a href="#note">n</a><a href="#nowhere">w</a><footer><tg-reference name="note">1.</tg-reference></footer>' });
+  // #name goes to a reference or anchor of that name; Telegram leaves any other #link as it is
+  const ok = has(r.html, /href="https:\/\/ok\.example\/p" target="_blank" rel="noopener"/) && has(r.html, /href="mailto:a@b\.c"/) && has(r.html, /href="tg:\/\/resolve\?domain=x"/) && has(r.html, /href="#ref-note"/) && has(r.html, /href="#nowhere"/);
   check('keeps http(s), mailto, tg and #anchor links; external ones open in a new tab', ok, r.html);
 }
 {
@@ -114,6 +115,35 @@ check('safeUrl table', await page.evaluate(() => {
 {
   const r = await render({ markdown: '- [x] готово\n- [ ] нет' });
   check('markdown: task list renders as disabled checkboxes', (r.html.match(/type="checkbox"/g) || []).length === 2 && has(r.html, /checked/), r.html);
+}
+
+// ---------- Telegram markdown extensions (spoiler, marker, math, footnotes, tables) ----------
+const EXTENSIONS = {
+  'html in a spoiler': '||<img src=x onerror="window.__xss=1">||',
+  'html in a marker': '==<svg onload="window.__xss=1"></svg>==',
+  'closing tg-math from inline math': '$</tg-math><img src=x onerror="window.__xss=1">$',
+  'closing tg-math-block from block math': '$$\n</tg-math-block><img src=x onerror="window.__xss=1">\n$$',
+  'html and javascript: in a footnote': 'a[^1]\n\n[^1]: <img src=x onerror="window.__xss=1"> [l](javascript:window.__xss=1)',
+  'html in an aligned table cell': '| a |\n|:-:|\n| <img src=x onerror="window.__xss=1"> |',
+};
+// escaped text may still read "onerror=" (a formula error shows its source); only real tags and attributes count
+const live = (html) => /<(svg|script)\b|<[^>]*\son\w+="|href="javascript/i.test(html);
+for (const [name, src] of Object.entries(EXTENSIONS)) {
+  const r = await render({ markdown: src });
+  check('markdown: ' + name, !r.xss && !live(r.html), r.html);
+}
+{
+  const r = await render({ html: '<a name="x&quot; onclick=&quot;window.__xss=1">a</a><a href="#x&quot; onclick=&quot;window.__xss=1">b</a><code class="language-js" onclick="window.__xss=1">c</code><tg-time unix="1"><img src=x onerror="window.__xss=1"></tg-time>' });
+  check('anchors, code language and tg-time keep no handlers', !r.xss && !live(r.html), r.html);
+}
+// odd input must not turn the whole preview into a render error
+for (const [name, rm] of Object.entries({
+  'broken %-escape in an html #link': { html: '<p><a href="#%">x</a></p>' },
+  'broken %-escape in a markdown #link': { markdown: '[x](#%E0%A4%A)' },
+  'footnote named like a prototype property': { markdown: 'a [^__proto__] b [^toString]\n\n[^__proto__]: x\n[^toString]: y' },
+})) {
+  const r = await render(rm);
+  check('renders ' + name, !has(r.all, /Ошибка рендера/), r.all.slice(0, 300));
 }
 
 check('no script ran and no page errors', (await page.evaluate(() => window.__xss)) === 0 && pageErrors.length === 0, pageErrors.join(' | '));

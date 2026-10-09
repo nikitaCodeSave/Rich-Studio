@@ -11,12 +11,13 @@ declare const RichRender: {
   formatTime(unix: number, fmt?: string): string;
   mediaSrc(media: unknown, ctx: object): string | null;
   safeUrl(url: string): string | null;
+  outline(post: object): string;
 };
 interface Window {
   RichRender: typeof RichRender;
   // vendored libraries the preview uses when present
   katex?: { render(expr: string, el: HTMLElement, opts?: object): void };
-  markdownit?: (opts?: object) => { render(src: string): string };
+  markdownit?: (opts?: object) => any;
   // snippets.js: snippet groups for the html and markdown modes
   SNIPPETS: Record<string, Record<string, any>[]>;
 }

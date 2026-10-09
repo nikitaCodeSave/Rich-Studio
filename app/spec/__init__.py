@@ -1,5 +1,6 @@
 """Bot API specification: source, change log and validation."""
 
+from .convert import to_input_blocks
 from .diff import diff_specs
 from .parse import check_spec_shape, enum_values, version_tuple
 from .source import Spec
@@ -12,6 +13,7 @@ __all__ = [
     "current",
     "diff_specs",
     "enum_values",
+    "to_input_blocks",
     "validate_rich_message",
     "version_tuple",
 ]

@@ -101,8 +101,10 @@ def test_draft_and_preview(client, tg):
     _, data, _ = call(client, "save_draft", post=BLOCKS_POST, title="Анонс")
     assert data["preview_path"] == f"/render/draft/{data['id']}"
     assert client.get(data["preview_path"]).status_code == 200
-    call(client, "send_preview_to_me", post=BLOCKS_POST)
+    _, sent, _ = call(client, "send_preview_to_me", post=BLOCKS_POST)
     assert tg.last("sendRichMessage")["body"]["chat_id"] == 777
+    # the agent gets Telegram's parse once, in the form it can send again
+    assert sent["parsed"]["input_blocks"] and "blocks" not in sent["parsed"]
 
 
 def test_mcp_is_behind_the_api_key(client, monkeypatch):

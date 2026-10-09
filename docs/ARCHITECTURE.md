@@ -22,9 +22,9 @@
 | `app/services/media.py` | имена загрузок, путь внутри папки media | |
 | `app/telegram/` | транспорт к Bot API, `upload:` → `attach://`, проверка прав бота | не меняет payload, кроме `upload:` |
 | `app/store/` | SQLite: соединения, миграции (`PRAGMA user_version`), черновики, посты | |
-| `app/spec/` | загрузка и кэш api.json, сводка для редактора, diff версий, валидатор | |
+| `app/spec/` | загрузка и кэш api.json, сводка для редактора, diff версий, валидатор, перевод блоков из ответа Telegram в отправляемые (`convert.py`) | |
 | `app/static/js/` | редактор: ES-модули без сборки, вход `main.js`; общее состояние в `state.js` | не пишет пользовательский HTML в `innerHTML` (это запрещает ESLint) |
-| `app/static/render.js` | предпросмотр поста и очистка HTML/Markdown (`sanitize`) | |
+| `app/static/render.js` | предпросмотр поста, очистка HTML/Markdown (`sanitize`), разбор HTML/Markdown по правилам Telegram, `outline` для сверки | правила разбора меняются только вместе с примером в `tests/telegram_parse/`, записанным с настоящего Telegram |
 
 ## Политика ошибок при отправке
 
@@ -51,7 +51,8 @@
 - Ожидание в коде подменяется через `_sleep` модуля (`telegram.client`, `services.updates`), а не через `asyncio.sleep`: глобальная подмена останавливает фейковый сервер в соседнем потоке, и тесты зависают.
 - Подменять настройки: `monkeypatch.setattr(settings.get(), "preview_chat", "")`.
 - Подменять Telegram: `monkeypatch.setattr(telegram, "call", fake)`.
-- `tests/e2e_ui.mjs` — 13 проверок в браузере против запущенной студии и `tests/mock_telegram.py`.
+- `tests/e2e_ui.mjs` — проверки в браузере против запущенной студии и `tests/mock_telegram.py`.
 - `npm run test:render` — `tests/render_unit.mjs`: очистка HTML/Markdown в render.js на враждебных примерах (script, on*, javascript:, svg, mXSS), без студии. Новая дыра в санитайзере → сначала пример сюда.
+- `npm run test:parity` — `tests/render_parity.mjs`: предпросмотр каждого примера из `tests/telegram_parse/captured.json` совпадает с предпросмотром блоков, которые для него вернул настоящий Telegram. Новый пример: добавить в `cases.json` и записать `scripts/capture_telegram_parse.py` (нужен токен и чат, сообщения сразу удаляются). Осознанное расхождение помечается `known_gap` с причиной.
 - `npm run lint` — ESLint для `app/static` и тестов на JS: ловит неопределённые имена и забытые импорты, которые браузер покажет только при клике.
 - Перед изменением: `ruff check . && ruff format --check . && mypy && pytest && npm run lint`.

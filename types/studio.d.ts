@@ -121,6 +121,23 @@ interface Upload {
 
 type ButtonRow = Json[];
 
+/** POST /api/preview-send `parsed`: the post as Telegram's parser understood it; the editor adds `key` */
+interface ParsedPost {
+  /** rich_message the blocks belong to, as JSON: the post has not changed while it equals the current one */
+  key: string;
+  /** RichBlock* exactly as sendRichMessage returned them */
+  blocks: Json[];
+  /** the same blocks as InputRichBlock*, ready to send again; media reuse Telegram's file_id */
+  input_blocks: Json[];
+}
+
+/** <rs-parse-check>: preview compared with Telegram's blocks; mine/theirs are outlines around the first difference */
+interface ParseCheck {
+  status: 'stale' | 'same' | 'diff';
+  mine?: string;
+  theirs?: string;
+}
+
 /** Editor state (state.js) */
 interface EditorState {
   spec: SpecSummary;

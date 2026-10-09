@@ -15,16 +15,17 @@ import { effect } from '../vendor/signals-core.js';
 import './components/rs-preview.js';
 import './components/rs-edit-bar.js';
 import './components/rs-health.js';
+import './components/rs-parse-check.js';
 import { leaveEditing, reschedulePost, showHistory, updatePost } from './editing.js';
 import { loadDrafts, newDraft, openDraft, saveDraft } from './drafts.js';
-import { autosave, buildPost, changed, loadPost, renderPreview, setMode } from './editor.js';
+import { autosave, buildPost, changed, loadPost, parsedToBlocks, parseKey, renderPreview, setMode } from './editor.js';
 import { watchHealth } from './health.js';
 import { canRedo, canUndo, redo, undo } from './history.js';
 import { addMediaEntry, loadUploads, upload } from './media.js';
 import { showPoll } from './poll.js';
 import { loadPosts, replacePost } from './posts.js';
 import { refreshSpec, showSpec, updateBadge } from './spec-dialog.js';
-import { chat, dark, dirty, editing, S, saveState, target, targetLabel } from './state.js';
+import { chat, dark, dirty, editing, parsed, S, saveState, showParsed, target, targetLabel } from './state.js';
 
 const isTextField = (el) => el instanceof HTMLElement && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName));
 
@@ -32,7 +33,7 @@ const isTextField = (el) => el instanceof HTMLElement && (el.isContentEditable |
 function bindEffects() {
   effect(() => { $('#save-state').textContent = saveState.value; });
   effect(() => { $('#btn-undo').disabled = !canUndo.value; $('#btn-redo').disabled = !canRedo.value; });
-  effect(() => { store.set('dark', dark.value); renderPreview(); });
+  effect(() => { store.set('dark', dark.value); parsed.value; showParsed.value; renderPreview(); });
   effect(() => { /** @type {any} */ ($('#edit-bar')).post = editing.value; });
 }
 
@@ -60,7 +61,16 @@ function bindActions() {
       h('p', { class: r.can_post ? 'ok' : 'err', text: r.can_post ? '✓ Может публиковать посты' : '✕ Нет права публиковать. Сделайте бота админом с правом «Публикация сообщений».' }),
       h('pre', { class: 'code', text: JSON.stringify(r.rights, null, 1) })]);
   });
-  $('#btn-me').onclick = () => act(() => api('POST', '/api/preview-send', { post: buildPost() }), (r) => 'Отправлено вам в личку (#' + r.message_id + ')');
+  $('#btn-me').onclick = () => act(async () => {
+    const post = buildPost();
+    const r = await api('POST', '/api/preview-send', { post });
+    // Telegram's answer holds the post as its parser understood it: the preview is checked against it
+    if (r.parsed) parsed.value = { ...r.parsed, key: parseKey(post) };
+    return r;
+  }, (r) => 'Отправлено вам в личку (#' + r.message_id + ')');
+  const check = $('#parse-check');
+  check.addEventListener('toggle', () => { showParsed.value = !showParsed.value; });
+  check.addEventListener('to-blocks', parsedToBlocks);
   $('#btn-publish').onclick = async () => {
     const where = targetLabel();
     if (!where) { toast('Укажите канал (@username или id) в поле справа сверху', 'err'); return; }

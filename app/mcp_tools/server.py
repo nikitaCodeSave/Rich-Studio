@@ -296,8 +296,13 @@ def build() -> MCPServer:
 
     @tool(TO_ME)
     async def send_preview_to_me(post: PostArg) -> dict:
-        """Отправить пост пользователю в личку (TG_PREVIEW_CHAT), чтобы он увидел его в Telegram. В канал не уходит."""
-        return await posts.preview(_post(post))
+        """Отправить пост пользователю в личку (TG_PREVIEW_CHAT), чтобы он увидел его в Telegram. В канал не уходит.
+        В ответе parsed.input_blocks: пост так, как его разобрал Telegram (можно отправить как rich_message.blocks)."""
+        res = await posts.preview(_post(post))
+        # the agent needs the post once: Telegram's output blocks are for the editor's preview only
+        if isinstance(res.get("parsed"), dict):
+            res["parsed"].pop("blocks", None)
+        return res
 
     @tool(TELEGRAM_READ)
     async def check_channel(chat_id: ChatArg = None) -> dict:

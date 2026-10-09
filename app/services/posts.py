@@ -3,7 +3,10 @@
 Functions take plain dicts and return what the API returns; they never import FastAPI.
 """
 
+import logging
+
 import settings
+import spec
 import store
 import telegram as tg
 from errors import Conflict, MayHaveGone, NotFound, StudioError, Upstream
@@ -11,6 +14,8 @@ from telegram.uploads import MissingUpload, collect_uploads
 
 from . import publisher
 from .updates import poll_results, remember_preview
+
+log = logging.getLogger("rich-studio.posts")
 
 
 def _get(pid: str) -> dict:
@@ -94,7 +99,17 @@ async def preview(post: dict, chat_id=None) -> dict:
         raise StudioError("не задан TG_PREVIEW_CHAT (ваш user id) — некуда отправить предпросмотр")
     chat = publisher.resolve_chat(target)
     res = await publisher.send(chat, post)
-    out = {"message_id": res["message_id"], "chat_id": chat}
+    out: dict = {"message_id": res["message_id"], "chat_id": chat}
+    # how Telegram itself parsed the post: the editor compares it with its own preview and can
+    # take these blocks into the visual mode
+    blocks = (res.get("rich_message") or {}).get("blocks")
+    if isinstance(blocks, list):
+        out["parsed"] = {"blocks": blocks}
+        # the message is already out: a block shape the converter did not expect must not fail the answer
+        try:
+            out["parsed"]["input_blocks"] = spec.to_input_blocks(spec.current, blocks)
+        except Exception:
+            log.exception("parsed blocks could not be converted to input blocks")
     if post.get("callbacks"):  # so the buttons of the preview answer like in the channel
         remember_preview(chat, res["message_id"], post["callbacks"])
     if post.get("comment"):  # show the first comment right under the preview

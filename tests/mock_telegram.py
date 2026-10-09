@@ -8,8 +8,13 @@ POST /push queues an update that the studio will receive through getUpdates.
 import asyncio
 import json
 import time
+from pathlib import Path
 
 from fastapi import FastAPI, Request
+
+# real answers of Telegram to known HTML/Markdown sources (scripts/capture_telegram_parse.py)
+CAPTURED = Path(__file__).resolve().parent / "telegram_parse" / "captured.json"
+_parsed_cache: dict = {}
 
 TRUE_METHODS = {
     "deleteMessage",
@@ -40,6 +45,23 @@ def _message(message_id, **extra) -> dict:
 
 def _content(body: dict) -> dict:
     return {"rich_message": body.get("rich_message"), "reply_markup": body.get("reply_markup")}
+
+
+def parsed_blocks(rich_message) -> list:
+    """The blocks Telegram answers with: recorded ones for a known source, else the text as one paragraph."""
+    if isinstance(rich_message, str):  # multipart uploads send it as a JSON string
+        rich_message = json.loads(rich_message)
+    rm = rich_message or {}
+    if "blocks" in rm:
+        return rm["blocks"]
+    if not _parsed_cache:
+        for c in json.loads(CAPTURED.read_text("utf-8")).values():
+            if c.get("blocks"):
+                _parsed_cache[(c["format"], c["source"])] = c["blocks"]
+    for fmt in ("html", "markdown"):
+        if fmt in rm:
+            return _parsed_cache.get((fmt, rm[fmt])) or [{"type": "paragraph", "text": rm[fmt]}]
+    return []
 
 
 class FakeTelegram:
@@ -102,6 +124,8 @@ class FakeTelegram:
             self.next_id += 1
             res = _message(self.next_id)
             self.messages[(body.get("chat_id"), self.next_id)] = _content(body)
+            if method == "sendRichMessage":
+                res["rich_message"] = {"blocks": parsed_blocks(body.get("rich_message"))}
             if method == "sendPoll":
                 res["poll"] = {"id": f"poll{self.next_id}", "question": body.get("question")}
             return {"ok": True, "result": res}
