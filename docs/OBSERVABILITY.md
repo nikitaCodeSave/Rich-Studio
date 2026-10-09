@@ -13,8 +13,10 @@
 
 ### Журнал
 
-- `app/logs.py`: два выхода. В stderr (то есть `docker compose logs`) короткие строки для человека, в `DATA_DIR/logs/studio.log` строки JSON для агента: `ts`, `level`, `logger`, `msg` и поля события.
-- Размер ограничен: файл до `LOG_MAX_MB` (5) и `LOG_FILES` (3) старых копий, итого не больше 20 МБ. `LOG_MAX_MB=0` оставляет только stderr. Вывод контейнера ограничен в `docker-compose.yml`: 3 × 10 МБ.
+- `app/logs.py`: два выхода. В stderr (то есть `docker compose logs`) короткие строки для человека, в `DATA_DIR/logs/studio.log` строки JSON для агента: `ts` (UTC, RFC 3339 с `Z`), `level`, `logger`, `msg` и поля события.
+- Запись вне event loop: логгеры кладут запись в `QueueHandler`, файл и stderr пишет поток `QueueListener` (совет logging cookbook для async-приложений). `request_id` и трассировка снимаются ещё в вызывающем потоке. Счётчик предупреждений для отчёта остаётся синхронным, он только в памяти. `logs.flush()` ждёт, пока поток допишет; `/api/logs` зовёт его сам.
+- Размер ограничен: файл до `LOG_MAX_MB` (5) и `LOG_FILES` (3) старых копий, итого не больше 20 МБ. `LOG_FILES` не меньше 1 (при 0 стандартная ротация не работала бы вовсе); лишние старые копии после уменьшения `LOG_FILES` удаляются при старте, чужие файлы в папке (`studio.log.old`) не читаются. Файлы доступны только владельцу (0600). `LOG_MAX_MB=0` оставляет только stderr. Вывод контейнера ограничен в `docker-compose.yml`: 3 × 10 МБ.
+- Токен бота вычищается из каждой строки обоих выходов и из всего отчёта `/api/health` (там тексты ошибок Telegram и прокси: страница 404 прокси может повторить URL с токеном). Ищется и точное значение `TG_BOT_TOKEN`, и любой токен по виду, и обрезанный хвост после `/bot`.
 - Журнал лежит в `DATA_DIR` (`./data` в Docker, `/tmp/rs-data` у `make dev`), то есть вне git: `data/` в `.gitignore`.
 - События:
 
@@ -71,8 +73,10 @@
 ### Один id на единицу работы
 
 - У каждой строки журнала, записанной во время HTTP-запроса, есть `request_id`; тот же id приходит в ответе в заголовке `X-Request-ID`. Так строка `http`, вызовы Bot API и ошибка одного запроса находятся вместе: `GET /api/logs?q=<id>`.
-- Id берётся у вызывающего, если он прислал разумный `X-Request-ID` (до 64 символов `A-Za-z0-9._:-`) или W3C `traceparent` (берётся trace-id). Иначе новый, 16 hex. Агент может сам задать id своего запроса и потом найти его в журнале.
+- Id берётся у вызывающего, если он прислал разумный `X-Request-ID` (до 64 символов `A-Za-z0-9._:-`) или W3C `traceparent` (берётся trace-id). Иначе новый, 32 hex, как trace-id в W3C и OpenTelemetry. `traceparent` разбирается по W3C: строчные hex, нулевые trace-id и parent-id отвергаются, у версии `00` ровно четыре поля, будущие версии с лишними полями принимаются. Агент может сам задать id своего запроса и потом найти его в журнале.
 - Фоновая работа получает свой id на каждый круг: `scheduler-…`, `spec-…`, `backup-…`, `housekeeping-…`, а каждое событие от Telegram — `update-<update_id>`, по которому его легко найти и в ответе getUpdates.
+- Необработанная ошибка записывается с трассировкой внутри того же `request_id`, ответ 500 тоже несёт `X-Request-ID`.
+- Путь в строке `http` обрезан до 200 символов, непечатаемые символы записаны как `\xNN`: путь может прислать кто угодно, даже без ключа.
 - Механика: `contextvars` в `logs.py` (`bind`, фильтр на обработчиках), переходит в `asyncio.to_thread`. В `recent_problems` отчёта у каждой ошибки тоже есть `request_id`.
 
 ### Задержки
@@ -82,7 +86,24 @@
 ### Liveness и readiness
 
 - `/healthz` — «процесс жив», для `HEALTHCHECK` в Dockerfile. Не смотрит на базу и Telegram, чтобы Docker не перезапускал студию из-за чужой беды.
-- `/readyz` — «можно работать»: 503, пока хоть одна проверка в `fail`. Без ключа API, поэтому отдаёт только имена проверок (`{"ready": false, "failing": ["disk"]}`); подробности в `/api/health` за ключом.
+- `/readyz` — «можно работать»: 503, пока хоть одна проверка в `fail`. Без ключа API, поэтому отчёт для него пересчитывается не чаще раза в 30 секунд и отдаёт только имена проверок (`{"ready": false, "failing": ["disk"]}`); подробности в `/api/health` за ключом.
+
+### Версия в отчёте
+
+`/api/health` отдаёт `version` (студии), `bot_api` (версия спецификации) и `time` (UTC): агент, сравнивающий два отчёта, видит, обновлялась ли студия между ними. Идея взята из черновика IETF о формате health check.
+
+### Сверка с практиками (2026-10-09)
+
+| Тема | Практика | У нас | Решение |
+|---|---|---|---|
+| Структурный журнал | stdlib, structlog, python-json-logger, loguru | stdlib + свой JSON-форматтер | оставить: библиотеки ничего не добавляют, AGENTS.md против новых зависимостей |
+| Запись в async | `QueueHandler`/`QueueListener` ([cookbook](https://docs.python.org/3/howto/logging-cookbook.html)) | было: запись в event loop | сделано |
+| Время | RFC 3339 в UTC | было: местное без смещения, фильтр `since` ошибался при переводе часов | сделано |
+| Имена полей | OTel semconv: `http.request.method`, `http.route`, `http.response.status_code`, `trace_id` ([semconv](https://opentelemetry.io/docs/specs/semconv/http/http-spans/)) | свои короткие: `method`, `route`, `status`, `request_id` | не сейчас: пользы мало без экспортёра OTel, а переименование ломает skill и привычные запросы |
+| Корреляция | W3C Trace Context ([TC](https://www.w3.org/TR/trace-context/)) | `traceparent` → `request_id`, свои id 32 hex | сделано; `traceresponse` убран из черновика W3C, не нужен |
+| Формат health | черновик `application/health+json` (истёк в 2022), Kubernetes, Spring Actuator | ok/warn/fail, `action`, `/healthz` и `/readyz` как в Kubernetes и Actuator | взяли `version` и `time`, полное соответствие истёкшему черновику не нужно |
+| Метрики | OTel SDK, Prometheus | счётчики и p50/p95 в памяти | избыток для одного контейнера (0006) |
+| Для агентов | MCP logging (`notifications/message`), read-only MCP-серверы наблюдения | `studio_health`, `studio_logs`, skill и read-only субагент | наравне или впереди; push-уведомления в MCP не нужны, агент читает сам |
 
 ### Чего нет и почему
 

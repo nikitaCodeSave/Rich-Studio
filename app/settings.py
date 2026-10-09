@@ -8,6 +8,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+VERSION = "0.1.0"  # the studio's own version: OpenAPI, /api/health
 _OFF = ("off", "0", "false", "no")
 
 

@@ -16,12 +16,18 @@ requests: Counter[str] = Counter()  # "2xx", "4xx", "5xx"
 telegram: Counter[str] = Counter()  # "<method> ok" / "<method> error"
 problems: Counter[str] = Counter()  # log records by level: WARNING, ERROR, CRITICAL
 recent: deque[dict] = deque(maxlen=RECENT_PROBLEMS)
+# errors only, apart from `recent`: a burst of warnings (getUpdates while offline) must not push them out
+errors: deque[dict] = deque(maxlen=RECENT_PROBLEMS)
+# the health watcher logs a failing check at ERROR; counting that line as an error would keep "log" warn about itself
+SELF_REPORTED = {"health.change"}
 # the last Telegram call outcome: health says "Telegram fails" only while the newest call failed
 telegram_last: dict[str, Any] = {"ok_at": None, "error": None}
 # background loops: name -> {"interval": s, "beat_at": t, "errors": n, "last_error": {...}}
 loops: dict[str, dict[str, Any]] = {}
 
 
+HTTP_METHODS = {"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}
+MAX_KEYS = 100  # distinct endpoints / Bot API methods; anything beyond is counted as "other"
 LATENCY_KEPT = 200  # newest durations per endpoint / Bot API method: enough for p95, bounded memory
 http_ms: defaultdict[str, deque[int]] = defaultdict(lambda: deque(maxlen=LATENCY_KEPT))  # "POST /api/send"
 telegram_ms: defaultdict[str, deque[int]] = defaultdict(lambda: deque(maxlen=LATENCY_KEPT))
@@ -30,7 +36,13 @@ telegram_ms: defaultdict[str, deque[int]] = defaultdict(lambda: deque(maxlen=LAT
 def http_observe(method: str, route: str, status: int, ms: int) -> None:
     """`route` is the template (/api/posts/{pid}), never the raw path: one entry per endpoint, not per id."""
     requests[f"{status // 100}xx"] += 1
-    http_ms[f"{method} {route}"].append(ms)
+    method = method if method in HTTP_METHODS else "OTHER"  # any token is a valid method to the HTTP parser
+    http_ms[_key(http_ms, f"{method} {route}")].append(ms)
+
+
+def _key(series: dict, key: str) -> str:
+    """Keys come from requests (/api/raw/{method} takes any name): cap them so memory stays bounded."""
+    return key if key in series or len(series) < MAX_KEYS else "other"
 
 
 def _latency(series: dict[str, deque[int]]) -> dict[str, dict]:
@@ -53,6 +65,7 @@ def beat(loop: str, interval: float, error: str | None = None) -> None:
 
 
 def telegram_call(method: str, ok: bool, error: str | None = None, ms: int | None = None) -> None:
+    method = _key(telegram_ms, method)
     telegram[f"{method} {'ok' if ok else 'error'}"] += 1
     if ms is not None:
         telegram_ms[method].append(ms)
@@ -62,12 +75,14 @@ def telegram_call(method: str, ok: bool, error: str | None = None, ms: int | Non
         telegram_last["error"] = {"at": time.time(), "method": method, "error": (error or "")[:300]}
 
 
-def problem(level: str, logger: str, message: str, request_id: str | None = None) -> None:
+def problem(level: str, logger: str, message: str, request_id: str | None = None, event: str | None = None) -> None:
     problems[level] += 1
     entry = {"at": int(time.time()), "level": level, "logger": logger, "message": message[:500]}
     if request_id:
         entry["request_id"] = request_id
     recent.append(entry)
+    if level in ("ERROR", "CRITICAL") and event not in SELF_REPORTED:
+        errors.append(entry)
 
 
 def reset() -> None:
@@ -75,6 +90,7 @@ def reset() -> None:
     for c in (requests, telegram, problems):
         c.clear()
     recent.clear()
+    errors.clear()
     loops.clear()
     http_ms.clear()
     telegram_ms.clear()

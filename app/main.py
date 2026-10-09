@@ -34,6 +34,7 @@ SPEC_CHECK_INTERVAL = 1800  # seconds; Spec.refresh itself skips while the copy 
 log = logging.getLogger("rich-studio")
 access = logging.getLogger("rich-studio.http")
 # polled by Docker and by agents; a line per call would bury everything else
+PATH_LOGGED = 200
 NOT_LOGGED = ("/healthz", "/readyz", "/api/health", "/api/logs", "/static/", "/favicon.ico")
 
 
@@ -50,6 +51,12 @@ async def _spec_loop():
         await asyncio.sleep(SPEC_CHECK_INTERVAL)
 
 
+def _printable(path: str) -> str:
+    """The path as it goes into the log: anyone can send one, even without the key. Short, one line, no escape codes."""
+    path = path[:PATH_LOGGED]
+    return path if path.isprintable() else "".join(c if c.isprintable() else f"\\x{ord(c):02x}" for c in path)
+
+
 def _route(request: Request) -> str:
     """The route template (/api/posts/{pid}/edit), so latencies group by endpoint, not by id."""
     route = request.scope.get("route")
@@ -64,12 +71,16 @@ async def _observe(request: Request, call_next):
     status = 500
     with logs.bind(rid):
         try:
-            response = await call_next(request)
+            try:
+                response = await call_next(request)
+            except Exception:  # logged here, inside the request id; uvicorn would log it after the id is gone
+                log.exception("unhandled error in %s %s", request.method, _printable(request.url.path))
+                response = JSONResponse({"detail": "внутренняя ошибка студии", "request_id": rid}, status_code=500)
             status = response.status_code
             response.headers["X-Request-ID"] = rid
             return response
         finally:
-            path = request.url.path
+            path = _printable(request.url.path)
             ms = int((time.monotonic() - started) * 1000)
             if not path.startswith(("/static/", "/media/")):
                 metrics.http_observe(request.method, _route(request), status, ms)
@@ -117,6 +128,7 @@ async def lifespan(app):
     for t in tasks:
         t.cancel()
     log.info("studio stopped", extra={"event": "stop"})
+    logs.flush()
 
 
 async def _studio_error(request: Request, e: Exception):
@@ -141,7 +153,7 @@ def create_app(cfg: settings.Settings | None = None) -> FastAPI:
         settings.use(cfg)
     app = FastAPI(
         title="Rich Studio API",
-        version="0.1.0",
+        version=settings.VERSION,
         lifespan=lifespan,
         description=(
             "Локальный сервис для rich-постов Telegram (sendRichMessage). Поле `post` везде имеет вид "

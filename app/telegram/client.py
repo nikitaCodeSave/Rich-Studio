@@ -74,10 +74,17 @@ def _token() -> str:
     return t
 
 
+def _loggable_chat(chat: Any) -> int | str | None:
+    """chat_id for the log: an id or @name, never whatever else a raw call put there (it could be post text)."""
+    if isinstance(chat, int) or (isinstance(chat, str) and len(chat) <= 64):
+        return chat
+    return None if chat is None else "?"
+
+
 async def call(method: str, params: dict | None = None, timeout: float = 60) -> Any:  # noqa: ASYNC109
     """One Bot API call; every outcome is counted for the health report and logged without the URL."""
     started = time.monotonic()
-    chat = (params or {}).get("chat_id")
+    chat = _loggable_chat((params or {}).get("chat_id"))
     try:
         result = await _call(method, params, timeout)
     except (TelegramError, NoAnswer) as e:
@@ -134,7 +141,8 @@ async def _post(url: str, params: dict, files: dict[str, Path], timeout: float) 
         body = r.json()
     except ValueError:
         body = None
-    detail = body.get("description") if isinstance(body, dict) else r.text[:300]
+    # a proxy's or a wrong TG_API_BASE's error page may echo the URL: hide the token before cutting the text
+    detail = body.get("description") if isinstance(body, dict) else r.text.replace(_token(), "<token>")[:300]
     if r.status_code >= 500 or (isinstance(body, dict) and (body.get("error_code") or 0) >= 500):
         raise NoAnswer(f"Telegram ответил HTTP {r.status_code}: {detail}")
     if not isinstance(body, dict):  # a 4xx page from a proxy or a wrong TG_API_BASE: refused, not executed

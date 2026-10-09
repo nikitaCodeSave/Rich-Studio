@@ -2,6 +2,7 @@
 
 import json
 import logging
+import logging.handlers
 import os
 import re
 import time
@@ -25,6 +26,7 @@ def log_file(fresh_data):
     """The JSON log in this test's data folder, and counters from zero."""
     metrics.reset()
     housekeeping._last.clear()
+    health._ready_cache.update(at=0.0, report=None)
     path = logs.setup()
     yield path
     logs.setup()  # close the file before the folder goes away
@@ -38,6 +40,7 @@ def _check(rep: dict, name: str) -> dict:
 def test_api_calls_and_telegram_calls_go_to_the_json_log(client, tg, log_file):
     client.post("/api/send", json={"post": BLOCKS_POST}, headers={"X-Studio-Client": "mcp:test"})
     client.get("/api/health")  # polled endpoints stay out of the log
+    logs.flush()
     lines = [json.loads(s) for s in log_file.read_text("utf-8").splitlines()]
     http = [x for x in lines if x.get("event") == "http"]
     assert [(x["method"], x["path"], x["status"], x["client"]) for x in http] == [
@@ -55,6 +58,7 @@ def test_token_never_reaches_the_log(log_file, capsys):
         raise RuntimeError(f"boom {TOKEN}")
     except RuntimeError:
         logging.getLogger("rich-studio.test").exception("failed")
+    logs.flush()
     text = log_file.read_text("utf-8")
     assert TOKEN not in text and TOKEN not in capsys.readouterr().err
     assert "<token>" in text and "boom" in text
@@ -68,6 +72,7 @@ def test_log_is_rotated_and_never_grows_past_the_cap(fresh_data, monkeypatch):
     log = logging.getLogger("rich-studio.test")
     for i in range(1000):
         log.info("line %d %s", i, "x" * 100)
+    logs.flush()
     names = sorted(p.name for p in cfg.log_dir.iterdir())
     assert names == ["studio.log", "studio.log.1", "studio.log.2"]
     assert logs.disk_bytes() <= 3 * 0.01 * 1024 * 1024 + 1024
@@ -99,7 +104,7 @@ def test_logs_endpoint_filters_by_level_logger_and_text(client, log_file):
 def test_request_id_ties_together_every_line_of_a_request(client, tg, log_file):
     r = client.post("/api/send", json={"post": BLOCKS_POST})
     rid = r.headers["X-Request-ID"]
-    assert re.fullmatch(r"[0-9a-f]{16}", rid)
+    assert re.fullmatch(r"[0-9a-f]{32}", rid)  # a valid W3C trace id
     lines = client.get("/api/logs", params={"q": rid}).json()["lines"]
     assert {x["event"] for x in lines} == {"telegram.call", "http"}
     assert all(x["request_id"] == rid for x in lines)
@@ -112,9 +117,15 @@ def test_callers_id_is_kept_and_a_traceparent_is_understood(client, log_file):
     tp = f"00-{trace}-00f067aa0ba902b7-01"
     assert client.get("/api/drafts", headers={"traceparent": tp}).headers["X-Request-ID"] == trace
     bad = client.get("/api/drafts", headers={"X-Request-ID": "x" * 65 + "\n"}).headers["X-Request-ID"]
-    assert re.fullmatch(r"[0-9a-f]{16}", bad)  # never echo an unsafe header back
+    assert re.fullmatch(r"[0-9a-f]{32}", bad)  # never echo an unsafe header back
     zero = "00-" + "0" * 32 + "-00f067aa0ba902b7-01"
     assert client.get("/api/drafts", headers={"traceparent": zero}).headers["X-Request-ID"] != "0" * 32
+    no_parent = f"00-{trace}-{'0' * 16}-01"
+    assert client.get("/api/drafts", headers={"traceparent": no_parent}).headers["X-Request-ID"] != trace
+    future = f"cc-{trace}-00f067aa0ba902b7-01-what-the-future-will-be"  # a newer version may add fields
+    assert client.get("/api/drafts", headers={"traceparent": future}).headers["X-Request-ID"] == trace
+    v00_extra = f"00-{trace}-00f067aa0ba902b7-01-extra"  # version 00 has exactly four fields
+    assert client.get("/api/drafts", headers={"traceparent": v00_extra}).headers["X-Request-ID"] != trace
 
 
 def test_background_rounds_and_updates_get_their_own_id(client, tg, log_file):
@@ -186,15 +197,53 @@ def test_readiness_is_public_and_says_only_which_checks_fail(client, log_file, m
     r = client.get("/readyz")
     assert r.status_code == 200 and r.json() == {"ready": True, "failing": []}
     monkeypatch.setitem(health.CHECKS, "disk", lambda: health._check("disk", "fail", "свободно 0.1 ГБ"))
+    assert client.get("/readyz").status_code == 200  # anyone may poll it: the report is reused for 30 s
+    health._ready_cache["at"] = 0.0
     r = client.get("/readyz")
     assert r.status_code == 503 and r.json() == {"ready": False, "failing": ["disk"]}
     assert client.get("/api/health").status_code == 401  # the details stay behind the key
+
+
+# ---------- writing off the event loop ----------
+def test_timestamps_are_utc_and_since_filters_by_them(log_file):
+    logging.getLogger("rich-studio.test").info("now")
+    line = logs.read("INFO")[-1]
+    assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z", line["ts"])
+    assert line["ts"][:16] == time.strftime("%Y-%m-%dT%H:%M", time.gmtime(time.time()))[:16]
+    assert logs.read("INFO", since=time.time() - 60)[-1]["msg"] == "now"
+    assert logs.read("INFO", since=time.time() + 3600) == []
+
+
+def test_the_caller_does_not_write_the_file_itself(log_file):
+    import threading
+
+    writers = []
+    file_handler = next(w for w in logs._writers if isinstance(w, logging.handlers.RotatingFileHandler))
+    real_emit = file_handler.emit
+
+    def spy(record):
+        writers.append(threading.current_thread().name)
+        real_emit(record)
+
+    file_handler.emit = spy
+    try:
+        try:
+            raise ValueError("kept")
+        except ValueError:
+            logging.getLogger("rich-studio.test").exception("with traceback")
+        logs.flush()
+    finally:
+        file_handler.emit = real_emit
+    assert writers and threading.current_thread().name not in writers
+    line = logs.read("ERROR")[-1]
+    assert line["msg"] == "with traceback" and "ValueError: kept" in line["exc"]  # the traceback survives the queue
 
 
 # ---------- health ----------
 def test_health_of_a_fresh_studio_is_ok_where_it_matters(client, log_file):
     rep = client.get("/api/health").json()
     assert [c["name"] for c in rep["checks"]] == list(health.CHECKS)
+    assert rep["version"] == settings.VERSION and rep["bot_api"].startswith("Bot API") and rep["time"].endswith("Z")
     for name in ("database", "telegram", "scheduler", "posts", "sends", "storage", "log", "loops"):
         assert _check(rep, name)["status"] == "ok", _check(rep, name)
     assert rep["status"] in ("ok", "warn") and isinstance(rep["problems"], list)
@@ -315,3 +364,107 @@ def test_monitor_agent_is_read_only():
     assert re.search(r"^name: studio-monitor$", front, re.MULTILINE)
     tools = re.search(r"^tools: (.+)$", front, re.MULTILINE)
     assert tools and not {"Edit", "Write"} & {t.strip() for t in tools.group(1).split(",")}
+
+
+# ---------- review fixes (security and growth) ----------
+def test_token_echoed_by_a_proxy_page_never_reaches_health_or_log(client, log_file, monkeypatch):
+    # a wrong TG_API_BASE or a proxy answers 404 with an HTML page that repeats the URL (with the token)
+    import telegram.client as tc
+
+    monkeypatch.setattr(settings.get(), "bot_token", TOKEN)
+
+    for pad in (0, 248):  # the whole token, and one that the 300-character limit cuts in the middle
+
+        async def page(url, params, files, timeout, pad=pad):
+            import httpx
+
+            path = "/bot" + url.split("/bot", 1)[1]
+            return httpx.Response(404, text="<pre>Cannot POST " + "/" * pad + path + "</pre>")
+
+        monkeypatch.setattr(tc, "_request", page)
+        assert client.post("/api/raw/getMe", json={}).status_code == 502
+        report = json.dumps(client.get("/api/health").json(), ensure_ascii=False)
+        assert "AAHxxxx" not in report, pad
+        assert "AAHxxxx" not in log_file.read_text("utf-8"), pad
+
+
+def test_a_long_run_of_digits_does_not_stall_the_scrubber():
+    started = time.monotonic()
+    logs.scrub("1" * 60000)
+    assert time.monotonic() - started < 0.2
+    assert logs.scrub(f"/bot{TOKEN}/getMe") == "/bot<token>/getMe"
+
+
+def test_path_in_the_access_line_is_short_and_printable(client, log_file):
+    client.get("/x%1B[31mred" + "y" * 500)
+    http = [x for x in logs.read() if x.get("event") == "http"][-1]
+    assert "\x1b" not in http["path"] and "\\x1b" in http["path"] and len(http["path"]) <= 210
+
+
+def test_unknown_http_methods_and_raw_methods_do_not_grow_metrics(client, log_file):
+    for i in range(5):
+        client.request(f"M{i}", "/api/drafts")
+    assert not [k for k in metrics.http_ms if k.startswith("M")]
+    for i in range(metrics.MAX_KEYS + 20):
+        metrics.telegram_call(f"method{i}", True, ms=1)
+    assert len(metrics.telegram_ms) <= metrics.MAX_KEYS + 1 and "other" in metrics.telegram_ms
+
+
+def test_log_files_zero_still_rotates_and_stray_files_are_ignored(fresh_data, monkeypatch):
+    cfg = settings.get()
+    cfg.log_dir.mkdir(parents=True, exist_ok=True)
+    (cfg.log_dir / "studio.log.old").write_text("not ours")
+    (cfg.log_dir / "studio.log.7").write_text("{}\n")  # left over from a larger LOG_FILES
+    monkeypatch.setattr(cfg, "log_max_mb", 0.01)
+    monkeypatch.setattr(cfg, "log_files", 0)
+    logs.setup()
+    assert not (cfg.log_dir / "studio.log.7").exists()
+    for i in range(1000):
+        logging.getLogger("rich-studio.test").info("line %d %s", i, "x" * 100)
+    assert logs.disk_bytes() <= 2 * 0.01 * 1024 * 1024 + 1024
+    assert logs.read("INFO", limit=1)[0]["msg"].startswith("line 999")
+    monkeypatch.undo()
+    logs.setup()
+
+
+def test_log_is_readable_only_by_its_owner(log_file):
+    logging.getLogger("rich-studio.test").info("x")
+    assert os.stat(log_file).st_mode & 0o777 == 0o600
+
+
+def test_since_out_of_range_is_refused_not_a_500(client, log_file):
+    assert client.get("/api/logs", params={"since": 1e300}).status_code == 422
+    assert logs.read(since=float("inf")) == []
+
+
+def test_raw_chat_id_that_is_not_an_id_stays_out_of_the_log(client, tg, log_file):
+    client.post("/api/raw/sendMessage", json={"chat_id": {"x": "MARKERPOSTTEXT"}, "text": "t"})
+    assert "MARKERPOSTTEXT" not in log_file.read_text("utf-8")
+
+
+def test_unhandled_error_keeps_its_request_id(client, log_file, monkeypatch):
+    def boom():
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(store, "list_drafts", boom)
+    r = client.get("/api/drafts", headers={"X-Request-ID": "boom-1"})
+    assert r.status_code == 500 and r.headers["X-Request-ID"] == "boom-1"
+    tb = next(x for x in logs.read("ERROR") if "exc" in x)
+    assert tb["request_id"] == "boom-1" and "RuntimeError: boom" in tb["exc"]
+
+
+def test_traceparent_follows_w3c(client, log_file):
+    trace = "4bf92f3577b34da6a3ce929d0e0e4736"
+    get = lambda tp: client.get("/api/drafts", headers={"traceparent": tp}).headers["X-Request-ID"]  # noqa: E731
+    assert get(f"01-{trace}-00f067aa0ba902b7-01-future") == trace  # later versions may add fields
+    assert get(f"00-{trace.upper()}-00F067AA0BA902B7-01") != trace.upper()  # uppercase is invalid
+    assert get(f"00-{trace}-{'0' * 16}-01") != trace  # an all-zero parent id is invalid
+
+
+def test_watchers_own_error_line_does_not_count_as_a_log_error(log_file):
+    logging.getLogger("rich-studio.health").error("x: ok → fail", extra={"event": "health.change"})
+    assert health.log_problems()["status"] == "ok"
+    logging.getLogger("rich-studio.test").error("real")
+    for _ in range(40):
+        logging.getLogger("rich-studio.test").warning("noise")
+    assert health.log_problems()["status"] == "warn"  # warnings no longer push the error out
