@@ -42,6 +42,7 @@ make fmt                                        # автоисправление
 - Файлы, которые правит почти каждый PR (README, `SKILL.md`, `tests/e2e_ui.mjs`, `app/mcp_tools/server.py`, `MIGRATIONS`): правьте точечно, в конце списка или таблицы, без переформатирования соседних строк.
 - Перед PR: rebase на свежий `main`, `make openapi`, если менялись маршруты, затем `make check`. Номер нового шага `MIGRATIONS` сверьте с `main` после rebase.
 - Ревью делает не автор (см. раздел 9 в `docs/REVIEW_CHECKLIST.md`). Approve и merge только у человека.
+- Job `supply-chain` и Trivy в `docker` падают и от свежей CVE в зависимости, которой нет в диффе. Сначала попробуйте обновить зависимость отдельным PR. Если исправления нет, временно игнорируйте её: `pip-audit --ignore-vuln <ID>` в `ci.yml` или строка в `.trivyignore`, всегда с комментарием «почему, ссылка, до какой даты». Отключать job нельзя.
 - В облачной сессии зависимости ставит `.claude/hooks/session-start.sh` (в `.venv` и `node_modules`). Для промежуточных шагов есть `make check-fast` (без браузера), перед PR нужен полный `make check`.
 
 ## Документация в том же PR

@@ -3,6 +3,9 @@ on:
   pull_request:
   push:
     branches: [main]
+  # new CVEs appear without any push: the audit and the image scan also run weekly on main
+  schedule:
+    - cron: "17 5 * * 1"
 
 # read-only token: no job here writes to the repository
 permissions:
