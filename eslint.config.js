@@ -13,7 +13,7 @@ const rules = {
 };
 
 export default [
-  { ignores: ['app/static/vendor/**', 'node_modules/**', 'data/**'] },
+  { ignores: ['app/static/vendor/**', 'node_modules/**', 'data/**', '.venv/**'] },
   {
     files: ['app/static/js/**/*.js'],
     languageOptions: {

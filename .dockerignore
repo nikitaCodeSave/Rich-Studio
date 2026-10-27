@@ -4,3 +4,4 @@ data/
 .claude/
 node_modules/
 **/AGENTS.md
+.venv/

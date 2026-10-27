@@ -1,16 +1,28 @@
 # Одна команда проверки для людей и агентов: `make check`. Вывод короткий, ошибки в конце.
-# Инструменты запускаются тем же Python, куда ставили requirements-dev.txt.
-PY ?= python3
+# Инструменты запускаются тем же Python, куда ставили requirements-dev.txt (.venv, если он есть).
+PY ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 
-.PHONY: check check-py check-js fmt test openapi e2e mock dev spec-update
+LINT_IMPORTS = $(if $(wildcard .venv/bin/lint-imports),.venv/bin/lint-imports,lint-imports)
+
+.PHONY: check check-fast check-py check-js fmt test openapi e2e mock dev spec-update
 
 check: check-py check-js
+
+# Быстрая проверка между шагами, без браузера. Перед PR всё равно нужен `make check`.
+check-fast:
+	$(PY) -m ruff check .
+	$(PY) -m ruff format --check .
+	$(PY) -m mypy
+	PYTHONPATH=app $(LINT_IMPORTS) --no-cache
+	$(PY) -m pytest -q -x
+	npx eslint .
+	npx tsc -p .
 
 check-py:
 	$(PY) -m ruff check .
 	$(PY) -m ruff format --check .
 	$(PY) -m mypy
-	PYTHONPATH=app lint-imports --no-cache
+	PYTHONPATH=app $(LINT_IMPORTS) --no-cache
 	$(PY) -m pytest -q
 
 check-js:
