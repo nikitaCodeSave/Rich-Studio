@@ -609,9 +609,17 @@ check('Header fits one row at 1440px', Math.abs(header.pub - header.brand) < 12 
   await cards.nth(2).locator('select[aria-label="Что делает кнопка"]').selectOption('copy');
   await cards.nth(2).locator('input[placeholder="Промокод, адрес, ссылка"]').fill('PROMO2026');
   await page.click('#btn-save');
-  await page.waitForTimeout(500);
-  const id = await page.evaluate(() => JSON.parse(localStorage.getItem('rs.lastDraft') || 'null'));
-  const d = await page.evaluate((x) => fetch('/api/drafts/' + x).then((r) => r.json()), id);
+  // the save is async: wait until the stored draft is this one with its buttons, not a fixed pause
+  let d = null;
+  for (let i = 0; i < 50 && !d; i++) {
+    d = await page.evaluate(async () => {
+      const x = JSON.parse(localStorage.getItem('rs.lastDraft') || 'null');
+      const r = x && (await fetch('/api/drafts/' + x).then((res) => res.json()));
+      return r && r.title === 'Кнопки по типам' && r.payload?.reply_markup ? r : null;
+    });
+    if (!d) await page.waitForTimeout(200);
+  }
+  if (!d) throw new Error('draft «Кнопки по типам» with buttons was not saved in 10 s');
   const [b1, b2, b3] = d.payload.reply_markup.inline_keyboard[0];
   const fieldsShown = await cards.nth(1).textContent();
   await page.click('#btn-more');
