@@ -1,8 +1,8 @@
 -r requirements.txt
 pytest==9.1.1
 pytest-cov==7.1.0
-ruff==0.16.10
+ruff==0.17.2
 mypy==2.4.0
-pre-commit==4.3.0
+pre-commit==4.7.0
 import-linter==2.15
-uv==0.13.4
+uv==0.13.5
