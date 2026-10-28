@@ -34,7 +34,7 @@
 
 ## Сервер
 
-`deploy/`: студия в образе из GHCR (uid 10001, read-only), Caddy с HTTPS, Litestream с копией базы в S3. Образ собирает `.github/workflows/image.yml`, пакеты из `requirements.lock` с хэшами. Восстановление из реплики проверяет `scripts/restore_check.sh` (CI `restore.yml`, ежедневно). Решение: [0010](decisions/0010-server-image-and-pinned-spec.md).
+`deploy/`: студия в образе из GHCR (uid 10001, read-only), Caddy с HTTPS, Litestream с копией базы в S3. Образ собирает `.github/workflows/image.yml` по ручному запуску или тегу `v*`, пакеты из `requirements.lock` с хэшами. Восстановление из реплики проверяет `scripts/restore_check.sh` (CI `restore.yml`, ежедневно). Решение: [0010](decisions/0010-server-image-and-pinned-spec.md).
 
 ## Политика ошибок при отправке
 
