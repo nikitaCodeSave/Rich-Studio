@@ -1,4 +1,4 @@
-"""Incoming Telegram updates (getUpdates): button clicks, first comments, reactions, poll results."""
+"""Incoming Telegram updates (getUpdates): button clicks, first comments, reactions, poll results, joins."""
 
 import asyncio
 import json
@@ -12,7 +12,7 @@ import settings
 import store
 import telegram as tg
 
-from . import channels
+from . import channels, invite_links
 
 log = logging.getLogger("rich-studio.updates")
 # tests replace this one name; patching asyncio.sleep itself would also stop the fake Telegram server
@@ -20,7 +20,14 @@ _sleep = asyncio.sleep
 OFFSET_KEY = "updates_offset"
 PREVIEW_KEY = "preview_callbacks"
 PREVIEWS_KEPT = 20  # button answers of the newest previews; older preview buttons get an empty answer
-ALLOWED_UPDATES = ["message", "callback_query", "message_reaction_count", "poll"]
+ALLOWED_UPDATES = [
+    "message",
+    "callback_query",
+    "message_reaction_count",
+    "poll",
+    "chat_member",
+    "chat_join_request",
+]
 # Telegram keeps undelivered updates for about a day; a forward older than that will never arrive
 COMMENT_WAIT = 24 * 3600
 
@@ -139,6 +146,10 @@ async def handle_update(u: dict) -> str | None:
         if p:
             store.update_post(p["id"], poll_results=poll_results(poll))
         return "poll"
+    if cm := u.get("chat_member"):
+        return "join" if invite_links.on_member(cm) else None
+    if jr := u.get("chat_join_request"):
+        return "join_request" if invite_links.on_join_request(jr) else None
     return None
 
 

@@ -98,6 +98,25 @@ interface Channel {
   is_default: boolean;
 }
 
+/** GET /api/invite-links item */
+interface InviteLink {
+  invite_link: string;
+  chat_id: string;
+  name: string | null;
+  kind: 'invite' | 'subscription';
+  expire_date: number | null;
+  member_limit: number | null;
+  creates_join_request: number;
+  subscription_period: number | null;
+  subscription_price: number | null;
+  is_revoked: number;
+  joined: number;
+  requests: number;
+  last_join_at: number | null;
+  actor: string | null;
+  created_at: number;
+}
+
 /** GET /api/posts/{id}/versions item */
 interface PostVersion {
   id: number;

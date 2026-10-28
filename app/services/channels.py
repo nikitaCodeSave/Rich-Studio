@@ -18,6 +18,7 @@ RIGHTS = {
     "can_edit_messages": "правка",
     "can_delete_messages": "удаление",
     "can_pin_messages": "закреп",
+    "can_invite_users": "ссылки",
 }
 
 

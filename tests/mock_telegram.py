@@ -25,6 +25,15 @@ TRUE_METHODS = {
 }
 
 
+INVITE_METHODS = {
+    "createChatInviteLink",
+    "editChatInviteLink",
+    "revokeChatInviteLink",
+    "createChatSubscriptionInviteLink",
+    "editChatSubscriptionInviteLink",
+}
+
+
 NOT_MODIFIED = {
     "ok": False,
     "error_code": 400,
@@ -76,6 +85,7 @@ class FakeTelegram:
         self.queue: dict[str, list] = {}  # method -> raw responses (dicts or Responses) before the normal answer
         self.updates: list[dict] = []  # what the next getUpdates returns
         self.messages: dict[tuple, dict] = {}  # (chat_id, message_id) -> content, to answer edits like Telegram
+        self.links: dict[str, dict] = {}  # invite_link -> ChatInviteLink
         self.app = self._build()
 
     def reset(self):
@@ -84,6 +94,7 @@ class FakeTelegram:
         self.queue.clear()
         self.updates.clear()
         self.messages.clear()
+        self.links.clear()
 
     def last(self, method: str) -> dict:
         return [c for c in self.calls if c["method"] == method][-1]
@@ -156,9 +167,42 @@ class FakeTelegram:
                     "options": [{"text": "Да", "voter_count": 2}, {"text": "Нет", "voter_count": 1}],
                 },
             }
+        if method in INVITE_METHODS:
+            return {"ok": True, "result": self._invite_link(method, body)}
         if method in TRUE_METHODS:
             return {"ok": True, "result": True}
         return {"ok": False, "error_code": 404, "description": "Not Found: method not mocked"}
+
+    def _invite_link(self, method: str, body: dict) -> dict:
+        """A ChatInviteLink as Telegram answers: the link's own fields back, a new t.me/+ link on create."""
+        if method.startswith("create"):
+            self.next_id += 1
+            link = f"https://t.me/+fake{self.next_id}"
+        else:
+            link = body["invite_link"]
+        old = self.links.get(link, {})
+        if method == "revokeChatInviteLink":
+            self.links[link] = {**old, "is_revoked": True}
+            return self.links[link]
+        keep = (
+            "name",
+            "expire_date",
+            "member_limit",
+            "creates_join_request",
+            "subscription_period",
+            "subscription_price",
+        )
+        sub = {k: old[k] for k in ("subscription_period", "subscription_price") if k in old}
+        self.links[link] = {
+            "invite_link": link,
+            "creator": {"id": 42, "is_bot": True, "first_name": "Bot"},
+            "creates_join_request": False,
+            "is_primary": False,
+            "is_revoked": False,
+            **sub,
+            **{k: body[k] for k in keep if body.get(k) not in (None, "")},
+        }
+        return self.links[link]
 
     def _build(self) -> FastAPI:
         app = FastAPI()

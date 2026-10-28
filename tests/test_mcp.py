@@ -9,7 +9,17 @@ from test_reference_docs import documented_tools
 HEADERS = {"Accept": "application/json, text/event-stream", "MCP-Protocol-Version": "2025-06-18"}
 # the tools the server has are recorded in docs/reference/mcp-tools.md (generated, see test_reference_docs.py)
 EXPECTED_TOOLS = documented_tools()
-PUBLISHING = {"publish_post", "schedule_post", "edit_post", "reschedule_post", "cancel_scheduled_post", "send_poll"}
+PUBLISHING = {
+    "publish_post",
+    "schedule_post",
+    "edit_post",
+    "reschedule_post",
+    "cancel_scheduled_post",
+    "send_poll",
+    "create_invite_link",
+    "edit_invite_link",
+    "revoke_invite_link",
+}
 
 
 def rpc(client, method, params=None, rid=1, **kw):
