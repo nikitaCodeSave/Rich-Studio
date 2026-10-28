@@ -224,13 +224,13 @@ async def edit(pid: str, post: dict, actor: str = "api", post_version: int | Non
     if p["status"] == "sent" and not p["message_id"]:
         raise StudioError(f"пост в статусе {p['status']}, редактировать нечего")
     publisher.validate(post)
-    if not store.claim_version(pid, post_version):
+    taken = store.claim_version(pid, post_version)
+    if taken is None:
         now = (store.get_post(pid) or {}).get("version")
         raise Conflict(
             f"пост {pid} уже заменили (версия {now}, а у вас {post_version}): прочитайте его заново (get_post) "
             "и повторите правку поверх новой версии"
         )
-    taken = (store.get_post(pid) or {}).get("version")
     if p["status"] == "scheduled":
         if not store.replace_scheduled(pid, post, p["payload"], actor):
             store.release_version(pid, taken)

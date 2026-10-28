@@ -111,6 +111,17 @@ def test_refused_edit_leaves_the_version_alone(client, tg):
     assert retry.status_code == 200 and retry.json()["version"] == 1
 
 
+def test_claim_version_returns_the_version_it_took(client):
+    """The number comes from the same statement that took it: a release gives back exactly this version."""
+    pid = client.post("/api/schedule", json={"post": BLOCKS_POST, "at": int(time.time()) + 3600}).json()["id"]
+    assert store.claim_version(pid, 0) == 1
+    assert store.claim_version(pid, 0) is None
+    assert store.claim_version(pid, None) == 2
+    store.release_version(pid, 1)  # someone took 2 meanwhile: nothing to give back
+    assert store.get_post(pid)["version"] == 2
+    assert store.claim_version("nope", None) is None
+
+
 def test_scheduled_post_edit_checks_the_version_too(client):
     rec = client.post("/api/schedule", json={"post": BLOCKS_POST, "at": int(time.time()) + 3600}).json()
     assert client.post(f"/api/posts/{rec['id']}/edit?post_version=0", json=NEW).status_code == 200
