@@ -2,14 +2,17 @@
 
 from fastapi import APIRouter, Body, Depends, Query
 
+import settings
 import store
 from errors import NotFound
 from models import ButtonsReq, EditReq, PinReq, PollReq, Post, PublishReq, RescheduleReq, ScheduleReq, SendReq
 from services import channels, idempotency, listing, posts, publisher
 
-from .deps import actor, idempotency_key
+from .deps import actor, idempotency_key, need
 
 router = APIRouter(tags=["telegram"])
+# what goes into a channel or changes it; preview-send to the user's own chat needs only draft
+PUBLISH = [Depends(need("publish"))]
 
 
 @router.get("/api/check", summary="Бот админ канала? Есть права на публикацию? Канал запоминается с названием")
@@ -17,7 +20,7 @@ async def check(chat_id: str | None = None):
     return await channels.check(publisher.resolve_chat(chat_id))
 
 
-@router.post("/api/send", summary="Опубликовать пост (sendRichMessage)")
+@router.post("/api/send", dependencies=PUBLISH, summary="Опубликовать пост (sendRichMessage)")
 async def send(req: PublishReq, who: str = Depends(actor), key: str | None = Depends(idempotency_key)):
     post = req.post.model_dump()
     if req.dry_run:  # nothing is sent, so there is nothing to deduplicate
@@ -32,16 +35,22 @@ async def send(req: PublishReq, who: str = Depends(actor), key: str | None = Dep
 
 @router.post("/api/preview-send", summary="Отправить пост себе в личку (TG_PREVIEW_CHAT)")
 async def preview_send(req: SendReq):
-    """В ответе `parsed`: блоки, на которые Telegram разобрал пост, и они же для повторной отправки (`input_blocks`)."""
+    """В ответе `parsed`: блоки, на которые Telegram разобрал пост, и они же для повторной отправки (`input_blocks`).
+    `chat_id`, отличный от `TG_PREVIEW_CHAT`, требует права `publish`: это уже отправка в чужой чат."""
+    preview_chat = settings.get().preview_chat
+    if req.chat_id and (
+        not preview_chat or publisher.resolve_chat(req.chat_id) != publisher.resolve_chat(preview_chat)
+    ):
+        need("publish")()
     return await posts.preview(req.post.model_dump(), req.chat_id)
 
 
-@router.post("/api/edit", summary="Заменить опубликованный пост (editMessageText + rich_message)")
+@router.post("/api/edit", dependencies=PUBLISH, summary="Заменить опубликованный пост (editMessageText + rich_message)")
 async def edit(req: EditReq, who: str = Depends(actor)):
     return await posts.edit_message(req.post.model_dump(), req.chat_id, req.message_id, who)
 
 
-@router.post("/api/schedule", summary="Отложить публикацию")
+@router.post("/api/schedule", dependencies=PUBLISH, summary="Отложить публикацию")
 async def schedule(req: ScheduleReq, who: str = Depends(actor), key: str | None = Depends(idempotency_key)):
     if req.dry_run:
         return posts.schedule(
@@ -56,7 +65,7 @@ async def schedule(req: ScheduleReq, who: str = Depends(actor), key: str | None 
     return await idempotency.run(key, "schedule", req.model_dump(), action)
 
 
-@router.post("/api/poll", summary="Опрос или викторина в канал (sendPoll), сразу или отложенно")
+@router.post("/api/poll", dependencies=PUBLISH, summary="Опрос или викторина в канал (sendPoll), сразу или отложенно")
 async def send_poll(req: PollReq, who: str = Depends(actor), key: str | None = Depends(idempotency_key)):
     """Опрос сразу после поста — поле `poll_after` в самом посте: оно проверяется по `sendPoll` до отправки поста."""
     return await idempotency.run(
@@ -67,23 +76,25 @@ async def send_poll(req: PollReq, who: str = Depends(actor), key: str | None = D
     )
 
 
-@router.post("/api/posts/{pid}/stop-poll", summary="Закрыть опрос и сохранить итоги")
+@router.post("/api/posts/{pid}/stop-poll", dependencies=PUBLISH, summary="Закрыть опрос и сохранить итоги")
 async def stop_poll(pid: str):
     return await posts.stop_poll(pid)
 
 
-@router.post("/api/posts/{pid}/pin", summary="Закрепить пост в канале")
+@router.post("/api/posts/{pid}/pin", dependencies=PUBLISH, summary="Закрепить пост в канале")
 async def pin_post(pid: str, req: PinReq = Body(default_factory=PinReq)):
     return await posts.pin(pid, req.disable_notification)
 
 
-@router.delete("/api/posts/{pid}/pin", summary="Открепить пост")
+@router.delete("/api/posts/{pid}/pin", dependencies=PUBLISH, summary="Открепить пост")
 async def unpin_post(pid: str):
     return await posts.unpin(pid)
 
 
 @router.post(
-    "/api/posts/{pid}/buttons", summary="Заменить только кнопки под постом (editMessageReplyMarkup), текст не трогается"
+    "/api/posts/{pid}/buttons",
+    dependencies=PUBLISH,
+    summary="Заменить только кнопки под постом (editMessageReplyMarkup), текст не трогается",
 )
 async def set_buttons(pid: str, req: ButtonsReq):
     return await posts.set_buttons(pid, req.reply_markup, req.callbacks)
@@ -104,7 +115,9 @@ def post(pid: str):
     return p
 
 
-@router.post("/api/posts/{pid}/edit", summary="Заменить содержимое поста, опубликованного через студию")
+@router.post(
+    "/api/posts/{pid}/edit", dependencies=PUBLISH, summary="Заменить содержимое поста, опубликованного через студию"
+)
 async def edit_post(
     pid: str,
     new: Post,
@@ -125,13 +138,19 @@ def post_versions(pid: str):
 
 
 @router.post(
-    "/api/posts/{pid}/reschedule", summary="Перенести отложенный пост или вернуть пропущенный в очередь на новое время"
+    "/api/posts/{pid}/reschedule",
+    dependencies=PUBLISH,
+    summary="Перенести отложенный пост или вернуть пропущенный в очередь на новое время",
 )
 def reschedule(pid: str, req: RescheduleReq):
     return posts.reschedule(pid, req.at)
 
 
-@router.delete("/api/posts/{pid}", summary="Отменить отложенный или пропущенный пост, или удалить пост из канала")
+@router.delete(
+    "/api/posts/{pid}",
+    dependencies=PUBLISH,
+    summary="Отменить отложенный или пропущенный пост, или удалить пост из канала",
+)
 async def delete_post(pid: str):
     """`DELETE` неудачной отправки убирает её из списка."""
     return await posts.delete(pid)

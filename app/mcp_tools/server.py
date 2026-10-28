@@ -16,7 +16,17 @@ from mcp.types import ToolAnnotations
 
 import settings
 from mcp_tools import preview_app, tools
-from mcp_tools.common import PUBLIC, READ, DraftArg, OptPostArg, draft_links, errors_as_tool_errors, post_source
+from mcp_tools.common import (
+    PUBLIC,
+    READ,
+    DraftArg,
+    OptPostArg,
+    draft_links,
+    errors_as_tool_errors,
+    level_of,
+    needs_level,
+    post_source,
+)
 from services import publisher
 
 INSTRUCTIONS = """Rich Studio: write, check, preview and publish rich posts for the user's Telegram channel.
@@ -62,7 +72,7 @@ def build() -> MCPServer:
         def register(fn):
             if annotations is PUBLIC and not settings.get().mcp_publish:
                 return fn  # MCP_PUBLISH=off: the tool does not exist for agents
-            server.tool(annotations=annotations)(errors_as_tool_errors(fn))
+            server.tool(annotations=annotations)(errors_as_tool_errors(needs_level(level_of(annotations), fn)))
             return fn
 
         return register

@@ -593,6 +593,22 @@
     "title": "SendReq",
     "type": "object"
    },
+   "SessionReq": {
+    "properties": {
+     "key": {
+      "description": "STUDIO_API_KEY или токен",
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Key",
+      "type": "string"
+     }
+    },
+    "required": [
+     "key"
+    ],
+    "title": "SessionReq",
+    "type": "object"
+   },
    "Topic": {
     "properties": {
      "id": {
@@ -2024,7 +2040,7 @@
   },
   "/api/preview-send": {
    "post": {
-    "description": "В ответе `parsed`: блоки, на которые Telegram разобрал пост, и они же для повторной отправки (`input_blocks`).",
+    "description": "В ответе `parsed`: блоки, на которые Telegram разобрал пост, и они же для повторной отправки (`input_blocks`).\n`chat_id`, отличный от `TG_PREVIEW_CHAT`, требует права `publish`: это уже отправка в чужой чат.",
     "operationId": "preview_send_api_preview_send_post",
     "requestBody": {
      "content": {
@@ -2064,6 +2080,7 @@
   },
   "/api/raw/{method}": {
    "post": {
+    "description": "Только для уровня admin; `RAW_API=off` выключает маршрут совсем.",
     "operationId": "raw_api_raw__method__post",
     "parameters": [
      {
@@ -2317,6 +2334,80 @@
     "summary": "Опубликовать пост (sendRichMessage)",
     "tags": [
      "telegram"
+    ]
+   }
+  },
+  "/api/session": {
+   "delete": {
+    "operationId": "logout_api_session_delete",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Выйти из редактора: сессия и её cookie удаляются",
+    "tags": [
+     "service"
+    ]
+   },
+   "get": {
+    "operationId": "whoami_api_session_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Кто я: имя токена и его уровень",
+    "tags": [
+     "service"
+    ]
+   },
+   "post": {
+    "description": "Cookie `rs_session`: HttpOnly, SameSite=Strict, Secure по HTTPS, живёт `SESSION_DAYS` дней. Её же берут\nстраницы предпросмотра и картинки из загрузок.",
+    "operationId": "login_api_session_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SessionReq"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Войти в редактор: ключ или токен меняется на cookie сессии",
+    "tags": [
+     "service"
     ]
    }
   },

@@ -41,6 +41,10 @@ class Settings:
     # MCP tools that post to a channel (publish_post, schedule_post, send_poll, edit_post, reschedule_post,
     # cancel_scheduled_post); off = agents only draft and preview
     mcp_publish: bool = True
+    # POST /api/raw/{method}: any Bot API method, for the admin level only; off = the route answers 403
+    raw_api: bool = True
+    # how long an editor login (POST /api/session, HttpOnly cookie) lasts
+    session_days: float = 7.0
     # a scheduled post later than this (the service or the computer was off) is not sent but marked "missed";
     # 0 = send however late
     schedule_late_min: float = 60.0
@@ -91,6 +95,8 @@ class Settings:
         s.media_fetch_private = env.get("MEDIA_FETCH_PRIVATE", "").strip().lower() in ("1", "true", "yes", "on")
         s.max_upload_mb = float(env.get("MAX_UPLOAD_MB", "2000" if own_server else "50"))
         s.mcp_publish = _flag(env, "MCP_PUBLISH")
+        s.raw_api = _flag(env, "RAW_API")
+        s.session_days = float(env.get("SESSION_DAYS", "7"))
         s.schedule_late_min = float(env.get("SCHEDULE_LATE_MIN", "60"))
         s.backup_keep = int(env.get("BACKUP_KEEP", "7"))
         s.log_level = env.get("LOG_LEVEL", "INFO").strip().upper() or "INFO"

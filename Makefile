@@ -4,7 +4,7 @@ PY ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 
 LINT_IMPORTS = $(if $(wildcard .venv/bin/lint-imports),.venv/bin/lint-imports,lint-imports)
 
-.PHONY: check check-fast check-py check-js fmt test openapi docs e2e mock dev spec-update
+.PHONY: check check-fast check-py check-js fmt test openapi docs e2e mock dev spec-update token tokens token-revoke
 
 check: check-py check-js
 
@@ -46,6 +46,17 @@ openapi: docs
 # docs/openapi.json and docs/reference/ (HTTP routes and MCP tools) from the code
 docs:
 	UPDATE_OPENAPI=1 UPDATE_DOCS=1 $(PY) -m pytest -q tests/test_openapi_contract.py tests/test_reference_docs.py
+
+# Именные токены доступа (README → Безопасность). База — ./data, как у docker compose; другая: DATA=путь.
+# В контейнере то же: docker compose exec studio python cli.py token add NAME --level draft
+DATA ?= $(CURDIR)/data
+LEVEL ?= draft
+token:
+	DATA_DIR=$(DATA) $(PY) app/cli.py token add $(NAME) --level $(LEVEL)
+tokens:
+	DATA_DIR=$(DATA) $(PY) app/cli.py token list
+token-revoke:
+	DATA_DIR=$(DATA) $(PY) app/cli.py token revoke $(NAME)
 
 # Студия на подставном Telegram: http://localhost:8080, без токена и сети.
 mock:
