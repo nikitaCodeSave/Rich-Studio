@@ -519,3 +519,16 @@ def test_channels_are_named_wherever_a_post_goes(client, tg, monkeypatch):
     assert {p["chat_title"] for p in rows} == {"Тест"}
     _, one, _ = call(client, "get_post", post_id=rows[0]["id"])
     assert one["chat_title"] == "Тест"
+
+
+def test_edit_post_with_a_stale_post_version_is_a_tool_error(client, tg):
+    pid = client.post("/api/send", json={"post": BLOCKS_POST}).json()["post"]["id"]
+    _, p, _ = call(client, "get_post", post_id=pid)
+    _, done, _ = call(
+        client, "edit_post", post_id=pid, post={"rich_message": {"markdown": "# Моё"}}, post_version=p["version"]
+    )
+    assert done["version"] == p["version"] + 1
+    res, _, text = call(
+        client, "edit_post", post_id=pid, post={"rich_message": {"markdown": "# Чужое"}}, post_version=p["version"]
+    )
+    assert res["isError"] and "get_post" in text

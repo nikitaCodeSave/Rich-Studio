@@ -8,6 +8,7 @@ services:
     volumes:
       - ./data:/data            # черновики, посты, файлы, кэш спецификации
     restart: unless-stopped
+    stop_grace_period: 45s    # начатые отправки успевают закончиться (до 30 с), см. services/loops.py
     logging:                    # вывод контейнера (docker logs) не растёт больше 3 × 10 МБ
       driver: json-file
       options:

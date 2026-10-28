@@ -67,15 +67,20 @@ def test_network_error_mid_send_is_never_resent_with_same_key(client, tg, monkey
 
 def test_error_after_telegram_accepted_never_resends_with_same_key(client, tg, monkeypatch):
     # Telegram took the post, then the studio broke while recording it: the key must not be freed
-    real = store.add_post
+    real = store.update_post
 
-    def broken(*a, **kw):
-        raise RuntimeError("disk full")
+    def broken(pid, **fields):
+        if fields.get("status") == "sent":
+            raise RuntimeError("disk full")
+        return real(pid, **fields)
 
     h = {"Idempotency-Key": "post-5"}
-    monkeypatch.setattr(store, "add_post", broken)
+    monkeypatch.setattr(store, "update_post", broken)
     assert client.post("/api/send", json={"post": BLOCKS_POST}, headers=h).status_code == 500
-    monkeypatch.setattr(store, "add_post", real)
+    monkeypatch.setattr(store, "update_post", real)
+    # the row written before the send is still there: the next start marks it "may have gone"
+    assert [p["status"] for p in store.list_posts()] == ["sending"]
+    assert store.recover_stale_sending() == 1
     again = client.post("/api/send", json={"post": BLOCKS_POST}, headers=h)
     assert again.status_code == 502 and "мог уйти" in again.json()["detail"]
     assert sends(tg) == 1

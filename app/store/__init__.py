@@ -4,13 +4,15 @@ from . import backup, idempotency, stats
 from .channels import delete_channel, get_channel, list_channels, save_channel
 from .db import conn, init
 from .drafts import delete_draft, drafts_using, get_draft, list_drafts, save_draft
-from .meta import get_meta, set_meta
+from .meta import drop_lease, get_meta, lease_holder, set_meta, take_lease
 from .posts import (
     add_post,
+    add_scheduled,
     add_version,
     bump_click,
     cancel_scheduled,
     claim_post,
+    claim_version,
     delete_post,
     drop_refused,
     due_posts,
@@ -24,6 +26,7 @@ from .posts import (
     mark_missed,
     recover_stale_sending,
     replace_scheduled,
+    replace_sent,
     reschedule,
     retry_later,
     update_post,
@@ -32,16 +35,19 @@ from .posts import (
 
 __all__ = [
     "add_post",
+    "add_scheduled",
     "add_version",
     "backup",
     "bump_click",
     "cancel_scheduled",
     "claim_post",
+    "claim_version",
     "conn",
     "delete_channel",
     "delete_draft",
     "delete_post",
     "drafts_using",
+    "drop_lease",
     "drop_refused",
     "due_posts",
     "expire_comments",
@@ -54,6 +60,7 @@ __all__ = [
     "get_post",
     "idempotency",
     "init",
+    "lease_holder",
     "list_channels",
     "list_drafts",
     "list_posts",
@@ -61,12 +68,14 @@ __all__ = [
     "mark_missed",
     "recover_stale_sending",
     "replace_scheduled",
+    "replace_sent",
     "reschedule",
     "retry_later",
     "save_channel",
     "save_draft",
     "set_meta",
     "stats",
+    "take_lease",
     "update_post",
     "using_upload",
 ]

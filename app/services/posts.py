@@ -153,11 +153,14 @@ def after_edit(old: dict, post: dict) -> dict:
     return new
 
 
-async def edit_message(post: dict, chat_id, message_id: int, actor: str = "api", rec: dict | None = None) -> dict:
+async def edit_message(
+    post: dict, chat_id, message_id: int, actor: str = "api", rec: dict | None = None, claimed: bool = False
+) -> dict:
     """Replace the content of any channel message (editMessageText + rich_message).
 
     If the studio published it (`rec`, or found by chat and message id), the record follows the
-    channel and the content before the edit is kept as a version."""
+    channel and the content before the edit is kept as a version. `claimed`: the caller already took
+    the post's next version (`edit`)."""
     publisher.validate(post)
     params = {
         "chat_id": publisher.resolve_chat(chat_id),
@@ -178,8 +181,9 @@ async def edit_message(post: dict, chat_id, message_id: int, actor: str = "api",
     if rec and rec.get("kind") != "poll":
         new = after_edit(rec["payload"], post)
         if new != rec["payload"]:  # a repeated edit is not a new version
-            store.add_version(rec["id"], rec["payload"], actor)
-            store.update_post(rec["id"], payload=new)
+            if not claimed:
+                store.claim_version(rec["id"], None)
+            store.replace_sent(rec["id"], new, rec["payload"], actor)
     return {"result": result, "unchanged": result is None}
 
 
@@ -201,31 +205,36 @@ def schedule(
     if dry_run:
         return {**dry_run_report(chats, post, report["warnings"]), "at": when}
     recs = [
-        {
-            **store.add_post(c, post, draft_id, "scheduled", scheduled_at=when, actor=actor),
-            "chat_title": channels.title_of(c),
-        }
-        for c in chats
+        {**r, "chat_title": channels.title_of(r["chat_id"])}
+        for r in store.add_scheduled(chats, post, when, draft_id, actor=actor)
     ]
     return recs[0] if len(recs) == 1 else {**recs[0], "all": recs}
 
 
-async def edit(pid: str, post: dict, actor: str = "api") -> dict | None:
-    """Replace a post published or scheduled through the studio."""
+async def edit(pid: str, post: dict, actor: str = "api", post_version: int | None = None) -> dict | None:
+    """Replace a post published or scheduled through the studio.
+
+    `post_version`: the version the caller read (get_post); someone else's edit since then gives 409
+    instead of being overwritten silently."""
     p = _get(pid)
     if p["status"] not in ("scheduled", "sent"):
         raise StudioError(f"пост в статусе {p['status']}, заменить нельзя")
     if p.get("kind") == "poll":
         raise StudioError("опрос заменить нельзя; можно закрыть или удалить")
-    if p["status"] == "scheduled":
-        publisher.validate(post)
-        if not store.replace_scheduled(pid, post):
-            raise StudioError("пост уже отправляется: обновите список и замените опубликованный")
-        store.add_version(pid, p["payload"], actor)
-        return store.get_post(pid)
-    if not p["message_id"]:
+    if p["status"] == "sent" and not p["message_id"]:
         raise StudioError(f"пост в статусе {p['status']}, редактировать нечего")
-    await edit_message(post, p["chat_id"], p["message_id"], actor, rec=p)
+    publisher.validate(post)
+    if not store.claim_version(pid, post_version):
+        now = (store.get_post(pid) or {}).get("version")
+        raise Conflict(
+            f"пост {pid} уже заменили (версия {now}, а у вас {post_version}): прочитайте его заново (get_post) "
+            "и повторите правку поверх новой версии"
+        )
+    if p["status"] == "scheduled":
+        if not store.replace_scheduled(pid, post, p["payload"], actor):
+            raise StudioError("пост уже отправляется: обновите список и замените опубликованный")
+        return store.get_post(pid)
+    await edit_message(post, p["chat_id"], p["message_id"], actor, rec=p, claimed=True)
     return store.get_post(pid)
 
 
@@ -301,6 +310,7 @@ async def set_buttons(pid: str, reply_markup: dict | None, callbacks: dict | Non
             # the same buttons again (e.g. only their answers changed): nothing to do in Telegram
             if NOT_MODIFIED not in e.description:
                 raise
+    store.claim_version(pid, None)
     return store.update_post(pid, payload=payload)
 
 
@@ -312,13 +322,13 @@ async def send_poll(poll: dict, chat_id=None, chat_ids=None, at=None, pin: bool 
     if not poll.get("question") or not isinstance(poll.get("options"), list) or len(poll["options"]) < 2:
         raise StudioError("нужны question и минимум два варианта в options")
     poll["options"] = [o if isinstance(o, dict) else {"text": str(o)} for o in poll["options"]]
+    # the same checks as a poll after a post: a scheduled poll would otherwise fail only at its time
+    if bad := publisher.poll_error(poll, "опрос"):
+        raise Invalid({"message": "опрос не прошёл проверку", "ok": False, "errors": [bad], "warnings": []})
     post = {"poll": poll, "pin": pin}
     if at is not None:
         when = publisher.parse_at(at)
-        recs = [
-            store.add_post(c, post, None, "scheduled", scheduled_at=when, kind="poll", actor=actor)
-            for c in publisher.targets(chat_id, chat_ids)
-        ]
+        recs = store.add_scheduled(publisher.targets(chat_id, chat_ids), post, when, kind="poll", actor=actor)
         return {"scheduled": recs}
     results, warnings = await publisher.publish(publisher.targets(chat_id, chat_ids), post, kind="poll", actor=actor)
     return {"results": results, "warnings": warnings}

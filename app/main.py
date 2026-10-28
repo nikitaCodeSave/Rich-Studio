@@ -26,7 +26,7 @@ from api import backup as backup_api
 from api import channels, drafts, health, media, posts, preview, raw, service, specs
 from errors import StudioError
 from security import guard
-from services import backup, housekeeping, scheduler, updates
+from services import backup, housekeeping, loops, scheduler, updates
 
 STATIC = Path(__file__).parent / "static"
 SPEC_CHECK_INTERVAL = 1800  # seconds; Spec.refresh itself skips while the copy is fresh
@@ -108,25 +108,25 @@ async def lifespan(app):
     cfg = settings.get()
     logs.setup()
     store.init()
-    stale = store.recover_stale_sending()
-    if stale:
-        log.warning("%d posts were being sent when the service stopped; marked failed", stale)
     cfg.media_dir.mkdir(parents=True, exist_ok=True)
     spec.current.load_initial()
     updates.reset_status()
-    tasks = []
+    runner = None
     if cfg.background:
-        tasks = [asyncio.create_task(_spec_loop()), asyncio.create_task(scheduler.loop())]
-        tasks.append(asyncio.create_task(housekeeping.loop()))
+        factories = [_spec_loop, scheduler.loop, housekeeping.loop]
         if cfg.backup_keep > 0:
-            tasks.append(asyncio.create_task(backup.loop()))
+            factories.append(backup.loop)
         if cfg.updates_on:
-            tasks.append(asyncio.create_task(updates.loop()))
+            factories.append(updates.loop)
+        runner = loops.Loops(factories)  # under a lease: one process runs them (services/loops.py)
+        runner.start()
+    elif stale := store.recover_stale_sending():  # no loops, no lease: tests and one-off runs
+        log.warning("%d posts were being sent when the service stopped; marked failed", stale)
     log.info("studio started", extra={"event": "start", "spec": spec.current.version, "background": cfg.background})
     async with app.state.mcp.session_manager.run():
         yield
-    for t in tasks:
-        t.cancel()
+    if runner:
+        await runner.stop()
     log.info("studio stopped", extra={"event": "stop"})
     logs.flush()
 

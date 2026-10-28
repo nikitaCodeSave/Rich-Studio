@@ -11,13 +11,11 @@ import store
 import telegram as tg
 from errors import StudioError
 
-from . import publisher
+from . import loops, publisher
 
 log = logging.getLogger("rich-studio.scheduler")
 INTERVAL = 10  # seconds between checks
 UNREACHABLE_RETRY = 60  # seconds before the next attempt when Telegram could not be reached
-# ids this process is sending right now: their "sending" status is normal, not stuck (health reads it)
-in_flight: set[str] = set()
 
 
 def _missed(p: dict, now: float) -> bool:
@@ -43,6 +41,11 @@ async def _send_claimed(queued: dict, now: float) -> None:
     except Exception as e:  # noqa: BLE001 - network errors mid-send, a 5xx: never kill the scheduler
         store.update_post(p["id"], status="failed", error=f"{type(e).__name__}: {e}. {publisher.MAY_HAVE_GONE}")
         return
+    except asyncio.CancelledError:  # stopped mid-send after the grace period: the post may be out
+        store.update_post(
+            p["id"], status="failed", error=f"студия остановилась во время отправки. {publisher.MAY_HAVE_GONE}"
+        )
+        raise
     # the post is in the channel now: whatever happens next must not mark it failed
     store.update_post(
         p["id"], status="sent", message_id=res["message_id"], sent_at=int(time.time()), error=None, retry_at=None
@@ -60,6 +63,8 @@ async def run_due_posts() -> int:
     """Send every scheduled post whose time has come. Returns how many were processed."""
     due = store.due_posts()
     for queued in due:
+        if loops.STATE.stopping:  # shutting down: what is not claimed yet waits for the next start
+            break
         now = time.time()
         if _missed(queued, now):  # the service was off: a late "good morning" is worse than none
             late = int((now - queued["scheduled_at"]) // 60)
@@ -70,13 +75,13 @@ async def run_due_posts() -> int:
                 "опубликуйте или отложите заново",
             )
             continue
-        in_flight.add(queued["id"])  # before the claim: health must never see "sending" without the id here
+        publisher.in_flight.add(queued["id"])  # before the claim: health must never see "sending" without the id here
         try:
             if not store.claim_post(queued["id"]):  # someone else took it
                 continue
             await _send_claimed(queued, now)
         finally:
-            in_flight.discard(queued["id"])
+            publisher.in_flight.discard(queued["id"])
     return len(due)
 
 

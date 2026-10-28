@@ -101,8 +101,17 @@ def post(pid: str):
 
 
 @router.post("/api/posts/{pid}/edit", summary="Заменить содержимое поста, опубликованного через студию")
-async def edit_post(pid: str, new: Post, who: str = Depends(actor)):
-    return await posts.edit(pid, new.model_dump(), who)
+async def edit_post(
+    pid: str,
+    new: Post,
+    who: str = Depends(actor),
+    post_version: int | None = Query(
+        None,
+        description="Поле version поста, который вы прочитали. Если пост с тех пор заменили, ответ 409, а не "
+        "молчаливая перезапись чужой правки",
+    ),
+):
+    return await posts.edit(pid, new.model_dump(), who, post_version)
 
 
 @router.get("/api/posts/{pid}/versions", summary="Как выглядел пост до каждой замены, новые сверху")

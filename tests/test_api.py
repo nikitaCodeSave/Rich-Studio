@@ -200,10 +200,22 @@ def test_failed_row_never_hides_telegrams_error(client, tg, monkeypatch):
     def broken(*a, **kw):
         raise RuntimeError("database is locked")
 
-    monkeypatch.setattr(store, "add_post", broken)
+    monkeypatch.setattr(store, "update_post", broken)
     tg.fail["sendRichMessage"] = "Bad Request: chat not found"
     r = post_json(client, "/api/send", {"post": BLOCKS_POST})
     assert r.status_code == 422 and "chat not found" in r.json()["detail"]
+
+
+def test_no_send_without_a_row_first(client, tg, monkeypatch):
+    """The row is written before Telegram is asked: a database that cannot write means nothing goes out."""
+    import store
+
+    def broken(*a, **kw):
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(store, "add_post", broken)
+    assert post_json(client, "/api/send", {"post": BLOCKS_POST}).status_code == 500
+    assert not [c for c in tg.calls if c["method"] == "sendRichMessage"]
 
 
 def test_posts_list_shows_what_the_post_is(client, tg):
