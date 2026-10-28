@@ -248,17 +248,19 @@ def retry_later(pid: str, at: int, error: str) -> None:
         )
 
 
-def claim_version(pid: str, expected: int | None) -> bool:
-    """Take the next version of a post before replacing its content; False if someone replaced it since
-    `expected` (None: whatever the version is). Taken before Telegram is asked, so two edits never both pass."""
+def claim_version(pid: str, expected: int | None) -> int | None:
+    """Take the next version of a post before replacing its content and return it; None if someone replaced it
+    since `expected` (None: whatever the version is). One statement, so the number returned is the one this
+    caller took. Taken before Telegram is asked, so two edits never both pass."""
     with conn() as c:
-        cur = c.execute(
-            "update posts set version=version+1 where id=? and (? is null or version=?)", (pid, expected, expected)
-        )
-        return cur.rowcount == 1
+        rows = c.execute(
+            "update posts set version=version+1 where id=? and (? is null or version=?) returning version",
+            (pid, expected, expected),
+        ).fetchall()
+        return rows[0][0] if rows else None
 
 
-def release_version(pid: str, taken: int | None) -> None:
+def release_version(pid: str, taken: int) -> None:
     """Give back a version taken by claim_version when the edit was refused and nothing changed; a no-op if
     someone took a newer one meanwhile."""
     with conn() as c:
