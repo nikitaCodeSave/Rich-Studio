@@ -26,7 +26,7 @@ import spec
 import store
 import telegram as tg
 from api import backup as backup_api
-from api import channels, drafts, health, media, posts, preview, raw, service, session, specs
+from api import channels, drafts, health, invite_links, media, posts, preview, raw, service, session, specs
 from errors import StudioError
 from security import guard
 from services import backup, housekeeping, loops, scheduler, updates
@@ -201,7 +201,20 @@ def create_app(cfg: settings.Settings | None = None) -> FastAPI:
     app.add_exception_handler(StudioError, _studio_error)
     app.add_exception_handler(tg.TelegramError, _telegram_error)
     app.add_exception_handler(tg.NoAnswer, _no_answer)
-    for module in (service, health, specs, preview, drafts, channels, posts, raw, media, backup_api, session):
+    for module in (
+        service,
+        health,
+        specs,
+        preview,
+        drafts,
+        channels,
+        invite_links,
+        posts,
+        raw,
+        media,
+        backup_api,
+        session,
+    ):
         app.include_router(module.router)
 
     @app.get("/", include_in_schema=False)

@@ -202,6 +202,164 @@
     "title": "HTTPValidationError",
     "type": "object"
    },
+   "InviteLinkEditReq": {
+    "description": "Непереданное поле остаётся как было; снять: name \"\", expire_date 0, member_limit 0, creates_join_request false.",
+    "properties": {
+     "creates_join_request": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Вступление по заявке: true включить, false снять, не передано — как было",
+      "title": "Creates Join Request"
+     },
+     "expire_date": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Когда ссылка перестанет работать: unix или ISO 8601",
+      "title": "Expire Date"
+     },
+     "invite_link": {
+      "description": "Ссылка из /api/invite-links: https://t.me/+…",
+      "title": "Invite Link",
+      "type": "string"
+     },
+     "member_limit": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Сколько человек смогут вступить по ссылке (1–99999)",
+      "title": "Member Limit"
+     },
+     "name": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Название ссылки до 32 символов: откуда придут люди (видно только админам)",
+      "title": "Name"
+     }
+    },
+    "required": [
+     "invite_link"
+    ],
+    "title": "InviteLinkEditReq",
+    "type": "object"
+   },
+   "InviteLinkRef": {
+    "properties": {
+     "invite_link": {
+      "description": "Ссылка из /api/invite-links: https://t.me/+…",
+      "title": "Invite Link",
+      "type": "string"
+     }
+    },
+    "required": [
+     "invite_link"
+    ],
+    "title": "InviteLinkRef",
+    "type": "object"
+   },
+   "InviteLinkReq": {
+    "properties": {
+     "chat_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "@канал или числовой id; по умолчанию TG_DEFAULT_CHAT",
+      "title": "Chat Id"
+     },
+     "creates_join_request": {
+      "default": false,
+      "description": "Вступление по заявке: её принимает админ (тогда без member_limit)",
+      "title": "Creates Join Request",
+      "type": "boolean"
+     },
+     "expire_date": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Когда ссылка перестанет работать: unix или ISO 8601",
+      "title": "Expire Date"
+     },
+     "member_limit": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Сколько человек смогут вступить по ссылке (1–99999)",
+      "title": "Member Limit"
+     },
+     "name": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Название ссылки до 32 символов: откуда придут люди (видно только админам)",
+      "title": "Name"
+     },
+     "subscription_price": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Платная подписка: звёзд в месяц (1–10000) через createChatSubscriptionInviteLink; тогда без срока, предела и заявок",
+      "title": "Subscription Price"
+     }
+    },
+    "title": "InviteLinkReq",
+    "type": "object"
+   },
    "PinReq": {
     "properties": {
      "disable_notification": {
@@ -1178,6 +1336,189 @@
     "summary": "Состояние студии: проверки ok/warn/fail с подсказкой, что делать, счётчики и последние ошибки",
     "tags": [
      "service"
+    ]
+   }
+  },
+  "/api/invite-links": {
+   "get": {
+    "description": "`joined` и `requests` студия считает сама по событиям `chat_member` и `chat_join_request`: Telegram боту\nтаких счётчиков не даёт. Вступления, пока студия была выключена больше суток, не посчитаются.",
+    "operationId": "list_links_api_invite_links_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "chat_id",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Chat Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Пригласительные ссылки, созданные студией, со счётчиком вступлений",
+    "tags": [
+     "invite links"
+    ]
+   },
+   "patch": {
+    "description": "Непереданные поля остаются как были, снять их: `name: \"\"`, `expire_date: 0`, `member_limit: 0`,\n`creates_join_request: false`. У платной подписки меняется только название.",
+    "operationId": "edit_link_api_invite_links_patch",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/InviteLinkEditReq"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Изменить название, срок или предел ссылки",
+    "tags": [
+     "invite links"
+    ]
+   },
+   "post": {
+    "description": "Бот должен быть админом канала с правом «Пригласительные ссылки» (`can_invite_users`).",
+    "operationId": "create_link_api_invite_links_post",
+    "parameters": [
+     {
+      "description": "Кто отправляет: ui (редактор), mcp:<клиент>, имя скрипта. Пишется в историю постов.",
+      "in": "header",
+      "name": "x-studio-client",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "Кто отправляет: ui (редактор), mcp:<клиент>, имя скрипта. Пишется в историю постов.",
+       "title": "X-Studio-Client"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/InviteLinkReq"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Создать именную пригласительную ссылку (createChatInviteLink) или платную подписку",
+    "tags": [
+     "invite links"
+    ]
+   }
+  },
+  "/api/invite-links/revoke": {
+   "post": {
+    "operationId": "revoke_link_api_invite_links_revoke_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/InviteLinkRef"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Отозвать ссылку: по ней больше не вступить",
+    "tags": [
+     "invite links"
     ]
    }
   },

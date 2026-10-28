@@ -41,6 +41,10 @@ code { background: var(--soft); padding: 0 4px; border-radius: 4px; font-size: 1
 .channel { border: 1px solid var(--border); border-radius: 8px; padding: 8px; display: flex; flex-direction: column; gap: 4px; }
 .channel.on { border-color: var(--accent); }
 .channel .topics .row { margin: 2px 0; }
+.links { display: flex; flex-direction: column; gap: 8px; max-height: 45vh; overflow: auto; }
+.invite-link { border: 1px solid var(--border); border-radius: 8px; padding: 8px; display: flex; flex-direction: column; gap: 4px; }
+.invite-link code { word-break: break-all; }
+.invite-link.revoked { opacity: .6; }
 .top button { padding: 5px 9px; font-size: 13px; white-space: nowrap; }
 .top .grow { min-width: 0; }
 #save-state { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

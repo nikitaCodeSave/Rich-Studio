@@ -114,3 +114,36 @@ class Topic(BaseModel):
 
 class TopicsReq(BaseModel):
     topics: list[Topic]
+
+
+class InviteLinkLimits(BaseModel):
+    name: str | None = Field(
+        None, description="Название ссылки до 32 символов: откуда придут люди (видно только админам)"
+    )
+    expire_date: int | str | None = Field(None, description="Когда ссылка перестанет работать: unix или ISO 8601")
+    member_limit: int | None = Field(None, description="Сколько человек смогут вступить по ссылке (1–99999)")
+    creates_join_request: bool = Field(
+        False, description="Вступление по заявке: её принимает админ (тогда без member_limit)"
+    )
+
+
+class InviteLinkReq(InviteLinkLimits):
+    chat_id: str | int | None = Field(None, description="@канал или числовой id; по умолчанию TG_DEFAULT_CHAT")
+    subscription_price: int | None = Field(
+        None,
+        description="Платная подписка: звёзд в месяц (1–10000) через createChatSubscriptionInviteLink; "
+        "тогда без срока, предела и заявок",
+    )
+
+
+class InviteLinkEditReq(InviteLinkLimits):
+    """Непереданное поле остаётся как было; снять: name "", expire_date 0, member_limit 0, creates_join_request false."""
+
+    invite_link: str = Field(..., description="Ссылка из /api/invite-links: https://t.me/+…")
+    creates_join_request: bool | None = Field(  # type: ignore[assignment]
+        None, description="Вступление по заявке: true включить, false снять, не передано — как было"
+    )
+
+
+class InviteLinkRef(BaseModel):
+    invite_link: str = Field(..., description="Ссылка из /api/invite-links: https://t.me/+…")

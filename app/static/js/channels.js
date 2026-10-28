@@ -3,11 +3,12 @@ import { api } from './api.js';
 import { closeDialog, openDialog } from './dialogs.js';
 import { $, act, h, toast } from './dom.js';
 import { changed, renderPreview } from './editor.js';
+import { showInviteLinks } from './invite-links.js';
 import { channelOf, channelTitle, chatLabel, chats, S } from './state.js';
 
 export { channelTitle };
 
-const RIGHTS = { can_post_messages: 'публикация', can_edit_messages: 'правка', can_delete_messages: 'удаление', can_pin_messages: 'закреп' };
+const RIGHTS = { can_post_messages: 'публикация', can_edit_messages: 'правка', can_delete_messages: 'удаление', can_pin_messages: 'закреп', can_invite_users: 'ссылки' };
 
 export async function loadChannels() {
   S.channels = await api('GET', '/api/channels');
@@ -99,6 +100,7 @@ export function showChannels() {
         h('button', { class: 'ghost small-btn', text: 'Сюда', title: 'Публиковать этот черновик только в этот канал', onclick: () => use(c) }),
         current.includes(c.chat_id) ? null : h('button', { class: 'ghost small-btn', text: '＋', title: 'Добавить к каналам этого черновика', onclick: () => addTo(c) }),
         h('button', { class: 'ghost small-btn', text: c.checked_at ? 'Проверить снова' : 'Проверить', onclick: () => check(c.chat_id) }),
+        c.checked_at ? h('button', { class: 'ghost small-btn', text: 'Ссылки', title: 'Пригласительные ссылки: своя на каждую площадку и сколько по ней вступили', onclick: () => showInviteLinks(c) }) : null,
         c.checked_at && !c.is_default ? h('button', { class: 'ghost small-btn', text: '✕', title: 'Убрать из списка (в Telegram ничего не меняется)', onclick: () => act(async () => { await api('DELETE', '/api/channels/' + encodeURIComponent(c.chat_id)); await loadChannels(); draw(); }) }) : null),
       rightsLine(c),
       c.is_forum ? topicsEditor(c, draw) : null)));
