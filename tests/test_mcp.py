@@ -190,6 +190,8 @@ def test_fetch_goes_through_the_system_proxy_like_telegram(client, tg, monkeypat
         seen.append((request.url.host, request.headers["user-agent"]))
         if request.url.path == "/start":
             return httpx.Response(302, headers={"location": "https://cdn.inside/cover.jpg"})
+        if request.url.path == "/to-metadata":
+            return httpx.Response(302, headers={"location": "http://metadata.google.internal/computeMetadata/v1/"})
         return httpx.Response(200, content=b"img")
 
     real_client = httpx.AsyncClient
@@ -207,6 +209,9 @@ def test_fetch_goes_through_the_system_proxy_like_telegram(client, tg, monkeypat
     assert clients == ["http://proxy.local:3128", None]
     assert [h for h, _ in seen] == ["files.example", "8.8.8.8"]
     assert all(ua.startswith("RichStudio/") for _, ua in seen)
+    # a redirect to an internal name is refused before it could reach the proxy
+    res, _, text = call(client, "upload_media", url="https://files.example/to-metadata")
+    assert res["isError"] and "внутренний" in text and len(clients) == 3
 
 
 def test_fetch_behind_a_proxy_lets_it_resolve_unknown_names(client, tg, monkeypatch):
@@ -230,6 +235,18 @@ def test_fetch_behind_a_proxy_lets_it_resolve_unknown_names(client, tg, monkeypa
         asyncio.run(media._public_only("files.example", 443))
     with pytest.raises(StudioError, match="внутренний"):
         asyncio.run(media._public_only("inside.example", 443, proxied=True))
+    # local names never reach the proxy, resolved or not
+    for host in (
+        "intranet",
+        "localhost",
+        "db.corp",
+        "metadata.google.internal",
+        "nas.local",
+        "router.home.arpa",
+        "x.lan.",
+    ):
+        with pytest.raises(StudioError, match="внутренний"):
+            asyncio.run(media._public_only(host, 443, proxied=True))
 
 
 def test_send_poll_through_mcp(client, tg):

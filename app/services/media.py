@@ -169,12 +169,49 @@ async def _resolve(host: str, port: int) -> list[str]:
     return [str(addr[0]).split("%")[0] for *_, addr in infos]
 
 
+# names that are local by convention (RFC 6761/6762/8375 and common private zones): never the public internet,
+# whatever a resolver or a proxy would make of them
+INTERNAL_SUFFIXES = (
+    ".localhost",
+    ".local",
+    ".internal",
+    ".intranet",
+    ".lan",
+    ".home",
+    ".home.arpa",
+    ".corp",
+    ".private",
+)
+
+
+def _internal_name(host: str) -> bool:
+    """A name without a dot (intranet, localhost) or with a local suffix (db.corp, metadata.google.internal)."""
+    try:
+        ipaddress.ip_address(host)
+        return False  # an address is checked as an address
+    except ValueError:
+        pass
+    name = host.lower().rstrip(".")
+    return "." not in name or name.endswith(INTERNAL_SUFFIXES)
+
+
+def _refuse(host: str) -> StudioError:
+    return StudioError(
+        f"url: {host} — локальный или внутренний адрес, студия туда не ходит "
+        "(свой сервер в локальной сети: MEDIA_FETCH_PRIVATE=1)"
+    )
+
+
 async def _public_only(host: str, port: int, proxied: bool = False) -> str | None:
     """The address to connect to: the host resolved once, refused when any of its addresses is the studio itself,
-    the local network or another non-public one. None with MEDIA_FETCH_PRIVATE (connect by name as usual), or
-    when a name behind a proxy does not resolve here (a network where only the proxy sees the internet)."""
+    the local network or another non-public one; a local name (_internal_name) is refused before any lookup.
+    None with MEDIA_FETCH_PRIVATE (connect by name as usual), or when a public-looking name behind a proxy does not
+    resolve here (a network where only the proxy sees the internet)."""
     if settings.get().media_fetch_private:
         return None
+    # before any lookup: behind a proxy an unresolved name goes to the proxy, which may well reach the inside
+    if _internal_name(host):
+        raise _refuse(host)
     try:
         addrs = await _resolve(host, port)
     except StudioError:
@@ -186,10 +223,7 @@ async def _public_only(host: str, port: int, proxied: bool = False) -> str | Non
         if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
             ip = ip.ipv4_mapped
         if not ip.is_global or ip.is_multicast:
-            raise StudioError(
-                f"url: {host} — локальный или внутренний адрес, студия туда не ходит "
-                "(свой сервер в локальной сети: MEDIA_FETCH_PRIVATE=1)"
-            )
+            raise _refuse(host)
     # IPv4 first: a Docker container often has no IPv6 route, while the host has both
     return sorted(addrs, key=lambda a: ":" in a)[0]
 
