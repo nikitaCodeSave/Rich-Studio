@@ -58,6 +58,9 @@ def title(payload: dict) -> str:
         return ""
     if isinstance(payload.get("poll"), dict):
         return str(payload["poll"].get("question") or "")
+    for kind, label in (("live_photo", "Live Photo"), ("paid_media", "Платный контент")):
+        if isinstance(payload.get(kind), dict):
+            return _first_line(str(payload[kind].get("caption") or "")) or label
     rm = payload.get("rich_message") or {}
     if not isinstance(rm, dict):
         return ""
@@ -76,13 +79,17 @@ def title(payload: dict) -> str:
 
 def thumb(payload: dict) -> str | None:
     """The first photo uploaded through the studio, as a URL the editor can show; None otherwise."""
-    stack = [payload.get("rich_message") if isinstance(payload, dict) else None]
+    stack = [payload.get(k) for k in ("rich_message", "live_photo", "paid_media")] if isinstance(payload, dict) else []
     while stack:
         x = stack.pop(0)
         if isinstance(x, dict):
             media = x.get("media")
             if x.get("type") == "photo" and isinstance(media, str) and media.startswith("upload:"):
                 return "/media/" + media[len("upload:") :]
+            # a Live Photo's still frame: `photo` of sendLivePhoto and of InputPaidMediaLivePhoto
+            still = x.get("photo")
+            if isinstance(still, str) and still.startswith("upload:"):
+                return "/media/" + still[len("upload:") :]
             stack.extend(x.values())
         elif isinstance(x, list):
             stack.extend(x)

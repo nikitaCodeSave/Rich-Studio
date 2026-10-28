@@ -38,6 +38,7 @@
 | `GET /api/posts/{pid}` | Пост целиком: payload, статус, канал, version, реакции, нажатия |
 | `GET /api/posts` | Опубликованные, отложенные и неудачные посты: первая строка, миниатюра, ссылка. Для каждого поста: `title`, `thumb`, `link`, нажатия (`clicks`) и текст кнопки каждого `callback_data` (`buttons`). Отправка, которой Telegram отказал, — статус `failed` с ошибкой. |
 | `POST /api/edit` | Заменить опубликованный пост (editMessageText + rich_message) |
+| `POST /api/media-post` | Live Photo (sendLivePhoto) или платный контент за звёзды (sendPaidMedia), сразу или отложенно. Отдельное сообщение, не rich-пост: в блоках `InputRichMessage` таких медиа нет. Платный контент требует, чтобы в канале была разрешена публикация платных медиа (`can_send_paid_media`). |
 | `POST /api/poll` | Опрос или викторина в канал (sendPoll), сразу или отложенно. Опрос сразу после поста — поле `poll_after` в самом посте: оно проверяется по `sendPoll` до отправки поста. |
 | `POST /api/posts/{pid}/buttons` | Заменить только кнопки под постом (editMessageReplyMarkup), текст не трогается |
 | `POST /api/posts/{pid}/edit` | Заменить содержимое поста, опубликованного через студию. `?post_version=` — поле `version` поста из `GET /api/posts/{id}`: если пост с тех пор заменили, 409. |

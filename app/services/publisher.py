@@ -24,6 +24,9 @@ log = logging.getLogger("rich-studio.publisher")
 RESERVED_PARAMS = {"chat_id", "rich_message", "reply_markup", "message_id"}
 MAY_HAVE_GONE = "Пост мог уйти в канал, проверьте перед повтором"
 POLL_MAY_HAVE_GONE = "Опрос мог уйти в канал, проверьте перед повтором"
+# media messages that are not rich posts: the post's key (and the post's kind) -> the Bot API method
+MEDIA_METHODS = {"live_photo": "sendLivePhoto", "paid_media": "sendPaidMedia"}
+MEDIA_LABELS = {"live_photo": "Live Photo", "paid_media": "платный контент"}
 # ids of posts this process is sending right now (now or from the scheduler): their "sending" status is normal,
 # not stuck; health reads it, and startup recovery only exists because a crash empties it
 in_flight: set[str] = set()
@@ -147,6 +150,26 @@ def poll_error(poll, label: str = "опрос после поста") -> str | N
     return bad[0] if bad else None
 
 
+def media_error(kind: str, params) -> str | None:
+    """What sendLivePhoto / sendPaidMedia would refuse before it is asked (a scheduled one only at its time)."""
+    label = MEDIA_LABELS[kind]
+    if not isinstance(params, dict):
+        return f"{label}: ожидался объект {MEDIA_METHODS[kind]}"
+    if "chat_id" in params:
+        return f"{label}: chat_id задаётся не здесь"
+    if kind == "paid_media":
+        media = params.get("media")
+        if not isinstance(media, list) or not 1 <= len(media) <= 10:
+            return f"{label}: в media от 1 до 10 фото или видео"
+    bad = spec.method_errors(spec.current, MEDIA_METHODS[kind], params, label, frozenset({"chat_id"}))
+    return bad[0] if bad else None
+
+
+def media_kind(post: dict) -> str | None:
+    """live_photo or paid_media when the post is one of those media messages, else None."""
+    return next((k for k in MEDIA_METHODS if k in post), None)
+
+
 def poll_after(post: dict) -> dict:
     """sendPoll parameters of the poll that follows a post: the post's topic and silence unless the poll sets its own."""
     poll = dict(post["poll_after"])
@@ -177,7 +200,7 @@ def parse_at(at: int | str) -> int:
 
 
 async def send(chat_id, post: dict) -> dict:
-    """One Bot API call: sendPoll for polls, sendRichMessage for everything else."""
+    """One Bot API call: sendPoll for polls, sendLivePhoto / sendPaidMedia for those, sendRichMessage otherwise."""
     method, params = request(chat_id, post)
     return await tg.call(method, params)
 
@@ -186,6 +209,8 @@ def request(chat_id, post: dict) -> tuple[str, dict]:
     """The Bot API method and parameters a send makes, exactly as they go to Telegram."""
     if "poll" in post:
         return "sendPoll", {**post["poll"], "chat_id": chat_id}
+    if kind := media_kind(post):
+        return MEDIA_METHODS[kind], {**post[kind], "chat_id": chat_id}
     params = {**options(post), "chat_id": chat_id, "rich_message": post["rich_message"]}
     if post.get("reply_markup"):
         params["reply_markup"] = post["reply_markup"]

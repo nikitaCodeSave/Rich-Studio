@@ -5,7 +5,18 @@ from fastapi import APIRouter, Body, Depends, Query
 import settings
 import store
 from errors import NotFound
-from models import ButtonsReq, EditReq, PinReq, PollReq, Post, PublishReq, RescheduleReq, ScheduleReq, SendReq
+from models import (
+    ButtonsReq,
+    EditReq,
+    MediaPostReq,
+    PinReq,
+    PollReq,
+    Post,
+    PublishReq,
+    RescheduleReq,
+    ScheduleReq,
+    SendReq,
+)
 from services import channels, idempotency, listing, posts, publisher
 
 from .deps import actor, idempotency_key, need
@@ -73,6 +84,22 @@ async def send_poll(req: PollReq, who: str = Depends(actor), key: str | None = D
         "poll",
         req.model_dump(),
         lambda: posts.send_poll(req.poll, req.chat_id, req.chat_ids, req.at, req.pin, actor=who),
+    )
+
+
+@router.post(
+    "/api/media-post",
+    dependencies=PUBLISH,
+    summary="Live Photo (sendLivePhoto) или платный контент за звёзды (sendPaidMedia), сразу или отложенно",
+)
+async def send_media(req: MediaPostReq, who: str = Depends(actor), key: str | None = Depends(idempotency_key)):
+    """Отдельное сообщение, не rich-пост: в блоках `InputRichMessage` таких медиа нет. Платный контент требует,
+    чтобы в канале была разрешена публикация платных медиа (`can_send_paid_media`)."""
+    return await idempotency.run(
+        key,
+        "media-post",
+        req.model_dump(),
+        lambda: posts.send_media(req.kind, req.params, req.chat_id, req.chat_ids, req.at, req.pin, actor=who),
     )
 
 

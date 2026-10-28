@@ -45,6 +45,6 @@ export default async function ({ page, check }) {
   check('Button kinds are a switch, «Опубликовать ▾» menu, phone tabs',
     b1.url === 'https://t.me/telegram' && b2.text === 'Нравится' && /^b\w+$/.test(b2.callback_data) && b2.url === undefined && d.payload.callbacks[b2.callback_data] === 'Спасибо!'
       && JSON.stringify(b3.copy_text) === '{"text":"PROMO2026"}' && !/callback_data/.test(fieldsShown)
-      && menuOpen && JSON.stringify(items) === '["Отложить…","Опрос…","Заменить пост…"]' && menuClosed && editorFirst && previewTab,
+      && menuOpen && JSON.stringify(items) === '["Отложить…","Опрос…","Live Photo, платное…","Заменить пост…"]' && menuClosed && editorFirst && previewTab,
     JSON.stringify({ b1, b2, b3, callbacks: d.payload.callbacks, menuOpen, items, menuClosed, editorFirst, previewTab }));
 }

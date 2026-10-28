@@ -1,6 +1,6 @@
 """Request bodies. Descriptions are in Russian: they show up in /docs for people and agents."""
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -60,6 +60,22 @@ class PollReq(BaseModel):
         ...,
         description="Параметры sendPoll без chat_id: question, options, members_only, "
         "country_codes, description, media, type=quiz…",
+    )
+    chat_id: str | int | None = None
+    chat_ids: list[str | int] | None = None
+    at: int | str | None = Field(None, description="Отложить: unix или ISO 8601 с часовым поясом")
+    pin: bool = False
+
+
+class MediaPostReq(BaseModel):
+    kind: Literal["live_photo", "paid_media"] = Field(
+        ..., description="live_photo — sendLivePhoto, paid_media — sendPaidMedia (фото и видео за звёзды)"
+    )
+    params: dict = Field(
+        ...,
+        description="Параметры метода без chat_id, как в Bot API. live_photo: {live_photo: видео, photo: кадр, "
+        "caption?}; paid_media: {star_count, media: [{type: photo|video|live_photo, media, photo?}], caption?}. "
+        "Файлы из загрузок — upload:<имя>",
     )
     chat_id: str | int | None = None
     chat_ids: list[str | int] | None = None
