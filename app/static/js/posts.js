@@ -6,6 +6,7 @@ import { resetHistory } from './history.js';
 import { editPost, reschedulePost } from './editing.js';
 import { STATUS_LABELS } from './labels.js';
 import { chatLabel, dirty, editing, S, saveState } from './state.js';
+import { loadSuggested } from './suggested.js';
 
 // ---------- posts ----------
 export async function loadPosts() {
@@ -13,10 +14,11 @@ export async function loadPosts() {
   S.posts = await api('GET', '/api/posts');
   document.dispatchEvent(new CustomEvent('rs-posts-changed'));
   S.updates = await api('GET', '/api/updates').catch(() => S.updates);
+  loadSuggested();
   const ul = $('#posts');
   const u = S.updates;
   $('#updates-state').replaceChildren(h('span', { class: u && u.state === 'ok' ? 'ok' : 'w', title: (u && u.error) || '', text: 'Приём событий: ' + updatesLabel() }),
-    h('span', { class: 'muted', text: ' · нажатия кнопок, первые комментарии, реакции, итоги опросов' }));
+    h('span', { class: 'muted', text: ' · нажатия кнопок, первые комментарии, реакции, итоги опросов, вступления, предложенные посты' }));
   const shown = S.posts.filter((p) => !only || p.status === only);
   ul.replaceChildren(...shown.map((p) => {
     const when = (p.status === 'scheduled' && p.scheduled_at) || p.sent_at || p.created_at;

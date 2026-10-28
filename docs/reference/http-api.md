@@ -99,3 +99,11 @@
 | `PATCH /api/invite-links` | Изменить название, срок или предел ссылки. Непереданные поля остаются как были, снять их: `name: ""`, `expire_date: 0`, `member_limit: 0`, `creates_join_request: false`. У платной подписки меняется только название. |
 | `POST /api/invite-links/revoke` | Отозвать ссылку: по ней больше не вступить |
 | `POST /api/invite-links` | Создать именную пригласительную ссылку (createChatInviteLink) или платную подписку. Бот должен быть админом канала с правом «Пригласительные ссылки» (`can_invite_users`). |
+
+## suggested posts
+
+| Маршрут | Что делает |
+|---|---|
+| `GET /api/suggested-posts` | Предложенные посты из личных сообщений канала. `state`: pending (ждёт решения), approved, declined, paid, refunded, failed. Студия видит предложения, пришедшие, пока она запущена: бот — админ канала с правом «Личные сообщения канала». |
+| `POST /api/suggested-posts/{sid}/approve` | Принять предложенный пост: Telegram опубликует его в канале (approveSuggestedPost). Платное предложение списывает звёзды с автора. Боту нужно право публиковать в канале. |
+| `POST /api/suggested-posts/{sid}/decline` | Отклонить предложенный пост с комментарием автору (declineSuggestedPost) |

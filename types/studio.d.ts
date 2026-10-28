@@ -98,6 +98,27 @@ interface Channel {
   is_default: boolean;
 }
 
+/** GET /api/suggested-posts item */
+interface SuggestedPost {
+  id: string;
+  chat_num: number;
+  message_id: number;
+  channel_title: string | null;
+  author: string | null;
+  topic_id: number | null;
+  message: Json;
+  text: string;
+  media: string[];
+  state: string;
+  price_amount: number | null;
+  price_currency: string | null;
+  send_date: number | null;
+  comment: string | null;
+  actor: string | null;
+  received_at: number;
+  decided_at: number | null;
+}
+
 /** GET /api/invite-links item */
 interface InviteLink {
   invite_link: string;

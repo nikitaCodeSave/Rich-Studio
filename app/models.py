@@ -163,3 +163,14 @@ class InviteLinkEditReq(InviteLinkLimits):
 
 class InviteLinkRef(BaseModel):
     invite_link: str = Field(..., description="Ссылка из /api/invite-links: https://t.me/+…")
+
+
+class ApproveSuggestedReq(BaseModel):
+    send_date: int | str | None = Field(
+        default=None,
+        description="Когда опубликовать: unix или ISO 8601; только если автор не выбрал время сам. Пусто — сразу",
+    )
+
+
+class DeclineSuggestedReq(BaseModel):
+    comment: str | None = Field(default=None, description="Комментарий автору предложения, до 128 символов")

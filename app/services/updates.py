@@ -1,4 +1,5 @@
-"""Incoming Telegram updates (getUpdates): button clicks, first comments, reactions, poll results, joins."""
+"""Incoming Telegram updates (getUpdates): button clicks, first comments, reactions, poll results, joins,
+suggested posts."""
 
 import asyncio
 import json
@@ -12,7 +13,7 @@ import settings
 import store
 import telegram as tg
 
-from . import channels, invite_links
+from . import channels, invite_links, suggested_posts
 
 log = logging.getLogger("rich-studio.updates")
 # tests replace this one name; patching asyncio.sleep itself would also stop the fake Telegram server
@@ -22,6 +23,7 @@ PREVIEW_KEY = "preview_callbacks"
 PREVIEWS_KEPT = 20  # button answers of the newest previews; older preview buttons get an empty answer
 ALLOWED_UPDATES = [
     "message",
+    "edited_message",
     "callback_query",
     "message_reaction_count",
     "poll",
@@ -101,6 +103,10 @@ async def handle_update(u: dict) -> str | None:
                 raise
             log.warning("button click came too late to answer: %s", e.description)
         return "callback"
+    if (m := u.get("message") or u.get("edited_message")) and suggested_posts.on_message(m):
+        return "suggested_post"
+    if (m := u.get("message")) and suggested_posts.on_service(m):
+        return "suggested_post_outcome"
     if (m := u.get("message")) and (topic := m.get("forum_topic_created") or m.get("forum_topic_edited")):
         # the Bot API cannot list a forum's topics: the ones created or renamed while the studio runs are learned here
         if topic.get("name"):

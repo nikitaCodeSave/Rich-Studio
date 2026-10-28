@@ -22,6 +22,8 @@ TRUE_METHODS = {
     "pinChatMessage",
     "unpinChatMessage",
     "answerCallbackQuery",
+    "approveSuggestedPost",
+    "declineSuggestedPost",
 }
 
 

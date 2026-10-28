@@ -1,6 +1,6 @@
 """SQLite storage for drafts and posts (published or scheduled)."""
 
-from . import backup, idempotency, invite_links, stats
+from . import backup, idempotency, invite_links, stats, suggested_posts
 from .channels import delete_channel, get_channel, list_channels, save_channel
 from .db import conn, init
 from .drafts import delete_draft, drafts_using, get_draft, list_drafts, save_draft
@@ -97,6 +97,7 @@ __all__ = [
     "session_by_secret",
     "set_meta",
     "stats",
+    "suggested_posts",
     "take_lease",
     "token_by_secret",
     "update_post",
