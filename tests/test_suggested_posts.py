@@ -115,7 +115,7 @@ def test_a_decision_goes_to_telegram_once(client, tg, monkeypatch):
     # no repeat after "may have gone": not a retry, not a decline
     for path in ("approve", "decline"):
         again = client.post(f"/api/suggested-posts/-1009:30/{path}", json={})
-        assert again.status_code == 400 and "могло дойти" in again.json()["detail"]
+        assert again.status_code == 400 and "уже отправлено" in again.json()["detail"]
     assert len([c for c in tg.calls if c["method"] == "approveSuggestedPost"]) == 1
     # the outcome settles it
     done = {

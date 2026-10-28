@@ -91,8 +91,8 @@ def listing(state: str | None = None) -> list[dict]:
 # a decision can be made on a suggestion still waiting, or again after an approval failed (the author lacked stars)
 DECIDABLE = ("pending", "failed")
 SENT_UNKNOWN = (
-    "решение уже отправлено, но Telegram не ответил: оно могло дойти. Проверьте в личных сообщениях канала; "
-    "если не дошло, решите там, студия увидит итог"
+    "решение уже отправлено в Telegram. Обновите список через пару секунд; если итога нет и Telegram не ответил, "
+    "проверьте в личных сообщениях канала, дошло ли решение, и если нет, решите там: студия увидит итог"
 )
 
 
@@ -114,16 +114,19 @@ async def _decide(rec: dict, method: str, params: dict, deciding: str) -> None:
     """The record is taken first (pending -> approving/declining), so a second click or a retry never sends the
     decision twice. Telegram refused: it goes back. No answer: it stays taken until the outcome comes as a service
     message, the same rule as a post that may have gone (no repeat)."""
-    if not store.suggested_posts.claim(rec["id"], DECIDABLE, deciding):
+    if not store.suggested_posts.claim(rec["id"], DECIDABLE, deciding):  # another request took it just now
         _check(store.suggested_posts.get(rec["id"]) or rec)
-        raise StudioError("предложенный пост уже решается")
+        raise StudioError("предложенный пост решается в другом запросе: обновите список через пару секунд")
     try:
         await tg.call(method, params)
     except (tg.TelegramError, StudioError):
         store.suggested_posts.claim(rec["id"], (deciding,), rec["state"])
         raise
     except Exception as e:  # mid-request: Telegram may have acted on it, the state comes later as a service message
-        raise MayHaveGone(f"{type(e).__name__}: {e}. Предложенный пост: {SENT_UNKNOWN}") from e
+        raise MayHaveGone(
+            f"{type(e).__name__}: {e}. Решение могло дойти до Telegram: проверьте в личных сообщениях канала, "
+            "прежде чем решать снова"
+        ) from e
 
 
 async def approve(sid: str, send_date=None, actor: str = "api") -> dict:
