@@ -1,6 +1,27 @@
 {
  "components": {
   "schemas": {
+   "ApproveSuggestedReq": {
+    "properties": {
+     "send_date": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Когда опубликовать: unix или ISO 8601; только если автор не выбрал время сам. Пусто — сразу",
+      "title": "Send Date"
+     }
+    },
+    "title": "ApproveSuggestedReq",
+    "type": "object"
+   },
    "Body_media_upload_api_media_post": {
     "properties": {
      "file": {
@@ -65,6 +86,24 @@
      "chat_id"
     ],
     "title": "ChannelReq",
+    "type": "object"
+   },
+   "DeclineSuggestedReq": {
+    "properties": {
+     "comment": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Комментарий автору предложения, до 128 символов",
+      "title": "Comment"
+     }
+    },
+    "title": "DeclineSuggestedReq",
     "type": "object"
    },
    "DraftReq": {
@@ -3004,6 +3043,223 @@
     "summary": "Точные поля типа или метода Bot API из текущей спецификации",
     "tags": [
      "spec"
+    ]
+   }
+  },
+  "/api/suggested-posts": {
+   "get": {
+    "description": "`state`: pending (ждёт решения), approved, declined, paid, refunded, failed. Студия видит предложения,\nпришедшие, пока она запущена: бот — админ канала с правом «Личные сообщения канала».",
+    "operationId": "list_suggested_api_suggested_posts_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "state",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "State"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Предложенные посты из личных сообщений канала",
+    "tags": [
+     "suggested posts"
+    ]
+   }
+  },
+  "/api/suggested-posts/{sid}/approve": {
+   "post": {
+    "description": "Платное предложение списывает звёзды с автора. Боту нужно право публиковать в канале.",
+    "operationId": "approve_api_suggested_posts__sid__approve_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "sid",
+      "required": true,
+      "schema": {
+       "title": "Sid",
+       "type": "string"
+      }
+     },
+     {
+      "description": "Кто отправляет: ui (редактор), mcp:<клиент>, имя скрипта. Пишется в историю постов.",
+      "in": "header",
+      "name": "x-studio-client",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "Кто отправляет: ui (редактор), mcp:<клиент>, имя скрипта. Пишется в историю постов.",
+       "title": "X-Studio-Client"
+      }
+     },
+     {
+      "description": "Повтор запроса с тем же ключом вернёт первый результат, а не опубликует пост второй раз. Ключ живёт сутки.",
+      "in": "header",
+      "name": "idempotency-key",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "Повтор запроса с тем же ключом вернёт первый результат, а не опубликует пост второй раз. Ключ живёт сутки.",
+       "title": "Idempotency-Key"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "anyOf": [
+         {
+          "$ref": "#/components/schemas/ApproveSuggestedReq"
+         },
+         {
+          "type": "null"
+         }
+        ],
+        "title": "Req"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Принять предложенный пост: Telegram опубликует его в канале (approveSuggestedPost)",
+    "tags": [
+     "suggested posts"
+    ]
+   }
+  },
+  "/api/suggested-posts/{sid}/decline": {
+   "post": {
+    "operationId": "decline_api_suggested_posts__sid__decline_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "sid",
+      "required": true,
+      "schema": {
+       "title": "Sid",
+       "type": "string"
+      }
+     },
+     {
+      "description": "Кто отправляет: ui (редактор), mcp:<клиент>, имя скрипта. Пишется в историю постов.",
+      "in": "header",
+      "name": "x-studio-client",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "Кто отправляет: ui (редактор), mcp:<клиент>, имя скрипта. Пишется в историю постов.",
+       "title": "X-Studio-Client"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "anyOf": [
+         {
+          "$ref": "#/components/schemas/DeclineSuggestedReq"
+         },
+         {
+          "type": "null"
+         }
+        ],
+        "title": "Req"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Отклонить предложенный пост с комментарием автору (declineSuggestedPost)",
+    "tags": [
+     "suggested posts"
     ]
    }
   },

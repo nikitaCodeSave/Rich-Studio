@@ -19,8 +19,9 @@
 | `app/services/channels.py` | каналы: название, форум и темы, права бота (из `getChat`/`getChatMember` при проверке); темы из событий `forum_topic_created`/`edited` | Telegram спрашивается только при проверке |
 | `app/services/scheduler.py` | отложенные посты | |
 | `app/services/loops.py` | фоновые циклы под lease в SQLite: их ведёт один процесс, второй ждёт в резерве; остановка без обрыва отправок | |
-| `app/services/updates.py` | getUpdates: нажатия, первый комментарий, реакции, опросы, вступления по ссылкам; `STATUS` | |
+| `app/services/updates.py` | getUpdates: нажатия, первый комментарий, реакции, опросы, вступления по ссылкам, предложенные посты и их исходы; `STATUS` | |
 | `app/services/invite_links.py` | именные пригласительные ссылки и платная подписка (create/edit/revoke в Telegram), счётчики вступлений и заявок из `chat_member` / `chat_join_request` | Telegram эти счётчики боту не даёт: только то, что студия увидела сама |
+| `app/services/suggested_posts.py` | предложенные посты из личных сообщений канала: что пришло (`suggested_post_info`), принять (`approveSuggestedPost`) или отклонить, исходы из служебных сообщений | публикует принятый пост Telegram, а не студия: в `posts` он не попадает |
 | `app/services/health.py` | отчёт о состоянии: проверки `ok/warn/fail` с подсказкой `action` | только читает |
 | `app/services/housekeeping.py` | раз в 5 минут пишет смену статуса проверок в журнал, раз в час уборка | не удаляет сделанное человеком без `VERSIONS_KEEP` / `MEDIA_UNUSED_DAYS` |
 | `app/services/media.py` | имена загрузок, путь внутри папки media, загрузка по ссылке (только публичные адреса, каждый редирект проверяется; через системный прокси, если он задан, ADR 0012), `used` и удаление ненужных файлов | |

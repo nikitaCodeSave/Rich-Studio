@@ -20,6 +20,8 @@ PUBLISHING = {
     "edit_invite_link",
     "revoke_invite_link",
     "send_media_post",
+    "approve_suggested_post",
+    "decline_suggested_post",
 }
 
 

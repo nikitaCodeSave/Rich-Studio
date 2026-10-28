@@ -26,7 +26,20 @@ import spec
 import store
 import telegram as tg
 from api import backup as backup_api
-from api import channels, drafts, health, invite_links, media, posts, preview, raw, service, session, specs
+from api import (
+    channels,
+    drafts,
+    health,
+    invite_links,
+    media,
+    posts,
+    preview,
+    raw,
+    service,
+    session,
+    specs,
+    suggested_posts,
+)
 from errors import StudioError
 from security import guard
 from services import backup, housekeeping, loops, scheduler, updates
@@ -209,6 +222,7 @@ def create_app(cfg: settings.Settings | None = None) -> FastAPI:
         drafts,
         channels,
         invite_links,
+        suggested_posts,
         posts,
         raw,
         media,

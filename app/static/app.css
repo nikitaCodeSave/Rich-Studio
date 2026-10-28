@@ -45,6 +45,9 @@ code { background: var(--soft); padding: 0 4px; border-radius: 4px; font-size: 1
 .invite-link { border: 1px solid var(--border); border-radius: 8px; padding: 8px; display: flex; flex-direction: column; gap: 4px; }
 .invite-link code { word-break: break-all; }
 .invite-link.revoked { opacity: .6; }
+.suggested { border: 1px solid var(--accent); border-radius: 8px; padding: 6px 8px; margin: 6px 0; }
+.suggested li { cursor: pointer; }
+.suggested-text { border: 1px solid var(--border); border-radius: 8px; padding: 8px; max-height: 40vh; overflow: auto; white-space: pre-wrap; }
 .top button { padding: 5px 9px; font-size: 13px; white-space: nowrap; }
 .top .grow { min-width: 0; }
 #save-state { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -225,7 +228,7 @@ dialog { border: 1px solid var(--border); border-radius: 12px; background: var(-
 dialog::backdrop { background: rgba(0,0,0,.4); }
 .dlg-body { padding: 16px; display: flex; flex-direction: column; gap: 10px; max-height: 86vh; overflow: auto; }
 .dlg-body h3 { margin: 0; }
-.dlg-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.dlg-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
 .changes li { margin-bottom: 3px; }
 .changes.health { list-style: none; padding-left: 0; }
 #toasts { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 100; }
