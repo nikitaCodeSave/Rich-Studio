@@ -13,10 +13,10 @@
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
-    "eslint": "10.1.0",
-    "globals": "17.3.0",
+    "eslint": "10.13.0",
+    "globals": "17.13.0",
     "lit": "3.3.3",
-    "playwright": "1.56.1",
+    "playwright": "1.64.1",
     "typescript": "7.0.2"
   }
 }
