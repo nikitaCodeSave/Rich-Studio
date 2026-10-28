@@ -55,6 +55,17 @@ def test_every_route_that_posts_to_a_channel_asks_for_publish(client):
         assert getattr(client, method)(path, headers=draft, **kw).status_code == 403, path
 
 
+def test_preview_to_another_chat_asks_for_publish(client, tg, monkeypatch):
+    draft, publish = token("d", "draft"), token("p", "publish")
+    send = {"post": BLOCKS_POST}
+    assert client.post("/api/preview-send", json=send, headers=draft).status_code == 200
+    assert client.post("/api/preview-send", json={**send, "chat_id": " 777"}, headers=draft).status_code == 200
+    assert client.post("/api/preview-send", json={**send, "chat_id": "@chan"}, headers=draft).status_code == 403
+    assert client.post("/api/preview-send", json={**send, "chat_id": "@chan"}, headers=publish).status_code == 200
+    monkeypatch.setattr(settings.get(), "preview_chat", "")  # no preview chat: any chat_id is someone else's
+    assert client.post("/api/preview-send", json={**send, "chat_id": "777"}, headers=draft).status_code == 403
+
+
 def test_actor_is_the_token_name(client, tg):
     publish = token("claude-laptop", "publish")
     client.post("/api/send", json={"post": BLOCKS_POST}, headers={**publish, "X-Studio-Client": "mcp:claude"})
@@ -83,6 +94,31 @@ def test_editor_session_is_an_httponly_cookie(client, monkeypatch):
     assert client.get("/api/drafts").status_code == 401
     https = client.post("/api/session", json={"key": "secret"}, headers={"X-Forwarded-Proto": "https"})
     assert "Secure" in https.headers["set-cookie"]
+
+
+def test_key_session_ends_when_the_key_changes(client, monkeypatch):
+    monkeypatch.setattr(settings.get(), "api_key", "old")
+    assert client.post("/api/session", json={"key": "old"}).status_code == 200
+    assert client.get("/api/drafts").status_code == 200
+    monkeypatch.setattr(settings.get(), "api_key", "new")
+    assert client.get("/api/drafts").status_code == 401
+    token("t", "read")
+    monkeypatch.setattr(settings.get(), "api_key", "")  # key removed, tokens keep the studio closed
+    assert client.get("/api/drafts").status_code == 401
+
+
+def test_session_of_an_unknown_token_is_not_admin(client):
+    token("t", "read")
+    store.add_session("orphan", "ghost", 3600)  # a token name that is not in the table
+    client.cookies.set(security.SESSION_COOKIE, "orphan")
+    assert client.get("/api/drafts").status_code == 401
+
+
+def test_non_ascii_key_is_refused_not_an_error(client, monkeypatch):
+    monkeypatch.setattr(settings.get(), "api_key", "secret")
+    assert client.post("/api/session", json={"key": "ключ"}).status_code == 401
+    monkeypatch.setattr(settings.get(), "api_key", "ключ-ёж")
+    assert client.post("/api/session", json={"key": "ключ-ёж"}).status_code == 200
 
 
 def test_raw_is_for_admin_and_can_be_switched_off(client, tg, monkeypatch):

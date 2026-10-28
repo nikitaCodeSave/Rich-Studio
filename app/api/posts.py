@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, Body, Depends, Query
 
+import settings
 import store
 from errors import NotFound
 from models import ButtonsReq, EditReq, PinReq, PollReq, Post, PublishReq, RescheduleReq, ScheduleReq, SendReq
@@ -34,7 +35,13 @@ async def send(req: PublishReq, who: str = Depends(actor), key: str | None = Dep
 
 @router.post("/api/preview-send", summary="Отправить пост себе в личку (TG_PREVIEW_CHAT)")
 async def preview_send(req: SendReq):
-    """В ответе `parsed`: блоки, на которые Telegram разобрал пост, и они же для повторной отправки (`input_blocks`)."""
+    """В ответе `parsed`: блоки, на которые Telegram разобрал пост, и они же для повторной отправки (`input_blocks`).
+    `chat_id`, отличный от `TG_PREVIEW_CHAT`, требует права `publish`: это уже отправка в чужой чат."""
+    preview_chat = settings.get().preview_chat
+    if req.chat_id and (
+        not preview_chat or publisher.resolve_chat(req.chat_id) != publisher.resolve_chat(preview_chat)
+    ):
+        need("publish")()
     return await posts.preview(req.post.model_dump(), req.chat_id)
 
 

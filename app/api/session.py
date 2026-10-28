@@ -30,7 +30,8 @@ def login(req: SessionReq, request: Request, response: Response):
         raise StudioError("ключ или токен не подошёл", status=401)
     secret = secrets.token_urlsafe(32)
     ttl = settings.get().session_days * 86400
-    store.add_session(secret, who.name, ttl)
+    key_hash = None if who.name else store.hash_secret(settings.get().api_key)
+    store.add_session(secret, who.name, ttl, key_hash)
     response.set_cookie(
         security.SESSION_COOKIE,
         secret,

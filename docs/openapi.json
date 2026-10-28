@@ -2040,7 +2040,7 @@
   },
   "/api/preview-send": {
    "post": {
-    "description": "В ответе `parsed`: блоки, на которые Telegram разобрал пост, и они же для повторной отправки (`input_blocks`).",
+    "description": "В ответе `parsed`: блоки, на которые Telegram разобрал пост, и они же для повторной отправки (`input_blocks`).\n`chat_id`, отличный от `TG_PREVIEW_CHAT`, требует права `publish`: это уже отправка в чужой чат.",
     "operationId": "preview_send_api_preview_send_post",
     "requestBody": {
      "content": {

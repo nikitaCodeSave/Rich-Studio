@@ -59,7 +59,7 @@ def auth_on() -> bool:
 def by_secret(secret: str) -> Principal | None:
     """The principal a key or token stands for, or None."""
     key = settings.get().api_key
-    if key and secrets.compare_digest(secret, key):
+    if key and secrets.compare_digest(secret.encode(), key.encode()):  # str needs ASCII, bytes take any key
         return Principal(None, "admin")
     t = store.token_by_secret(secret)
     return Principal(t["name"], t["level"]) if t else None
@@ -75,8 +75,12 @@ def _credentials(request: Request) -> Principal | None:
     session = request.cookies.get(SESSION_COOKIE)
     if session:
         s = store.session_by_secret(session)
-        if s:
-            return Principal(s["token_name"], s["level"] or "admin")
+        if s and s["token_name"]:
+            return Principal(s["token_name"], s["level"])
+        # a STUDIO_API_KEY session lives only while that same key does
+        key = settings.get().api_key
+        if s and key and s["key_hash"] and secrets.compare_digest(s["key_hash"], store.hash_secret(key)):
+            return OPEN
     return None
 
 

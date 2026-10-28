@@ -44,7 +44,7 @@
 | `POST /api/posts/{pid}/pin` | Закрепить пост в канале |
 | `POST /api/posts/{pid}/reschedule` | Перенести отложенный пост или вернуть пропущенный в очередь на новое время |
 | `POST /api/posts/{pid}/stop-poll` | Закрыть опрос и сохранить итоги |
-| `POST /api/preview-send` | Отправить пост себе в личку (TG_PREVIEW_CHAT). В ответе `parsed`: блоки, на которые Telegram разобрал пост, и они же для повторной отправки (`input_blocks`). |
+| `POST /api/preview-send` | Отправить пост себе в личку (TG_PREVIEW_CHAT). В ответе `parsed`: блоки, на которые Telegram разобрал пост, и они же для повторной отправки (`input_blocks`). `chat_id`, отличный от `TG_PREVIEW_CHAT`, требует права `publish`: это уже отправка в чужой чат. |
 | `POST /api/raw/{method}` | Любой метод Bot API как есть (для функций, которых ещё нет в студии). Только для уровня admin; `RAW_API=off` выключает маршрут совсем. |
 | `POST /api/schedule` | Отложить публикацию |
 | `POST /api/send` | Опубликовать пост (sendRichMessage) |
