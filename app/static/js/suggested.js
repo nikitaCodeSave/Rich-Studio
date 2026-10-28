@@ -16,11 +16,30 @@ function price(s) {
   return s.price_currency === 'TON' ? `${s.price_amount / 1e9} TON` : `${s.price_amount} ⭐`;
 }
 
+/** The decision went out and Telegram did not answer: the person checks the channel's direct messages, then decides again.
+ * @param {SuggestedPost} s */
+function stuck(s) {
+  const reopen = () => {
+    if (!confirm('Решение не дошло до Telegram? Если оно всё-таки дошло, Telegram может не принять второе, а итог появится сам.')) return;
+    act(() => api('POST', `/api/suggested-posts/${encodeURIComponent(s.id)}/reopen`), 'Можно решить снова').then((r) => { closeDialog(d); loadSuggested(); if (r) decide(r); });
+  };
+  const d = openDialog([
+    h('h3', { text: 'Предложенный пост' }),
+    h('p', { class: 'small muted', text: `${s.author || 'Подписчик'} · ${s.channel_title || 'канал'} · ${price(s)}` }),
+    h('div', { class: 'suggested-text' }, h('p', { text: s.text || '(без текста)' })),
+    h('p', { text: (s.state === 'approving' ? 'Принятие' : 'Отказ') + ' отправлено, но Telegram не ответил. Итог обычно приходит сам за несколько секунд. '
+      + 'Если его нет, откройте личные сообщения канала: решение дошло, если пост там уже принят или отклонён. Если нет, решите снова.' })],
+  [h('button', { class: 'ghost', value: 'cancel', text: 'Закрыть' }),
+    h('button', { class: 'primary', text: 'Решить снова', onclick: reopen })]);
+}
+
 /** @param {SuggestedPost} s */
 function decide(s) {
+  if (s.state === 'approving' || s.state === 'declining') { stuck(s); return; }
   const pick = whenPicker(Date.now() + 3600e3);
   const comment = /** @type {HTMLInputElement} */ (h('input', { type: 'text', maxlength: 128, placeholder: 'Комментарий автору (необязательно)', style: 'width:100%', 'aria-label': 'Комментарий автору' }));
-  const done = (r) => { if (r) { closeDialog(d); loadSuggested(); } };
+  // the list follows an error too: a decision without an answer shows as «ждём Telegram» and opens «Решить снова»
+  const done = (r) => { if (r) closeDialog(d); loadSuggested(); };
   const approve = (later) => {
     const body = later ? { send_date: pick.value() } : {};
     if (!confirm((later ? 'Опубликовать предложенный пост в выбранное время?' : 'Опубликовать предложенный пост в канале сейчас?') + (s.price_amount ? ` С автора спишется ${price(s)}.` : ''))) return;

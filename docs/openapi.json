@@ -3282,6 +3282,65 @@
     ]
    }
   },
+  "/api/suggested-posts/{sid}/reopen": {
+   "post": {
+    "description": "Только человек (уровень admin; в MCP этого нет) и только после проверки в личных сообщениях канала, что\nрешение не дошло.\nДошедшее решение Telegram, скорее всего, второй раз не примет, а его итог всё равно придёт и обновит состояние.",
+    "operationId": "reopen_api_suggested_posts__sid__reopen_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "sid",
+      "required": true,
+      "schema": {
+       "title": "Sid",
+       "type": "string"
+      }
+     },
+     {
+      "description": "Кто отправляет: ui (редактор), mcp:<клиент>, имя скрипта. Пишется в историю постов.",
+      "in": "header",
+      "name": "x-studio-client",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "Кто отправляет: ui (редактор), mcp:<клиент>, имя скрипта. Пишется в историю постов.",
+       "title": "X-Studio-Client"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Решить снова: решение без ответа Telegram (approving/declining) возвращается в ожидание",
+    "tags": [
+     "suggested posts"
+    ]
+   }
+  },
   "/api/updates": {
    "get": {
     "operationId": "updates_status_api_updates_get",
