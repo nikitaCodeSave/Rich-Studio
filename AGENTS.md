@@ -23,6 +23,28 @@ make fmt                                        # автоисправление
 5. **Безопасность.** Пользовательский HTML в DOM только через `h()`/`textContent` или `RichRender` (санитайзер). `innerHTML` запрещён ESLint. CSP без inline-скриптов. Новая дыра в санитайзере: сначала пример в `tests/render_unit.mjs`.
 6. **Секреты.** Токен бота только в `.env` (в git не попадает). Не логируй URL запросов к Telegram целиком: в них токен.
 
+## Несколько агентов параллельно
+
+Над репозиторием работают несколько агентов сразу. Чтобы их PR не конфликтовали:
+
+- **Одна задача = один PR = заранее объявленные пути** (шаблон `.github/ISSUE_TEMPLATE/agent-task.md`). Задачи с пересекающимися путями не идут параллельно: либо по очереди, либо одна интеграционная ветка.
+- **Вертикальный срез делает один агент**: сервис + маршрут + инструмент MCP + тест + документация. Не делите задачу по слоям между агентами.
+- **Области**, задача берёт одну:
+
+| Область | Пути |
+|---|---|
+| backend | `app/services/`, `app/store/`, `app/telegram/`, `app/spec/` |
+| api+mcp | `app/api/`, `app/mcp_tools/`, `app/models.py`, `docs/openapi.json` |
+| editor | `app/static/`, `types/`, `tests/e2e_ui.mjs`, `tests/*.mjs` |
+| platform | `Dockerfile`, `docker-compose.yml`, `.github/`, `Makefile`, `scripts/`, `.claude/hooks/` |
+| docs | `README.md`, `.claude/skills/`, `docs/` |
+
+- Файлы, которые правит почти каждый PR (README, `SKILL.md`, `tests/e2e_ui.mjs`, `app/mcp_tools/server.py`, `MIGRATIONS`): правьте точечно, в конце списка или таблицы, без переформатирования соседних строк.
+- Перед PR: rebase на свежий `main`, `make openapi`, если менялись маршруты, затем `make check`. Номер нового шага `MIGRATIONS` сверьте с `main` после rebase.
+- Ревью делает не автор (см. раздел 9 в `docs/REVIEW_CHECKLIST.md`). Approve и merge только у человека.
+- Job `supply-chain` и Trivy в `docker` падают и от свежей CVE в зависимости, которой нет в диффе. Сначала попробуйте обновить зависимость отдельным PR. Если исправления нет, временно игнорируйте её: `pip-audit --ignore-vuln <ID>` в `ci.yml` или строка в `.trivyignore`, всегда с комментарием «почему, ссылка, до какой даты». Отключать job нельзя.
+- В облачной сессии зависимости ставит `.claude/hooks/session-start.sh` (в `.venv` и `node_modules`). Для промежуточных шагов есть `make check-fast` (без браузера), перед PR нужен полный `make check`.
+
 ## Документация в том же PR
 
 - Новая возможность или изменённое поведение: в том же PR поправь README (таблица API, список инструментов MCP, «Что обновляется вручную») и `.claude/skills/telegram-rich-posts/SKILL.md`, если это касается агентов. Список инструментов MCP сверяет тест.

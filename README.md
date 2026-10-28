@@ -332,6 +332,9 @@ claude mcp add --transport http rich-studio http://localhost:8080/mcp --header "
 ## Тесты
 
 Одной командой: `make check` (всё ниже плюс проверка слоёв `lint-imports`). Правила для агентов: [AGENTS.md](AGENTS.md).
+Между шагами хватает `make check-fast` (без браузера). Если есть `.venv`, `make` берёт Python оттуда; в облачной сессии Claude Code его и `node_modules` готовит хук `.claude/hooks/session-start.sh`.
+
+CI на каждый PR: тесты и линтеры, браузерные проверки, аудит зависимостей (`pip-audit`, `npm audit`), поиск секретов (gitleaks), сборка и запуск образа с проверкой Trivy. Зависимости раз в неделю обновляет Dependabot.
 
 ```
 pip install -r requirements-dev.txt

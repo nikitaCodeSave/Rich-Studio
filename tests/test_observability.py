@@ -567,7 +567,9 @@ def test_session_hook_tells_only_the_agent_when_the_studio_is_down_or_locked(tmp
 
 def test_session_hook_is_registered_next_to_the_format_hook():
     hooks = json.loads((ROOT / ".claude/settings.json").read_text())["hooks"]
-    assert "studio_health.py" in hooks["SessionStart"][0]["hooks"][0]["command"]
+    start = " ".join(h["command"] for group in hooks["SessionStart"] for h in group["hooks"])
+    assert "studio_health.py" in start
+    assert "session-start.sh" in start  # dependencies for `make check` in cloud sessions
     assert "format.py" in hooks["PostToolUse"][0]["hooks"][0]["command"]
 
 
