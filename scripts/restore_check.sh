@@ -23,7 +23,12 @@ services:
 YML
 docker tag "$IMAGE" ghcr.io/nikitacodesave/rich-studio:restore-check
 dc() { docker compose -p "$P" --project-directory "$WORK" -f "$WORK/docker-compose.yml" -f "$WORK/docker-compose.check.yml" "$@"; }
-cleanup() { dc down -v --remove-orphans >/dev/null 2>&1 || true; rm -rf "$WORK"; }
+cleanup() {
+  dc down -v --remove-orphans >/dev/null 2>&1 || true
+  # the replica belongs to uid 10001: a runner that is not root removes it through a container
+  docker run --rm --user 0 -v "$WORK:/work" --entrypoint rm "$IMAGE" -rf /work/replica >/dev/null 2>&1 || true
+  rm -rf "$WORK" || true
+}
 trap cleanup EXIT
 # GET/POST inside the studio container (it has no published port): python, since the image has no curl
 call() {
