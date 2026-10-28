@@ -7,6 +7,7 @@ import ipaddress
 import re
 import secrets
 import socket
+import urllib.request
 from pathlib import Path
 from urllib.parse import unquote, urljoin, urlsplit
 
@@ -168,12 +169,18 @@ async def _resolve(host: str, port: int) -> list[str]:
     return [str(addr[0]).split("%")[0] for *_, addr in infos]
 
 
-async def _public_only(host: str, port: int) -> str | None:
+async def _public_only(host: str, port: int, proxied: bool = False) -> str | None:
     """The address to connect to: the host resolved once, refused when any of its addresses is the studio itself,
-    the local network or another non-public one. None with MEDIA_FETCH_PRIVATE (connect by name as usual)."""
+    the local network or another non-public one. None with MEDIA_FETCH_PRIVATE (connect by name as usual), or
+    when a name behind a proxy does not resolve here (a network where only the proxy sees the internet)."""
     if settings.get().media_fetch_private:
         return None
-    addrs = await _resolve(host, port)
+    try:
+        addrs = await _resolve(host, port)
+    except StudioError:
+        if proxied:
+            return None
+        raise
     for a in addrs:
         ip = ipaddress.ip_address(a)
         if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
@@ -197,24 +204,46 @@ def _pinned(url: str, ip: str | None) -> tuple[httpx.URL, dict, dict]:
     return u.copy_with(host=ip), {"Host": u.netloc.decode("ascii")}, ext
 
 
+def _proxy_for(scheme: str, host: str) -> str | None:
+    """The proxy the system settings give for this link (HTTPS_PROXY, HTTP_PROXY, ALL_PROXY, NO_PROXY), the same
+    one the requests to Telegram go through; None: connect directly."""
+    proxies = urllib.request.getproxies_environment()
+    proxy = proxies.get(scheme) or proxies.get("all")
+    if not proxy or urllib.request.proxy_bypass(host):
+        return None
+    return proxy
+
+
+# like a browser's download, not "python-httpx": some file hosts (Wikimedia among them) refuse an unnamed client
+USER_AGENT = f"RichStudio/{settings.VERSION} (media fetch)"
+
+
 async def fetch(url: str, filename: str | None = None) -> dict:
     """Download a file by http(s) link into the uploads, so a post can use it as upload:<name>.
-    Only public addresses, checked again on every redirect; written under a temporary name until complete."""
+    Only public addresses, checked again on every redirect; written under a temporary name until complete.
+    Through the system proxy when one is set for the link: then the proxy connects by name, so the address check
+    can not be pinned to the connection (the proxy is trusted to reach only what it should)."""
     name = free_name(filename or unquote(Path(urlsplit(url).path).name) or "file")
     part = media_dir() / f".{name}.{secrets.token_hex(4)}.part"  # two downloads of one name never share it
     size = 0
+    # certificates as for Telegram: SSL_CERT_FILE/SSL_CERT_DIR when set (a TLS-inspecting proxy), else certifi
+    tls = httpx.create_ssl_context(trust_env=True)
     try:
-        async with (
-            asyncio.timeout(FETCH_DEADLINE),
-            httpx.AsyncClient(timeout=60, follow_redirects=False, trust_env=False) as client,
-        ):
+        async with asyncio.timeout(FETCH_DEADLINE):
             for _ in range(FETCH_REDIRECTS + 1):
                 parts = urlsplit(url)
                 if parts.scheme not in ("http", "https") or not parts.hostname:
                     raise StudioError("url: нужна ссылка http(s)")
-                ip = await _public_only(parts.hostname, parts.port or (443 if parts.scheme == "https" else 80))
-                target, headers, ext = _pinned(url, ip)
-                async with client.stream("GET", target, headers=headers, extensions=ext) as r:
+                proxy = _proxy_for(parts.scheme, parts.hostname)
+                port = parts.port or (443 if parts.scheme == "https" else 80)
+                ip = await _public_only(parts.hostname, port, proxied=proxy is not None)
+                target, headers, ext = _pinned(url, None if proxy else ip)
+                async with (
+                    httpx.AsyncClient(
+                        timeout=60, follow_redirects=False, trust_env=False, verify=tls, proxy=proxy
+                    ) as client,
+                    client.stream("GET", target, headers={"User-Agent": USER_AGENT, **headers}, extensions=ext) as r,
+                ):
                     if r.is_redirect and r.headers.get("location"):
                         url = urljoin(url, r.headers["location"])
                         continue

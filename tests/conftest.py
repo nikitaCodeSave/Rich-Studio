@@ -79,6 +79,26 @@ def fresh_data(tmp_path, monkeypatch):
     return tmp_path
 
 
+PROXY_VARS = (
+    "HTTPS_PROXY",
+    "HTTP_PROXY",
+    "ALL_PROXY",
+    "NO_PROXY",
+    "https_proxy",
+    "http_proxy",
+    "all_proxy",
+    "no_proxy",
+)
+
+
+@pytest.fixture(autouse=True)
+def no_system_proxy(monkeypatch):
+    """Tests run the same with or without a proxy on the machine (a cloud session has one): the studio connects
+    directly unless a test sets a proxy itself."""
+    for name in PROXY_VARS:
+        monkeypatch.delenv(name, raising=False)
+
+
 @pytest.fixture
 def tg():
     FAKE.reset()
