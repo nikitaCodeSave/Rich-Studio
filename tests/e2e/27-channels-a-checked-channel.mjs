@@ -12,8 +12,11 @@ export default async function ({ page, check }) {
   await page.waitForTimeout(600);
   const dialogText = await page.locator('dialog[open] .channels').textContent();
   await page.keyboard.press('Escape');
+  // saves go one at a time: this one may wait behind an autosave, so wait for it rather than for a fixed time
+  const saved = page.waitForResponse((r) => /\/api\/drafts/.test(r.url()) && /kept_chan/.test(r.request().postData() || ''));
   await page.click('#btn-save');
-  await page.waitForTimeout(500);
+  await saved;
+  await page.waitForTimeout(300);
   const keptId = await page.evaluate(() => localStorage.getItem('rs.lastDraft'));
   const header = await page.evaluate(() => document.querySelector('#preview').shadowRoot.textContent);
   const label = await page.locator('#btn-check').textContent();
