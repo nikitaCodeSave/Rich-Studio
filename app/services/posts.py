@@ -221,6 +221,11 @@ async def edit(pid: str, post: dict, actor: str = "api", post_version: int | Non
         raise StudioError(f"пост в статусе {p['status']}, заменить нельзя")
     if p.get("kind") == "poll":
         raise StudioError("опрос заменить нельзя; можно закрыть или удалить")
+    if p.get("kind") in publisher.MEDIA_METHODS:
+        raise StudioError(
+            f"{publisher.MEDIA_LABELS[p['kind']]} заменить нельзя; можно удалить или сменить кнопки "
+            "(POST /api/posts/{id}/buttons)"
+        )
     if p["status"] == "sent" and not p["message_id"]:
         raise StudioError(f"пост в статусе {p['status']}, редактировать нечего")
     publisher.validate(post)
@@ -304,16 +309,21 @@ async def set_buttons(pid: str, reply_markup: dict | None, callbacks: dict | Non
     if p["status"] not in ("sent", "scheduled"):
         raise StudioError(f"пост в статусе {p['status']}")
     payload = dict(p["payload"])
+    # a Live Photo or paid media keeps its keyboard among its own parameters, where a scheduled send takes it from
+    kind = publisher.media_kind(payload)
+    holder = payload
+    if kind:
+        holder = payload[kind] = dict(payload[kind])
     if reply_markup and reply_markup.get("inline_keyboard"):
-        payload["reply_markup"] = reply_markup
+        holder["reply_markup"] = reply_markup
     else:
-        payload.pop("reply_markup", None)
+        holder.pop("reply_markup", None)
     if callbacks is not None:
         payload["callbacks"] = callbacks
     if p["status"] == "sent":
         params = {"chat_id": publisher.resolve_chat(p["chat_id"]), "message_id": p["message_id"]}
-        if payload.get("reply_markup"):
-            params["reply_markup"] = payload["reply_markup"]
+        if holder.get("reply_markup"):
+            params["reply_markup"] = holder["reply_markup"]
         try:
             await tg.call("editMessageReplyMarkup", params)
         except tg.TelegramError as e:
@@ -341,6 +351,27 @@ async def send_poll(poll: dict, chat_id=None, chat_ids=None, at=None, pin: bool 
         recs = store.add_scheduled(publisher.targets(chat_id, chat_ids), post, when, kind="poll", actor=actor)
         return {"scheduled": recs}
     results, warnings = await publisher.publish(publisher.targets(chat_id, chat_ids), post, kind="poll", actor=actor)
+    return {"results": results, "warnings": warnings}
+
+
+# ---------- Live Photo and paid media ----------
+async def send_media(
+    kind: str, params: dict, chat_id=None, chat_ids=None, at=None, pin: bool = False, actor: str = "api"
+) -> dict:
+    """A Live Photo (sendLivePhoto) or photos and videos for stars (sendPaidMedia): a message of its own, not a
+    rich post. Parameters go to Telegram as they are, files as upload:<name>."""
+    if kind not in publisher.MEDIA_METHODS:
+        raise StudioError(f"kind: {' или '.join(publisher.MEDIA_METHODS)}")
+    if bad := publisher.media_error(kind, params):
+        raise Invalid({"message": "сообщение не прошло проверку", "ok": False, "errors": [bad], "warnings": []})
+    if params.get("reply_markup") and (errs := spec.keyboard_errors(params["reply_markup"])):
+        raise Invalid({"message": "кнопки не прошли проверку", "ok": False, "errors": errs, "warnings": []})
+    post = {kind: dict(params), "pin": pin}
+    if at is not None:
+        when = publisher.parse_at(at)
+        recs = store.add_scheduled(publisher.targets(chat_id, chat_ids), post, when, kind=kind, actor=actor)
+        return {"scheduled": recs}
+    results, warnings = await publisher.publish(publisher.targets(chat_id, chat_ids), post, kind=kind, actor=actor)
     return {"results": results, "warnings": warnings}
 
 

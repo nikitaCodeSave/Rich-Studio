@@ -24,6 +24,7 @@ import { watchHealth } from './health.js';
 import { canRedo, canUndo, redo, undo } from './history.js';
 import { STATUS_LABELS } from './labels.js';
 import { addMediaEntry, loadUploads, upload } from './media.js';
+import { showMediaPost } from './media-post.js';
 import { showPoll } from './poll.js';
 import { loadPosts, replacePost } from './posts.js';
 import { refreshSpec, showSpec, updateBadge } from './spec-dialog.js';
@@ -188,6 +189,7 @@ function bindActions() {
     try { const r = await refreshSpec(); toast(r.text, r.ok ? 'ok' : 'err'); } catch (e) { toast(e.message, 'err'); } finally { b.disabled = false; b.classList.remove('spin'); }
   };
   $('#btn-poll').onclick = showPoll;
+  $('#btn-media-post').onclick = showMediaPost;
 }
 
 // ---------- boot ----------

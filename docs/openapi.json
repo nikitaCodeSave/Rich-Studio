@@ -360,6 +360,86 @@
     "title": "InviteLinkReq",
     "type": "object"
    },
+   "MediaPostReq": {
+    "properties": {
+     "at": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Отложить: unix или ISO 8601 с часовым поясом",
+      "title": "At"
+     },
+     "chat_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Chat Id"
+     },
+     "chat_ids": {
+      "anyOf": [
+       {
+        "items": {
+         "anyOf": [
+          {
+           "type": "string"
+          },
+          {
+           "type": "integer"
+          }
+         ]
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Chat Ids"
+     },
+     "kind": {
+      "description": "live_photo — sendLivePhoto, paid_media — sendPaidMedia (фото и видео за звёзды)",
+      "enum": [
+       "live_photo",
+       "paid_media"
+      ],
+      "title": "Kind",
+      "type": "string"
+     },
+     "params": {
+      "additionalProperties": true,
+      "description": "Параметры метода без chat_id, как в Bot API. live_photo: {live_photo: видео, photo: кадр, caption?}; paid_media: {star_count, media: [{type: photo|video|live_photo, media, photo?}], caption?}. Файлы из загрузок — upload:<имя>",
+      "title": "Params",
+      "type": "object"
+     },
+     "pin": {
+      "default": false,
+      "title": "Pin",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "kind",
+     "params"
+    ],
+    "title": "MediaPostReq",
+    "type": "object"
+   },
    "PinReq": {
     "properties": {
      "disable_notification": {
@@ -1680,6 +1760,84 @@
     "summary": "Загрузить файл; в посте он указывается как upload:<name>",
     "tags": [
      "media"
+    ]
+   }
+  },
+  "/api/media-post": {
+   "post": {
+    "description": "Отдельное сообщение, не rich-пост: в блоках `InputRichMessage` таких медиа нет. Платный контент требует,\nчтобы в канале была разрешена публикация платных медиа (`can_send_paid_media`).",
+    "operationId": "send_media_api_media_post_post",
+    "parameters": [
+     {
+      "description": "Кто отправляет: ui (редактор), mcp:<клиент>, имя скрипта. Пишется в историю постов.",
+      "in": "header",
+      "name": "x-studio-client",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "Кто отправляет: ui (редактор), mcp:<клиент>, имя скрипта. Пишется в историю постов.",
+       "title": "X-Studio-Client"
+      }
+     },
+     {
+      "description": "Повтор запроса с тем же ключом вернёт первый результат, а не опубликует пост второй раз. Ключ живёт сутки.",
+      "in": "header",
+      "name": "idempotency-key",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "Повтор запроса с тем же ключом вернёт первый результат, а не опубликует пост второй раз. Ключ живёт сутки.",
+       "title": "Idempotency-Key"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/MediaPostReq"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Live Photo (sendLivePhoto) или платный контент за звёзды (sendPaidMedia), сразу или отложенно",
+    "tags": [
+     "telegram"
     ]
    }
   },

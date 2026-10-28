@@ -132,6 +132,15 @@ class FakeTelegram:
                 "ok": True,
                 "result": {"status": "administrator", "can_post_messages": True, "can_edit_messages": True},
             }
+        if method in ("sendLivePhoto", "sendPaidMedia"):
+            self.next_id += 1
+            if method == "sendLivePhoto":
+                media = {
+                    "live_photo": {"file_id": "lp", "file_unique_id": "lp", "width": 720, "height": 960, "duration": 2}
+                }
+            else:
+                media = {"paid_media": {"star_count": int(body.get("star_count") or 0), "paid_media": []}}
+            return {"ok": True, "result": _message(self.next_id, caption=body.get("caption"), **media)}
         if method in ("sendRichMessage", "sendPoll"):
             self.next_id += 1
             res = _message(self.next_id)

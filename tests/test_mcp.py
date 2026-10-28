@@ -19,6 +19,7 @@ PUBLISHING = {
     "create_invite_link",
     "edit_invite_link",
     "revoke_invite_link",
+    "send_media_post",
 }
 
 

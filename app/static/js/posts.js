@@ -21,6 +21,8 @@ export async function loadPosts() {
   ul.replaceChildren(...shown.map((p) => {
     const when = (p.status === 'scheduled' && p.scheduled_at) || p.sent_at || p.created_at;
     const poll = p.kind === 'poll';
+    // a poll, Live Photo or paid media is a message of its own: it does not open in the post editor
+    const own = poll || p.kind === 'live_photo' || p.kind === 'paid_media';
     const sent = p.status === 'sent';
     const pr = p.poll_results;
     const stats = [
@@ -36,17 +38,17 @@ export async function loadPosts() {
       h('div', { class: 'post-head' },
         p.thumb ? h('img', { class: 'thumb', src: p.thumb, alt: '', loading: 'lazy' }) : null,
         h('span', { class: 'post-title' + (p.title ? '' : ' muted'), text: p.title || 'Без текста' })),
-      h('span', { class: 'meta' }, h('span', { class: 'status ' + p.status, text: STATUS_LABELS[p.status] || p.status }), poll ? h('b', { text: 'опрос' }) : null, p.actor && p.actor !== 'ui' ? h('span', { class: 'actor', title: 'Кто отправил: не редактор, а API или агент', text: p.actor }) : null, h('span', { class: 'chan', title: 'Канал', text: chatLabel(p.chat_id) }),
+      h('span', { class: 'meta' }, h('span', { class: 'status ' + p.status, text: STATUS_LABELS[p.status] || p.status }), poll ? h('b', { text: 'опрос' }) : null, p.kind === 'live_photo' ? h('b', { text: 'Live Photo' }) : null, p.kind === 'paid_media' ? h('b', { text: 'за звёзды' }) : null, p.actor && p.actor !== 'ui' ? h('span', { class: 'actor', title: 'Кто отправил: не редактор, а API или агент', text: p.actor }) : null, h('span', { class: 'chan', title: 'Канал', text: chatLabel(p.chat_id) }),
         p.link ? h('a', { href: p.link, target: '_blank', rel: 'noopener', title: 'Открыть в Telegram', text: num }) : num),
       h('span', { class: 'meta', text: new Date(when * 1000).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' }) }),
       p.error ? h('span', { class: 'small post-error', text: (p.status === 'failed' ? 'Не вышел: ' : '') + p.error }) : null,
       stats.length ? h('span', { class: 'meta stats', text: stats.join(' · ') }) : null,
       h('span', { class: 'acts' },
-        !poll && ['sent', 'scheduled', 'missed'].includes(p.status) ? h('button', { class: 'ghost small-btn', text: 'Править', title: 'Открыть пост в редакторе; «Обновить пост» над редактором заменит его', onclick: () => editPost(p).catch((e) => toast(e.message, 'err')) }) : null,
-        !poll && !['sent', 'scheduled', 'missed'].includes(p.status) ? h('button', { class: 'ghost small-btn', text: 'Открыть', title: 'Копия поста новым черновиком', onclick: () => openCopy(p) }) : null,
+        !own && ['sent', 'scheduled', 'missed'].includes(p.status) ? h('button', { class: 'ghost small-btn', text: 'Править', title: 'Открыть пост в редакторе; «Обновить пост» над редактором заменит его', onclick: () => editPost(p).catch((e) => toast(e.message, 'err')) }) : null,
+        !own && !['sent', 'scheduled', 'missed'].includes(p.status) ? h('button', { class: 'ghost small-btn', text: 'Открыть', title: 'Копия поста новым черновиком', onclick: () => openCopy(p) }) : null,
         ['scheduled', 'missed'].includes(p.status) ? h('button', { class: 'ghost small-btn', text: p.status === 'missed' ? 'Отложить заново' : 'Перенести', onclick: () => reschedulePost(p) }) : null,
         // only for the post open for editing: the editor's buttons are that post's, not another draft's
-        !poll && ['sent', 'scheduled'].includes(p.status) && editing.value && editing.value.id === p.id ? h('button', { class: 'ghost small-btn', text: 'Кнопки', title: 'Заменить только кнопки под постом кнопками из редактора; текст не меняется', onclick: () => {
+        !own && ['sent', 'scheduled'].includes(p.status) && editing.value && editing.value.id === p.id ? h('button', { class: 'ghost small-btn', text: 'Кнопки', title: 'Заменить только кнопки под постом кнопками из редактора; текст не меняется', onclick: () => {
           const kb = S.keyboard.filter((r) => r.length);
           if (!confirm(kb.length ? `Поставить под пост ${kb.flat().length} кнопок из редактора?` : 'В редакторе нет кнопок. Убрать кнопки из поста?')) return;
           call('POST', `/api/posts/${p.id}/buttons`, { reply_markup: kb.length ? { inline_keyboard: kb } : null, callbacks: callbacksFor(kb) }, 'Кнопки обновлены');
