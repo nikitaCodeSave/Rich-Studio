@@ -64,3 +64,19 @@ def test_unused_files_are_marked_and_cleaned_up(client, tg):
     r = client.post("/api/media/cleanup").json()
     assert sorted(r["deleted"]) == ["lonely.png", "old.png"]
     assert sorted(f["name"] for f in client.get("/api/media").json()) == ["draft.png", "sent.png"]
+
+
+def test_a_file_of_a_missed_post_is_not_deleted_without_force(client, tg):
+    """A missed post can still go out after «Отложить заново»: its file is needed like a scheduled one's."""
+    import time
+
+    import store
+
+    client.post("/api/media", files={"file": ("later.png", b"\x89PNG", "image/png")})
+    rec = client.post(
+        "/api/schedule", json={"post": _photo("later.png"), "chat_id": "@c", "at": int(time.time()) + 3600}
+    ).json()
+    store.mark_missed(rec["id"], "студия не работала")
+    r = client.delete("/api/media/later.png")
+    assert r.status_code == 409 and r.json()["detail"]["used_by"] == ["пропущенный пост в @c"]
+    assert client.delete("/api/media/later.png?force=true").status_code == 200

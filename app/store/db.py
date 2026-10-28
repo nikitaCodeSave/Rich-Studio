@@ -36,7 +36,8 @@ EXTRA_COLUMNS = {
 }
 
 # Numbered steps after the columns above (PRAGMA user_version): one file per step in migrations/,
-# NNNN_name.sql. Add a new file with the next number; never edit a shipped one. New columns go here too:
+# NNNN_name.sql. Add a new file with the next number; never edit a shipped one. A step runs in one transaction with
+# its number, so it has no begin/commit or vacuum of its own. New columns go here too:
 # EXTRA_COLUMNS is closed.
 MIGRATIONS_DIR = Path(__file__).with_name("migrations")
 
@@ -84,8 +85,14 @@ def init() -> None:
                 c.execute(f"alter table posts add column {col} {decl}")
         version = c.execute("pragma user_version").fetchone()[0]
         for i, step in enumerate(MIGRATIONS[version:], start=version + 1):
-            c.executescript(step)
-            c.execute(f"pragma user_version = {i}")
+            # the step and its number in one transaction: a crash in between must not run it a second time
+            # (executescript commits what is pending and would otherwise run each statement on its own)
+            try:
+                c.executescript(f"begin;\n{step}\n;pragma user_version = {i};\ncommit;")
+            except BaseException:
+                if c.in_transaction:
+                    c.execute("rollback")
+                raise
 
 
 def row(r, json_fields=JSON_FIELDS) -> dict | None:

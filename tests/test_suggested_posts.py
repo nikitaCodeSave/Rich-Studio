@@ -163,3 +163,31 @@ def test_failed_approval_can_be_tried_again_and_late_copies_do_not_go_back(clien
     # an edit that still says approved comes late: the payment stays recorded
     asyncio.run(updates.handle_update({"edited_message": _suggestion(50, {"state": "approved"})["message"]}))
     assert client.get("/api/suggested-posts").json()[0]["state"] == "paid"
+
+
+def test_an_outcome_that_comes_while_approving_is_not_overwritten(client, tg, monkeypatch):
+    """getUpdates may bring «paid» or «failed» before approveSuggestedPost answers: approve() keeps it."""
+    import telegram
+
+    real = telegram.call
+    asyncio.run(updates.handle_update(_suggestion(60, {"state": "pending", "price": {"currency": "XTR", "amount": 5}})))
+    outcome = {
+        "message_id": 61,
+        "date": 1,
+        "chat": DM,
+        "suggested_post_paid": {
+            "suggested_post_message": {"message_id": 60, "date": 1},
+            "currency": "XTR",
+            "star_amount": {"amount": 5},
+        },
+    }
+
+    async def outcome_first(method, params=None, *a, **kw):
+        res = await real(method, params, *a, **kw)
+        if method == "approveSuggestedPost":
+            await updates.handle_update({"message": outcome})
+        return res
+
+    monkeypatch.setattr(telegram, "call", outcome_first)
+    r = client.post("/api/suggested-posts/-1009:60/approve", json={}, headers={"X-Studio-Client": "ui"})
+    assert r.status_code == 200 and r.json()["state"] == "paid" and r.json()["actor"] == "ui"

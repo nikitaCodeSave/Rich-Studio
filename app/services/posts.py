@@ -76,13 +76,11 @@ def _first_sent(results: list[dict]) -> dict:
         r["chat_title"] = channels.title_of(r["chat_id"])
     first = next((r for r in results if r["ok"]), None)
     if not first:
-        detail = {
-            "message": "ни в один канал не отправлено",
-            "errors": [f"{r['chat_id']}: {r['error']}" for r in results],
-        }
+        errors = [f"{r['chat_id']}: {r['error']}" for r in results]
         if any(publisher.MAY_HAVE_GONE in r["error"] for r in results):
-            raise MayHaveGone(detail)
-        raise Upstream(detail)
+            # no answer from Telegram is not «not sent»: the headline says what is known, not more
+            raise MayHaveGone({"message": "ни один канал не подтвердил отправку, в часть могло уйти", "errors": errors})
+        raise Upstream({"message": "ни в один канал не отправлено", "errors": errors})
     return first
 
 

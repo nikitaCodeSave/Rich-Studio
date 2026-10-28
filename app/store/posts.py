@@ -300,10 +300,11 @@ def expire_comments(sent_before: int, error: str) -> int:
 
 
 def using_upload(ref: str) -> list[dict]:
-    """Scheduled posts whose content mentions the upload reference (e.g. "upload:cat.png")."""
+    """Posts still waiting (scheduled or missed) whose content mentions the upload reference (e.g. "upload:cat.png")."""
     with conn() as c:
         rows = c.execute(
-            "select id, chat_id, scheduled_at from posts where status='scheduled' and instr(payload, ?) > 0",
+            "select id, chat_id, scheduled_at, status from posts"
+            " where status in ('scheduled', 'missed') and instr(payload, ?) > 0",
             (json.dumps(ref, ensure_ascii=False),),
         )
         return [dict(r) for r in rows]
