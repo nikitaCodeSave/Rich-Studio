@@ -4,9 +4,10 @@
 
 | Папка / файл | Что делает | Чего не делает |
 |---|---|---|
+| `app/cli.py` | токены доступа из командной строки (`make token`) | экрана для токенов в редакторе нет намеренно |
 | `app/main.py` | `create_app()`: middleware, обработчики ошибок, роутеры, фоновые циклы | логики нет |
 | `app/settings.py` | все переменные окружения в одном `Settings`; модули вызывают `settings.get()` в момент использования | не читает env при импорте других модулей |
-| `app/security.py` | Host, CSRF, Content-Type, X-API-Key, CSP | |
+| `app/security.py` | Host, CSRF, Content-Type, CSP; кто спрашивает (`Principal`: именной токен, `STUDIO_API_KEY` или cookie сессии редактора) и уровень по методу запроса (GET — `read`, остальное — `draft`) | уровни выше `draft` проверяют сами маршруты (`api.deps.need`) и инструменты MCP (`mcp_tools.common.level_of`) |
 | `app/logs.py` | журнал: stderr для человека, JSON с ротацией в `DATA_DIR/logs` для агента, `request_id` на каждой строке (`bind`), вычистка токена, чтение с фильтрами | |
 | `app/metrics.py` | счётчики, задержки p50/p95 и пульс фоновых циклов в памяти процесса; его можно звать из любого слоя | не пишет на диск |
 | `app/errors.py` | `StudioError` (400), `NotFound`, `Invalid` (422), `Upstream` (502); `telegram.TelegramError` с кодом 400 → 422, прочие → 502 | |
@@ -50,6 +51,7 @@
 - Новое событие от Telegram: ветка в `services/updates.handle_update` и тип в `ALLOWED_UPDATES`.
 - Изменение схемы БД, новая колонка тоже: новый файл `store/migrations/NNNN_имя.sql` со следующим номером (старые не менять; `EXTRA_COLUMNS` закрыт). Номера идут подряд, повтор или пропуск останавливает запуск.
 - Новая настройка: поле в `Settings` + `from_env` + строка в `.env.example`.
+- Новый маршрут, который публикует или меняет канал: `dependencies=PUBLISH` (см. `api/posts.py`), опасный для всей студии — `Depends(need("admin"))`; тест в `tests/test_access.py`. Инструмент MCP получает уровень по своим аннотациям (`PUBLIC` — `publish`, только чтение — `read`, остальное — `draft`).
 - Новый фоновый цикл: функция в списке `factories` в `main.lifespan` (запускается под lease, только в одном процессе) и строки по [OBSERVABILITY.md](OBSERVABILITY.md#куда-добавлять-новое).
 - Новая проверка состояния, событие в журнале или фоновый цикл: [OBSERVABILITY.md](OBSERVABILITY.md#куда-добавлять-новое).
 

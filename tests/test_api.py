@@ -651,7 +651,9 @@ def test_api_key_protects_media_render_and_docs(client, monkeypatch):
     for path in ("/media/a.png", "/render/draft/x", "/docs", "/openapi.json", "/api/spec?key=secret"):
         assert client.get(path).status_code == 401, path
     assert client.get("/static/js/main.js").status_code == 200
-    assert client.get("/api/spec", cookies={"rs_key": "secret"}).status_code == 200
+    assert client.get("/api/spec", cookies={"rs_key": "secret"}).status_code == 401  # the old script-set cookie
+    assert client.post("/api/session", json={"key": "secret"}).status_code == 200  # the editor's login
+    assert client.get("/api/spec").status_code == 200
 
 
 def test_editor_modules_are_served_as_javascript(client):

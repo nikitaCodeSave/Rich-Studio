@@ -3,7 +3,7 @@
 Not healthy: the person and the agent both get the line. Not running or refusing the key: only the agent gets
 a line (its rich-studio MCP tools will fail, and it should say why instead of guessing). Silent when the studio
 is ok or slow to answer: a session must never start slower or noisier because of it.
-The key comes from STUDIO_API_KEY or the project's .env; it is sent, never printed.
+The agent's token comes from STUDIO_TOKEN, the key from STUDIO_API_KEY or the project's .env; sent, never printed.
 """
 
 import json
@@ -36,6 +36,8 @@ def api_key() -> str:
 def fetch() -> dict | str | None:
     """The report; "down" when nothing listens, "locked" on 401; None when slow or anything else odd."""
     req = urllib.request.Request(URL, headers={"X-Studio-Client": "claude-code-hook"})  # noqa: S310 - local URL
+    if token := os.environ.get("STUDIO_TOKEN", ""):
+        req.add_header("Authorization", f"Bearer {token}")
     if key := api_key():
         req.add_header("X-API-Key", key)
     # localhost must not go through an HTTP(S)_PROXY from the environment
@@ -71,8 +73,8 @@ AGENT_ONLY = {
     "down": f"Rich Studio на {BASE} не запущена: инструменты rich-studio не ответят. Для работы над кодом она не "
     "нужна; если задача требует студии (проверить или опубликовать пост), скажите пользователю, что её надо запустить "
     "(docker compose up -d в папке студии).",
-    "locked": "Rich Studio ответила 401: STUDIO_API_KEY в окружении или .env не совпадает с ключом студии, "
-    "инструменты rich-studio не ответят. Ключ не печатайте; попросите пользователя проверить его.",
+    "locked": "Rich Studio ответила 401: токен STUDIO_TOKEN или ключ STUDIO_API_KEY (окружение, .env) студия не "
+    "приняла, инструменты rich-studio не ответят. Ключ не печатайте; попросите пользователя проверить его.",
 }
 
 

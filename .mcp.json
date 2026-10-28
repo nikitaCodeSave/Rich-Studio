@@ -3,7 +3,7 @@
     "rich-studio": {
       "type": "http",
       "url": "http://localhost:8080/mcp",
-      "headers": { "X-API-Key": "${STUDIO_API_KEY:-}" }
+      "headers": { "Authorization": "Bearer ${STUDIO_TOKEN:-}", "X-API-Key": "${STUDIO_API_KEY:-}" }
     }
   }
 }

@@ -8,7 +8,6 @@ import settings
 import store
 from errors import NotFound, StudioError
 from mcp_tools.common import (
-    ACTOR,
     PUBLIC,
     READ,
     DraftArg,
@@ -16,6 +15,7 @@ from mcp_tools.common import (
     PostIdArg,
     ToolDecorator,
     VersionArg,
+    actor,
     post_source,
 )
 from services import channels, listing, posts
@@ -38,7 +38,7 @@ def register(tool: ToolDecorator) -> None:
         или draft_id с version (черновик-правка этого поста из get_draft). Ответы на кнопки и первый комментарий
         остаются, если их не передать; прежняя версия попадёт в post_history."""
         p, _ = post_source(post, draft_id, version, publish=True, edits=post_id)
-        return await posts.edit(post_id, p, actor=ACTOR, post_version=post_version)
+        return await posts.edit(post_id, p, actor=actor(), post_version=post_version)
 
     @tool(PUBLIC)
     async def reschedule_post(

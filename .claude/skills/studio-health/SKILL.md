@@ -13,7 +13,7 @@ A session opened in the studio folder may start with a line like `Rich Studio т
 
 ## 1. Read the state
 
-With the `rich-studio` MCP tools: `studio_health`, then `studio_logs` (default level WARNING). Otherwise HTTP (add `-H "X-API-Key: $STUDIO_API_KEY"` if the key is set):
+With the `rich-studio` MCP tools: `studio_health`, then `studio_logs` (default level WARNING). Otherwise HTTP (add `-H "Authorization: Bearer $STUDIO_TOKEN"` or `-H "X-API-Key: $STUDIO_API_KEY"` if the key is set):
 
 ```bash
 S=localhost:8080

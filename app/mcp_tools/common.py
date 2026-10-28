@@ -9,6 +9,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
+import security
 import settings
 import store
 import telegram as tg
@@ -64,6 +65,32 @@ TO_ME = ToolAnnotations(read_only_hint=False, destructive_hint=False, open_world
 # downloads the Bot API spec from GitHub and updates the studio's cached copy
 FETCH = TO_ME
 PUBLIC = ToolAnnotations(read_only_hint=False, destructive_hint=True, open_world_hint=True)
+
+
+def level_of(annotations: ToolAnnotations) -> str:
+    """The token level a tool needs: reading, drafting (studio data, the user's own chat) or publishing."""
+    if annotations is PUBLIC:
+        return "publish"
+    return "read" if annotations.read_only_hint else "draft"
+
+
+def actor() -> str:
+    """Who to record for a post: mcp, or mcp@<token name> when the agent came with a named token."""
+    name = security.current().name
+    return f"{ACTOR}@{name}" if name else ACTOR
+
+
+def needs_level(level: str, fn: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitable[Any]]:
+    """A tool the caller's token is not allowed to use answers with an error the agent can show the user."""
+
+    @functools.wraps(fn)
+    async def wrapper(*args, **kwargs):
+        who = security.current()
+        if not who.can(level):
+            raise ToolError(f"у токена {who.name} нет права {level}: попросите пользователя сделать это в редакторе")
+        return await fn(*args, **kwargs)
+
+    return wrapper
 
 
 def parse_post(raw: dict) -> dict:

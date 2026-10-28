@@ -33,7 +33,7 @@ docker compose up -d --build
 
 - **Бот:** токен от [@BotFather](https://t.me/BotFather). В канале сделайте бота админом с правом «Публикация сообщений», для правки ещё «Редактирование сообщений». Кнопка канала в шапке открывает окно «Каналы», где «Проверить» покажет, всё ли в порядке.
 - **«Мне в личку»:** в `TG_PREVIEW_CHAT` ваш числовой id ([@userinfobot](https://t.me/userinfobot)); один раз напишите своему боту `/start`.
-- Сервис слушает только `127.0.0.1`. Если откроете его в сеть, задайте `STUDIO_API_KEY`.
+- Сервис слушает только `127.0.0.1`. Если откроете его в сеть, задайте `STUDIO_API_KEY` или выдайте именные токены (раздел «Доступ» ниже).
 - Данные лежат в `./data` (черновики, посты, файлы, кэш спецификации). Обновление: `docker compose up -d --build`.
 
 Без Docker: `pip install -r requirements.txt`, затем `cd app && DATA_DIR=../data uvicorn main:app --port 8080` (переменные из `.env` экспортируйте сами).
@@ -245,12 +245,12 @@ curl -s 'localhost:8080/api/check?chat_id=@my_channel'
 
 ## MCP для Claude и других агентов
 
-Студия сама работает как MCP-сервер по адресу `http://localhost:8080/mcp` (Streamable HTTP). Claude Code, открытый в папке студии, подключает его сам из `.mcp.json` (при первом запуске спросит разрешение; если задан `STUDIO_API_KEY`, он берётся из окружения, поэтому экспортируйте его в shell). Агент получает и публикующие инструменты; чтобы он только готовил черновики, задайте `MCP_PUBLISH=off` (ниже). Из других папок подключение вручную:
+Студия сама работает как MCP-сервер по адресу `http://localhost:8080/mcp` (Streamable HTTP). Claude Code, открытый в папке студии, подключает его сам из `.mcp.json` (при первом запуске спросит разрешение; токен агента берётся из переменной `STUDIO_TOKEN`, ключ — из `STUDIO_API_KEY`, поэтому экспортируйте их в shell). Агент получает и публикующие инструменты; чтобы он только готовил черновики, задайте `MCP_PUBLISH=off` (ниже). Из других папок подключение вручную:
 
 ```
 claude mcp add --transport http rich-studio http://localhost:8080/mcp
-# если задан STUDIO_API_KEY:
-claude mcp add --transport http rich-studio http://localhost:8080/mcp --header "X-API-Key: <ключ>"
+# если студия защищена: именной токен агента (make token NAME=… LEVEL=…) или STUDIO_API_KEY
+claude mcp add --transport http rich-studio http://localhost:8080/mcp --header "Authorization: Bearer <токен>"
 ```
 
 Инструменты с описаниями: [docs/reference/mcp-tools.md](docs/reference/mcp-tools.md) (собирается из кода командой `make docs`). Главные: `save_draft` (сразу возвращает проверку), `preview_post` (предпросмотр в чате), `publish_post` и `schedule_post` (с `idempotency_key` и `dry_run`), `edit_post` (с версией поста из `get_post`), `list_posts`, `studio_health`.
@@ -304,7 +304,10 @@ claude mcp add --transport http rich-studio http://localhost:8080/mcp --header "
 ## Безопасность
 
 - Принимаются только запросы с `localhost`/`127.0.0.1` (другие имена добавляются в `ALLOWED_HOSTS`). Запросы с чужих сайтов и не-JSON отклоняются, так что открытая в браузере вкладка не может отправить пост от вашего бота.
-- С `STUDIO_API_KEY` все запросы, кроме страницы редактора, требуют заголовок `X-API-Key` (редактор сам запомнит ключ после первого ввода).
+- **Доступ.** Пока не задан `STUDIO_API_KEY` и нет ни одного токена, студия открыта, как локальный инструмент. Иначе каждый запрос, кроме страницы редактора и `/healthz`/`/readyz`, должен прийти с ключом или токеном: `Authorization: Bearer <токен>` или `X-API-Key`. Токены именные, у каждого свой уровень: `read` (только читать), `draft` (черновики, файлы, предпросмотр себе в личку), `publish` (публиковать, откладывать, заменять, удалять посты), `admin` (ещё `/api/raw` и скачивание бэкапа). `STUDIO_API_KEY` равен `admin`. Выдать: `make token NAME=claude-laptop LEVEL=draft` (токен печатается один раз, хранится только хэш), список: `make tokens`, отозвать: `make token-revoke NAME=claude-laptop` (заодно закрывает его сессии в редакторе). В контейнере: `docker compose exec studio python cli.py token add claude-laptop --level draft`. Отзыв последнего токена студию не открывает.
+- В историю постов пишется имя токена (`claude-laptop`, с заголовком `X-Studio-Client: mcp:claude` — `mcp:claude@claude-laptop`), так что видно, какой агент что опубликовал. Инструменты MCP проверяют уровень токена: агенту с `draft` публикующие инструменты ответят ошибкой. `MCP_PUBLISH=off` по-прежнему убирает их у всех. Для Claude Code токен кладётся в переменную `STUDIO_TOKEN`: `.mcp.json` передаёт её сам.
+- Редактор спрашивает ключ или токен один раз и меняет его на cookie сессии (`HttpOnly`, `SameSite=Strict`, `Secure` по HTTPS, `SESSION_DAYS` дней): скрипты страницы ключа не видят. Выйти: `DELETE /api/session`.
+- `/api/raw` доступен только уровню `admin`; `RAW_API=off` выключает его совсем.
 - `options` не может переписать `chat_id`, `rich_message`, `reply_markup`, `message_id`. Через `/api/raw` без подтверждения работают только методы, которые читают, отправляют или редактируют сообщения (`get*`, `send*`, `edit*`, `answer*`, `copy*`, `forward*`, закреп, `stopPoll` и `setMessageReaction`). Всё остальное, включая `delete*`, `set*`, `logOut` и методы, которые Telegram добавит позже, требует заголовок `X-Confirm: yes`.
 - Предпросмотр чистит HTML по белому списку тегов и ссылок, страницы работают под строгим CSP.
 - Отложенный пост захватывается атомарно. Если сервис упал во время отправки, пост помечается как «мог уйти» и повторно не отправляется.

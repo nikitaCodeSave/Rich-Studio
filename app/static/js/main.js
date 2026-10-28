@@ -7,7 +7,7 @@
  * ES modules without a build step; render.js and snippets.js are classic
  * scripts loaded before and reached through window.RichRender / SNIPPETS.
  */
-import { api, setKeyCookie } from './api.js';
+import { api, migrateStoredKey } from './api.js';
 import { bindCode, snippetBar } from './code.js';
 import { bindTarget, loadChannels, showTarget } from './channels.js';
 import { closeDialog, openDialog } from './dialogs.js';
@@ -193,10 +193,10 @@ function bindActions() {
 // ---------- boot ----------
 async function boot() {
   try {
+    await migrateStoredKey();
     [S.spec, S.config] = await Promise.all([api('GET', '/api/spec'), api('GET', '/api/config')]);
   } catch (e) { document.body.prepend(h('p', { class: 'err', style: 'padding:12px', text: 'Не удалось загрузить сервис: ' + e.message })); return; }
   dark.value = store.get('dark', dark.value);
-  if (store.get('apiKey', '')) setKeyCookie(store.get('apiKey', ''));
   $('#chat').value = S.config.default_chat || '';
   $('#chat').placeholder = S.config.default_chat || '@канал или id';
   if (!S.config.token_set) toast('TG_BOT_TOKEN не задан: редактор и предпросмотр работают, отправка нет. Добавьте токен в .env и перезапустите.', 'err');

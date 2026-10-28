@@ -1,10 +1,12 @@
 """Download everything the studio keeps."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
 from services import backup
+
+from .deps import need
 
 router = APIRouter(tags=["service"])
 
@@ -13,6 +15,7 @@ router = APIRouter(tags=["service"])
     "/api/export",
     summary="Скачать бэкап: zip с базой (черновики, посты, история) и загруженными файлами",
     response_class=FileResponse,
+    dependencies=[Depends(need("admin"))],  # the whole database, token hashes included
 )
 def export():
     path = backup.export_zip()

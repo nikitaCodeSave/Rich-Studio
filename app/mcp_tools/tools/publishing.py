@@ -5,7 +5,6 @@ from typing import Annotated, Any
 from pydantic import Field
 
 from mcp_tools.common import (
-    ACTOR,
     PUBLIC,
     ChatArg,
     ChatsArg,
@@ -14,6 +13,7 @@ from mcp_tools.common import (
     OptPostArg,
     ToolDecorator,
     VersionArg,
+    actor,
     post_source,
     request_key,
 )
@@ -42,7 +42,7 @@ def register(tool: ToolDecorator) -> None:
             request_key(idempotency_key, "send", body),
             "send",
             body,
-            lambda: posts.send(p, chat_id, chat_ids, draft_id, actor=ACTOR),
+            lambda: posts.send(p, chat_id, chat_ids, draft_id, actor=actor()),
         )
 
     @tool(PUBLIC)
@@ -67,7 +67,7 @@ def register(tool: ToolDecorator) -> None:
             request_key(idempotency_key, "poll", body),
             "poll",
             body,
-            lambda: posts.send_poll(poll, chat_id, chat_ids, at, pin, actor=ACTOR),
+            lambda: posts.send_poll(poll, chat_id, chat_ids, at, pin, actor=actor()),
         )
 
     @tool(PUBLIC)
@@ -89,6 +89,6 @@ def register(tool: ToolDecorator) -> None:
         body = {"post": p, "chat_id": chat_id, "chat_ids": chat_ids, "draft_id": draft_id, "dry_run": False, "at": at}
 
         async def action():
-            return posts.schedule(p, at, chat_id, chat_ids, draft_id, actor=ACTOR)
+            return posts.schedule(p, at, chat_id, chat_ids, draft_id, actor=actor())
 
         return await idempotency.run(request_key(idempotency_key, "schedule", body), "schedule", body, action)
