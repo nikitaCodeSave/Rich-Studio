@@ -132,6 +132,7 @@ async def preview(post: dict, chat_id=None) -> dict:
 
 
 NOT_MODIFIED = "message is not modified"
+WAITING = ("scheduled", "missed")  # not in the channel yet: a replacement only changes the record
 
 
 def after_edit(old: dict, post: dict) -> dict:
@@ -217,7 +218,7 @@ async def edit(pid: str, post: dict, actor: str = "api", post_version: int | Non
     `post_version`: the version the caller read (get_post); someone else's edit since then gives 409
     instead of being overwritten silently."""
     p = _get(pid)
-    if p["status"] not in ("scheduled", "sent"):
+    if p["status"] not in ("scheduled", "missed", "sent"):
         raise StudioError(f"пост в статусе {p['status']}, заменить нельзя")
     if not (k := kinds.get(p.get("kind"))).editable:
         raise StudioError(k.edit_refusal)
@@ -231,7 +232,7 @@ async def edit(pid: str, post: dict, actor: str = "api", post_version: int | Non
             f"пост {pid} уже заменили (версия {now}, а у вас {post_version}): прочитайте его заново (get_post) "
             "и повторите правку поверх новой версии"
         )
-    if p["status"] == "scheduled":
+    if p["status"] in WAITING:  # a missed post too: it goes out with the new content once rescheduled
         if not store.replace_scheduled(pid, post, p["payload"], actor):
             store.release_version(pid, taken)
             raise StudioError("пост уже отправляется: обновите список и замените опубликованный")
@@ -295,13 +296,14 @@ async def unpin(pid: str) -> dict | None:
     return store.update_post(pid, pinned=0)
 
 
-async def set_buttons(pid: str, reply_markup: dict | None, callbacks: dict | None) -> dict | None:
-    """Replace only the buttons (editMessageReplyMarkup); the text is untouched."""
+async def set_buttons(pid: str, reply_markup: dict | None, callbacks: dict | None, actor: str = "api") -> dict | None:
+    """Replace only the buttons (editMessageReplyMarkup); the text is untouched. Like an edit, the next version is
+    taken before Telegram is asked and the buttons before go into the post's history."""
     bad = spec.keyboard_errors(reply_markup)
     if bad:  # the same rule as a full send: Telegram would refuse the whole request
         raise Invalid({"message": "кнопки не прошли проверку", "ok": False, "errors": bad, "warnings": []})
     p = _get(pid)
-    if p["status"] not in ("sent", "scheduled"):
+    if p["status"] not in ("sent", *WAITING):
         raise StudioError(f"пост в статусе {p['status']}")
     payload = dict(p["payload"])
     # a Live Photo or paid media keeps its keyboard among its own parameters, where a scheduled send takes it from
@@ -315,18 +317,33 @@ async def set_buttons(pid: str, reply_markup: dict | None, callbacks: dict | Non
         holder.pop("reply_markup", None)
     if callbacks is not None:
         payload["callbacks"] = callbacks
-    if p["status"] == "sent":
-        params = {"chat_id": publisher.resolve_chat(p["chat_id"]), "message_id": p["message_id"]}
-        if holder.get("reply_markup"):
-            params["reply_markup"] = holder["reply_markup"]
-        try:
-            await tg.call("editMessageReplyMarkup", params)
-        except tg.TelegramError as e:
-            # the same buttons again (e.g. only their answers changed): nothing to do in Telegram
-            if NOT_MODIFIED not in e.description:
-                raise
-    store.claim_version(pid, None)
-    return store.update_post(pid, payload=payload)
+    if payload == p["payload"]:  # nothing to change: no new version
+        return p
+    taken = store.claim_version(pid, None)
+    if taken is None:  # deleted meanwhile
+        raise NotFound("Not Found")
+    if p["status"] in WAITING:
+        # only while still waiting: once the scheduler took it, the old buttons are what went out
+        if not store.replace_scheduled(pid, payload, p["payload"], actor):
+            store.release_version(pid, taken)
+            raise StudioError("пост уже отправляется: обновите список и смените кнопки у опубликованного")
+        return store.get_post(pid)
+    params = {"chat_id": publisher.resolve_chat(p["chat_id"]), "message_id": p["message_id"]}
+    if holder.get("reply_markup"):
+        params["reply_markup"] = holder["reply_markup"]
+    try:
+        await tg.call("editMessageReplyMarkup", params)
+    except tg.TelegramError as e:
+        # the same buttons again (e.g. only their answers changed): nothing to do in Telegram
+        if NOT_MODIFIED not in e.description:
+            store.release_version(pid, taken)
+            raise
+    except Exception as e:  # network error mid-request: the buttons may have changed, the version stays taken
+        raise MayHaveGone(
+            f"{type(e).__name__}: {e}. Кнопки могли смениться: проверьте пост в канале (get_post покажет записанное)"
+        ) from e
+    store.replace_sent(pid, payload, p["payload"], actor)
+    return store.get_post(pid)
 
 
 # ---------- polls, Live Photo, paid media: messages of their own kind ----------

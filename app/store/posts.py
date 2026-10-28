@@ -268,11 +268,11 @@ def release_version(pid: str, taken: int) -> None:
 
 
 def replace_scheduled(pid: str, payload: dict, old: dict, actor: str | None) -> bool:
-    """New content for a post that is still waiting, and the old one into its history, in one transaction;
-    False if the scheduler already took it."""
+    """New content for a post that is still waiting (scheduled or missed), and the old one into its history, in one
+    transaction; False if the scheduler already took it."""
     with conn() as c:
         cur = c.execute(
-            "update posts set payload=? where id=? and status='scheduled'",
+            "update posts set payload=? where id=? and status in ('scheduled', 'missed')",
             (json.dumps(payload, ensure_ascii=False), pid),
         )
         if cur.rowcount != 1:

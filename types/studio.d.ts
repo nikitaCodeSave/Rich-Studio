@@ -169,6 +169,8 @@ interface PostRow {
   created_at: number;
   kind: string;
   actor: string | null;
+  /** +1 on every replacement of the content or the buttons: «Обновить пост» sends it as post_version */
+  version: number;
   pinned: boolean;
   comment_status: string | null;
   reactions: Json | null;

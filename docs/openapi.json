@@ -2224,6 +2224,7 @@
   },
   "/api/posts/{pid}/buttons": {
    "post": {
+    "description": "Прежние кнопки попадают в историю поста (`/versions`), `version` поста растёт.",
     "operationId": "set_buttons_api_posts__pid__buttons_post",
     "parameters": [
      {
@@ -2233,6 +2234,24 @@
       "schema": {
        "title": "Pid",
        "type": "string"
+      }
+     },
+     {
+      "description": "Кто отправляет: ui (редактор), mcp:<клиент>, имя скрипта. Пишется в историю постов.",
+      "in": "header",
+      "name": "x-studio-client",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "Кто отправляет: ui (редактор), mcp:<клиент>, имя скрипта. Пишется в историю постов.",
+       "title": "X-Studio-Client"
       }
      }
     ],

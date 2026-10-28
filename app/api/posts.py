@@ -123,8 +123,9 @@ async def unpin_post(pid: str):
     dependencies=PUBLISH,
     summary="Заменить только кнопки под постом (editMessageReplyMarkup), текст не трогается",
 )
-async def set_buttons(pid: str, req: ButtonsReq):
-    return await posts.set_buttons(pid, req.reply_markup, req.callbacks)
+async def set_buttons(pid: str, req: ButtonsReq, who: str = Depends(actor)):
+    """Прежние кнопки попадают в историю поста (`/versions`), `version` поста растёт."""
+    return await posts.set_buttons(pid, req.reply_markup, req.callbacks, who)
 
 
 @router.get("/api/posts", summary="Опубликованные, отложенные и неудачные посты: первая строка, миниатюра, ссылка")

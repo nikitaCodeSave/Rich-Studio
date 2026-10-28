@@ -43,12 +43,29 @@ export async function updatePost() {
   const p = editing.value;
   if (!p) return;
   if (!confirm(`Обновить пост ${p.message_id ? '#' + p.message_id + ' ' : ''}в ${p.chat_id} содержимым редактора?`)) return;
+  const done = { scheduled: 'Отложенный пост обновлён', missed: 'Пропущенный пост обновлён: отложите его заново' }[p.status] || 'Пост обновлён в канале';
   await act(async () => {
-    const r = await api('POST', `/api/posts/${p.id}/edit`, buildPost());
+    // the version this editor read: a change made elsewhere since then (an agent, another tab) gives 409, not a silent overwrite
+    const send = (version) => api('POST', `/api/posts/${p.id}/edit?post_version=${version}`, buildPost());
+    let r;
+    try {
+      r = await send(p.version);
+    } catch (e) {
+      if (e.status !== 409) throw e;
+      const now = await api('GET', '/api/posts/' + p.id);
+      editing.value = now;
+      if (!confirm('Пост уже изменили в другом месте (агент или другая вкладка). Заменить его содержимым редактора? Прежняя версия останется в истории.')) return null;
+      r = await send(now.version);
+    }
     editing.value = r;
     return r;
-  }, p.status === 'scheduled' ? 'Отложенный пост обновлён' : 'Пост обновлён в канале');
+  }, (r) => (r ? done : 'Пост не изменён'));
   loadPosts();
+}
+
+/** The post open for editing changed its version (buttons, a new time): later updates start from the new one. */
+export async function refreshEditing(id) {
+  if (editing.value && editing.value.id === id) editing.value = await api('GET', '/api/posts/' + id).catch(() => editing.value);
 }
 
 export function reschedulePost(p) {
