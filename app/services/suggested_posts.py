@@ -84,33 +84,53 @@ def on_service(m: dict) -> bool:
 
 
 def listing(state: str | None = None) -> list[dict]:
+    """state: one state, "open" (waiting, being decided, failed approval), or None for all."""
     return [view(r) for r in store.suggested_posts.listing(state or None)]
 
 
-def _pending(sid: str) -> dict:
+# a decision can be made on a suggestion still waiting, or again after an approval failed (the author lacked stars)
+DECIDABLE = ("pending", "failed")
+SENT_UNKNOWN = (
+    "решение уже отправлено, но Telegram не ответил: оно могло дойти. Проверьте в личных сообщениях канала; "
+    "если не дошло, решите там, студия увидит итог"
+)
+
+
+def _get(sid: str) -> dict:
     rec = store.suggested_posts.get(sid)
     if not rec:
         raise NotFound(f"предложенного поста {sid} нет: студия видит только те, что пришли, пока она запущена")
-    if rec["state"] != "pending":
-        raise StudioError(f"предложенный пост уже {rec['state']}: решение принято")
     return rec
 
 
-async def _call(method: str, params: dict) -> None:
+def _check(rec: dict) -> None:
+    if rec["state"] in ("approving", "declining"):
+        raise StudioError(f"предложенный пост: {SENT_UNKNOWN}")
+    if rec["state"] not in DECIDABLE:
+        raise StudioError(f"предложенный пост уже {rec['state']}: решение принято")
+
+
+async def _decide(rec: dict, method: str, params: dict, deciding: str) -> None:
+    """The record is taken first (pending -> approving/declining), so a second click or a retry never sends the
+    decision twice. Telegram refused: it goes back. No answer: it stays taken until the outcome comes as a service
+    message, the same rule as a post that may have gone (no repeat)."""
+    if not store.suggested_posts.claim(rec["id"], DECIDABLE, deciding):
+        _check(store.suggested_posts.get(rec["id"]) or rec)
+        raise StudioError("предложенный пост уже решается")
     try:
         await tg.call(method, params)
     except (tg.TelegramError, StudioError):
+        store.suggested_posts.claim(rec["id"], (deciding,), rec["state"])
         raise
     except Exception as e:  # mid-request: Telegram may have acted on it, the state comes later as a service message
-        raise MayHaveGone(
-            f"{type(e).__name__}: {e}. Решение могло дойти до Telegram: обновите список, прежде чем повторять"
-        ) from e
+        raise MayHaveGone(f"{type(e).__name__}: {e}. Предложенный пост: {SENT_UNKNOWN}") from e
 
 
 async def approve(sid: str, send_date=None, actor: str = "api") -> dict:
     """Publish a suggestion in the channel (Telegram does it, at send_date or now). A paid one charges the author.
     send_date only when the author did not set one."""
-    rec = _pending(sid)
+    rec = _get(sid)
+    _check(rec)
     params: dict = {"chat_id": rec["chat_num"], "message_id": rec["message_id"]}
     if send_date not in (None, ""):
         if rec.get("send_date"):
@@ -118,7 +138,7 @@ async def approve(sid: str, send_date=None, actor: str = "api") -> dict:
         params["send_date"] = publisher.parse_at(send_date)
         if params["send_date"] > time.time() + SEND_DATE_MAX:
             raise StudioError("опубликовать предложение можно не позже чем через 30 дней")
-    await _call("approveSuggestedPost", params)
+    await _decide(rec, "approveSuggestedPost", params, "approving")
     return view(
         store.suggested_posts.update(  # type: ignore[arg-type]
             sid,
@@ -131,14 +151,15 @@ async def approve(sid: str, send_date=None, actor: str = "api") -> dict:
 
 
 async def decline(sid: str, comment: str | None = None, actor: str = "api") -> dict:
-    rec = _pending(sid)
+    rec = _get(sid)
+    _check(rec)
     comment = (comment or "").strip()
     if len(comment) > COMMENT_MAX:
         raise StudioError(f"комментарий длиннее {COMMENT_MAX} символов: столько Telegram не примет")
     params: dict = {"chat_id": rec["chat_num"], "message_id": rec["message_id"]}
     if comment:
         params["comment"] = comment
-    await _call("declineSuggestedPost", params)
+    await _decide(rec, "declineSuggestedPost", params, "declining")
     return view(
         store.suggested_posts.update(  # type: ignore[arg-type]
             sid, state="declined", comment=comment or None, actor=actor, decided_at=int(time.time())

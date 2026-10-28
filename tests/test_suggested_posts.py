@@ -89,3 +89,77 @@ def test_suggested_posts_need_publish_and_work_through_mcp(client, tg):
     assert s["state"] == "approved" and "send_date" not in tg.last("approveSuggestedPost")["body"]
     draft = token("d", "draft")
     assert client.post("/api/suggested-posts/-1009:40/decline", json={}, headers=draft).status_code == 403
+
+
+def test_a_decision_goes_to_telegram_once(client, tg, monkeypatch):
+    import telegram
+    from services import suggested_posts
+
+    asyncio.run(updates.handle_update(_suggestion(30, {"state": "pending"})))
+    # Telegram refused: nothing changed, the suggestion waits again
+    tg.fail["approveSuggestedPost"] = "Bad Request: not enough rights"
+    assert client.post("/api/suggested-posts/-1009:30/approve", json={}).status_code == 422
+    assert client.get("/api/suggested-posts").json()[0]["state"] == "pending"
+    tg.fail.clear()
+    tg.calls.clear()
+
+    async def timeout(method, params=None, timeout=60):
+        tg.calls.append({"method": method, "body": params, "files": {}})
+        raise TimeoutError("read timeout")
+
+    monkeypatch.setattr(telegram, "call", timeout)
+    r = client.post("/api/suggested-posts/-1009:30/approve", json={})
+    assert r.status_code == 502 and "могло дойти" in r.json()["detail"]
+    [s] = client.get("/api/suggested-posts", params={"state": "open"}).json()
+    assert s["state"] == "approving"
+    # no repeat after "may have gone": not a retry, not a decline
+    for path in ("approve", "decline"):
+        again = client.post(f"/api/suggested-posts/-1009:30/{path}", json={})
+        assert again.status_code == 400 and "могло дойти" in again.json()["detail"]
+    assert len([c for c in tg.calls if c["method"] == "approveSuggestedPost"]) == 1
+    # the outcome settles it
+    done = {
+        "message_id": 31,
+        "date": 1,
+        "chat": DM,
+        "suggested_post_approved": {"suggested_post_message": {"message_id": 30, "date": 1}},
+    }
+    asyncio.run(updates.handle_update({"message": done}))
+    assert client.get("/api/suggested-posts").json()[0]["state"] == "approved"
+    # two clicks at once: only one takes the suggestion
+    asyncio.run(updates.handle_update(_suggestion(40, {"state": "pending"})))
+    from store import suggested_posts as rows
+
+    assert rows.claim("-1009:40", suggested_posts.DECIDABLE, "approving")
+    assert not rows.claim("-1009:40", suggested_posts.DECIDABLE, "approving")
+
+
+def test_failed_approval_can_be_tried_again_and_late_copies_do_not_go_back(client, tg):
+    asyncio.run(updates.handle_update(_suggestion(50, {"state": "pending", "price": {"currency": "XTR", "amount": 5}})))
+    failed = {
+        "message_id": 51,
+        "date": 1,
+        "chat": DM,
+        "suggested_post_approval_failed": {
+            "suggested_post_message": {"message_id": 50, "date": 1},
+            "price": {"currency": "XTR", "amount": 5},
+        },
+    }
+    asyncio.run(updates.handle_update({"message": failed}))
+    assert client.get("/api/suggested-posts", params={"state": "open"}).json()[0]["state"] == "failed"
+    r = client.post("/api/suggested-posts/-1009:50/approve", json={})
+    assert r.status_code == 200 and r.json()["state"] == "approved"
+    paid = {
+        "message_id": 52,
+        "date": 1,
+        "chat": DM,
+        "suggested_post_paid": {
+            "suggested_post_message": {"message_id": 50, "date": 1},
+            "currency": "XTR",
+            "star_amount": {"amount": 5},
+        },
+    }
+    asyncio.run(updates.handle_update({"message": paid}))
+    # an edit that still says approved comes late: the payment stays recorded
+    asyncio.run(updates.handle_update({"edited_message": _suggestion(50, {"state": "approved"})["message"]}))
+    assert client.get("/api/suggested-posts").json()[0]["state"] == "paid"

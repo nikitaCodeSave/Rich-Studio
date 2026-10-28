@@ -7,6 +7,9 @@ import { whenPicker } from './when.js';
 const when = (s) => new Date(s * 1000).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 const MEDIA = { photo: 'фото', video: 'видео', animation: 'GIF', audio: 'аудио', document: 'файл', voice: 'голосовое', video_note: 'кружок', live_photo: 'Live Photo', paid_media: 'платное медиа' };
 
+// open but not waiting: the decision went out with no answer, or an approval failed and can be tried again
+const STATES = { approving: 'принятие отправлено, ждём Telegram', declining: 'отказ отправлен, ждём Telegram', failed: 'одобрение не прошло' };
+
 /** @param {SuggestedPost} s */
 function price(s) {
   if (!s.price_amount) return 'бесплатно';
@@ -20,7 +23,7 @@ function decide(s) {
   const done = (r) => { if (r) { closeDialog(d); loadSuggested(); } };
   const approve = (later) => {
     const body = later ? { send_date: pick.value() } : {};
-    if (!confirm(later ? 'Опубликовать предложенный пост в выбранное время?' : 'Опубликовать предложенный пост в канале сейчас?' + (s.price_amount ? ` С автора спишется ${price(s)}.` : ''))) return;
+    if (!confirm((later ? 'Опубликовать предложенный пост в выбранное время?' : 'Опубликовать предложенный пост в канале сейчас?') + (s.price_amount ? ` С автора спишется ${price(s)}.` : ''))) return;
     act(() => api('POST', `/api/suggested-posts/${encodeURIComponent(s.id)}/approve`, body), 'Пост принят: Telegram опубликует его').then(done);
   };
   const d = openDialog([
@@ -37,10 +40,10 @@ function decide(s) {
 
 export async function loadSuggested() {
   const box = $('#suggested');
-  const list = /** @type {SuggestedPost[]} */ (await api('GET', '/api/suggested-posts?state=pending').catch(() => []));
+  const list = /** @type {SuggestedPost[]} */ (await api('GET', '/api/suggested-posts?state=open').catch(() => []));
   box.hidden = !list.length;
   box.replaceChildren(h('b', { class: 'small', text: `Предложенные посты: ${list.length}` }),
     h('ul', { class: 'list' }, list.map((s) => h('li', { onclick: () => decide(s), title: 'Посмотреть, принять или отклонить' },
       h('span', { class: 'name', text: (s.text || '(без текста)').split('\n')[0] }),
-      h('span', { class: 'meta', text: `${s.author || 'подписчик'} · ${price(s)}` + (s.send_date ? ' · к ' + when(s.send_date) : '') })))));
+      h('span', { class: 'meta', text: `${s.author || 'подписчик'} · ${price(s)}` + (s.send_date ? ' · к ' + when(s.send_date) : '') + (STATES[s.state] ? ' · ' + STATES[s.state] : '') })))));
 }

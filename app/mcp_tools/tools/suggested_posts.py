@@ -14,8 +14,12 @@ def register(tool: ToolDecorator) -> None:
     @tool(READ)
     async def list_suggested_posts(
         state: Annotated[
-            str | None, Field(description="pending (ждёт решения), approved, declined, paid, refunded, failed")
-        ] = "pending",
+            str | None,
+            Field(
+                description="open (ждёт решения, решается или одобрение не прошло), pending, approving, declining, "
+                "approved, declined, paid, refunded, failed"
+            ),
+        ] = "open",
     ) -> list:
         """Посты, которые подписчики предложили в личных сообщениях канала: text, media, author, price_amount и
         price_currency (XTR — звёзды), send_date (время, которое выбрал автор), state. Покажите их пользователю

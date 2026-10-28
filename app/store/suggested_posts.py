@@ -6,6 +6,24 @@ import time
 from .db import conn, row
 
 FIELDS = {"state", "price_amount", "price_currency", "send_date", "comment", "actor", "decided_at", "message"}
+# how far a suggestion has got: a copy that arrives late (the same update again, an edit) never moves it back
+RANK = {
+    "pending": 0,
+    "approving": 1,
+    "declining": 1,
+    "approved": 2,
+    "declined": 2,
+    "paid": 3,
+    "refunded": 3,
+    "failed": 3,
+}
+# still the studio's to act on or to watch: waiting for a decision, decided but no answer yet, approval failed
+OPEN = ("pending", "approving", "declining", "failed")
+
+
+def _rank(col: str) -> str:
+    whens = " ".join(f"when '{k}' then {v}" for k, v in RANK.items())
+    return f"(case {col} {whens} else 0 end)"
 
 
 def key(chat_num: int, message_id: int) -> str:
@@ -29,11 +47,9 @@ def save(chat_num: int, message_id: int, message: dict, **fields) -> dict:
         **fields,
     }
     cols = ["id", "chat_num", "message_id", "received_at", *rec]
-    # a pending copy (the same update delivered again, an edit) never undoes a decision already recorded here
-    updates = ", ".join(
-        f"{k}=excluded.{k}" if k != "state" else "state=iif(excluded.state='pending', state, excluded.state)"
-        for k in rec
-    )
+    # a late copy (the same update delivered again, an edit) never undoes what is already recorded here
+    keep = f"state=iif({_rank('excluded.state')} < {_rank('state')}, state, excluded.state)"
+    updates = ", ".join(f"{k}=excluded.{k}" if k != "state" else keep for k in rec)
     with conn() as c:
         c.execute(
             f"insert into suggested_posts({','.join(cols)}) values({','.join('?' * len(cols))}) "
@@ -60,11 +76,26 @@ def update(sid: str, **fields) -> dict | None:
     return get(sid)
 
 
+def claim(sid: str, from_states: tuple[str, ...], to: str) -> bool:
+    """Move a suggestion to `to` only if it is in one of from_states now: one decision at a time, even from two
+    tabs at once. False: someone is deciding already, or has decided."""
+    marks = ",".join("?" * len(from_states))
+    with conn() as c:
+        cur = c.execute(
+            f"update suggested_posts set state=? where id=? and state in ({marks})",  # noqa: S608 - only placeholders
+            (to, sid, *from_states),
+        )
+        return cur.rowcount == 1
+
+
 def listing(state: str | None = None, limit: int = 100) -> list[dict]:
-    """Newest first; only one state (pending, approved…) when it is given."""
+    """Newest first; only one state (pending, approved…) when it is given, "open" for those in OPEN."""
+    states = OPEN if state == "open" else (state,) if state else None
+    marks = ",".join("?" * len(states or ()))
+    where = f"where state in ({marks})" if states else ""
     with conn() as c:
         rows = c.execute(
-            "select * from suggested_posts where ? is null or state=? order by received_at desc, rowid desc limit ?",
-            (state, state, limit),
+            f"select * from suggested_posts {where} order by received_at desc, rowid desc limit ?",  # noqa: S608
+            (*(states or ()), limit),
         )
         return [row(r, ("message",)) for r in rows]  # type: ignore[misc]
