@@ -230,11 +230,21 @@ async def edit(pid: str, post: dict, actor: str = "api", post_version: int | Non
             f"пост {pid} уже заменили (версия {now}, а у вас {post_version}): прочитайте его заново (get_post) "
             "и повторите правку поверх новой версии"
         )
+    taken = (store.get_post(pid) or {}).get("version")
     if p["status"] == "scheduled":
         if not store.replace_scheduled(pid, post, p["payload"], actor):
+            store.release_version(pid, taken)
             raise StudioError("пост уже отправляется: обновите список и замените опубликованный")
         return store.get_post(pid)
-    await edit_message(post, p["chat_id"], p["message_id"], actor, rec=p, claimed=True)
+    try:
+        await edit_message(post, p["chat_id"], p["message_id"], actor, rec=p, claimed=True)
+    except (StudioError, tg.TelegramError):  # refused, nothing changed in the channel: the version is not used
+        store.release_version(pid, taken)
+        raise
+    except Exception as e:  # network error mid-edit: the edit may have gone through, the version stays taken
+        raise MayHaveGone(
+            f"{type(e).__name__}: {e}. Правка могла пройти: проверьте пост в канале (get_post покажет записанное)"
+        ) from e
     return store.get_post(pid)
 
 

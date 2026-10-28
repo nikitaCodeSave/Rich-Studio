@@ -71,8 +71,9 @@ def conn() -> Iterator[sqlite3.Connection]:
     cfg.data_dir.mkdir(parents=True, exist_ok=True)
     c = sqlite3.connect(cfg.db_path, timeout=10)
     c.row_factory = sqlite3.Row
-    # with WAL (set once in init) readers never wait for the writer; NORMAL is durable enough there
-    c.execute("pragma synchronous = NORMAL")
+    # FULL even with WAL (set once in init): the "sending" row written before a send must survive a power cut too;
+    # the studio writes a handful of rows a minute, so it costs nothing
+    c.execute("pragma synchronous = FULL")
     try:
         with c:
             yield c

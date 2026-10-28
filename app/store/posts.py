@@ -258,6 +258,13 @@ def claim_version(pid: str, expected: int | None) -> bool:
         return cur.rowcount == 1
 
 
+def release_version(pid: str, taken: int | None) -> None:
+    """Give back a version taken by claim_version when the edit was refused and nothing changed; a no-op if
+    someone took a newer one meanwhile."""
+    with conn() as c:
+        c.execute("update posts set version=version-1 where id=? and version=?", (pid, taken))
+
+
 def replace_scheduled(pid: str, payload: dict, old: dict, actor: str | None) -> bool:
     """New content for a post that is still waiting, and the old one into its history, in one transaction;
     False if the scheduler already took it."""

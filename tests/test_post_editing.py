@@ -99,6 +99,18 @@ def test_edit_based_on_an_older_version_is_refused(client, tg):
     assert client.post(f"/api/posts/{p['id']}/edit", json=BLOCKS_POST).json()["version"] == 2
 
 
+def test_refused_edit_leaves_the_version_alone(client, tg):
+    """Telegram refused the edit: nothing changed, so a retry with the same post_version is not a false 409."""
+    p = client.post("/api/send", json={"post": BLOCKS_POST}).json()["post"]
+    tg.fail["editMessageText"] = "Bad Request: message to edit not found"
+    refused = client.post(f"/api/posts/{p['id']}/edit?post_version=0", json=NEW)
+    assert refused.status_code not in (200, 409)
+    assert store.get_post(p["id"])["version"] == 0
+    tg.fail.clear()
+    retry = client.post(f"/api/posts/{p['id']}/edit?post_version=0", json=NEW)
+    assert retry.status_code == 200 and retry.json()["version"] == 1
+
+
 def test_scheduled_post_edit_checks_the_version_too(client):
     rec = client.post("/api/schedule", json={"post": BLOCKS_POST, "at": int(time.time()) + 3600}).json()
     assert client.post(f"/api/posts/{rec['id']}/edit?post_version=0", json=NEW).status_code == 200

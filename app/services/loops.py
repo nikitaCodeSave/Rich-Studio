@@ -60,12 +60,15 @@ class Loops:
         self.keeper = asyncio.create_task(self._keep_lease())
 
     async def _keep_lease(self) -> None:
+        failures = 0
         while True:
             try:
                 held = store.take_lease(LEASE_KEY, STATE.owner, LEASE_TTL)
-            except Exception:  # a locked or broken database: try again on the next round
+                failures = 0
+            except Exception:  # a locked or broken database: keep leading for a round, never past the ttl
                 log.exception("lease renewal failed")
-                held = STATE.role == "leader"
+                failures += 1
+                held = STATE.role == "leader" and failures * RENEW < LEASE_TTL - RENEW
             if held and STATE.role != "leader":
                 self._lead()
             elif not held and STATE.role != "standby":
