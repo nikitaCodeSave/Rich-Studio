@@ -1,6 +1,7 @@
 """Background loops: one process runs them (lease in SQLite), and a stop never cuts a send short."""
 
 import asyncio
+import sqlite3
 import time
 
 import pytest
@@ -140,3 +141,62 @@ def test_database_uses_wal():
     """Readers (health, agents) never wait for the scheduler's writes."""
     with store.conn() as c:
         assert c.execute("pragma journal_mode").fetchone()[0] == "wal"
+
+
+def test_database_outage_hands_the_loops_back_once_it_is_over(fresh_state, monkeypatch):
+    """Renewal fails longer than the lease: the loops stop, and the keeper survives to start them again."""
+    started = []
+    clock = {"t": 0.0}
+    down = {"on": False}
+    take, holder = store.take_lease, store.lease_holder
+
+    def broken(real):
+        def call(*a, **kw):
+            if down["on"]:
+                raise sqlite3.OperationalError("database or disk is full")
+            return real(*a, **kw)
+
+        return call
+
+    monkeypatch.setattr(store, "take_lease", broken(take))
+    monkeypatch.setattr(store, "lease_holder", broken(holder))
+    monkeypatch.setattr(loops, "_now", lambda: clock["t"])
+    rounds = asyncio.Queue()
+
+    async def step(_s):
+        clock["t"] += loops.RENEW
+        await rounds.get()
+
+    monkeypatch.setattr(loops, "_sleep", step)
+
+    async def work():
+        started.append(1)
+        await asyncio.Event().wait()
+
+    async def go(n):
+        """Let the keeper run n more rounds (0: just the first one)."""
+        for _ in range(n + 1):
+            for _ in range(5):
+                await asyncio.sleep(0)
+            if n:
+                await rounds.put(1)
+                n -= 1
+
+    async def scenario():
+        runner = loops.Loops([work])
+        runner.start()
+        await go(0)
+        assert fresh_state.role == "leader" and started == [1]
+        down["on"] = True
+        await go(1)  # 20 s without renewal: the lease still runs, keep leading
+        assert fresh_state.role == "leader"
+        await go(1)  # 40 s: another process may take over soon, stop the loops
+        assert fresh_state.role == "standby" and fresh_state.holder is None
+        await go(3)
+        assert not runner.keeper.done()
+        down["on"] = False
+        await go(1)
+        assert fresh_state.role == "leader" and started == [1, 1]
+        await runner.stop()
+
+    asyncio.run(scenario())
