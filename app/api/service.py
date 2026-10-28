@@ -14,7 +14,10 @@ def healthz():
     return {"ok": True}
 
 
-@router.get("/api/config")
+@router.get(
+    "/api/config",
+    summary="Что нужно редактору: канал по умолчанию, чат для «Мне в личку», задан ли токен, версия спецификации",
+)
 def config():
     cfg = settings.get()
     return {

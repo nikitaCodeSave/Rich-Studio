@@ -4,7 +4,7 @@ PY ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 
 LINT_IMPORTS = $(if $(wildcard .venv/bin/lint-imports),.venv/bin/lint-imports,lint-imports)
 
-.PHONY: check check-fast check-py check-js fmt test openapi e2e mock dev spec-update
+.PHONY: check check-fast check-py check-js fmt test openapi docs e2e mock dev spec-update
 
 check: check-py check-js
 
@@ -41,8 +41,11 @@ test:
 	$(PY) -m pytest -q
 
 # После намеренного изменения API: обновить docs/openapi.json и закоммитить его.
-openapi:
-	UPDATE_OPENAPI=1 $(PY) -m pytest -q tests/test_openapi_contract.py
+openapi: docs
+
+# docs/openapi.json and docs/reference/ (HTTP routes and MCP tools) from the code
+docs:
+	UPDATE_OPENAPI=1 UPDATE_DOCS=1 $(PY) -m pytest -q tests/test_openapi_contract.py tests/test_reference_docs.py
 
 # Студия на подставном Telegram: http://localhost:8080, без токена и сети.
 mock:

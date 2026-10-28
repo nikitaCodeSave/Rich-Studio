@@ -18,7 +18,7 @@ def get_spec_raw():
     return spec.current.data
 
 
-@router.get("/api/spec/type/{name}")
+@router.get("/api/spec/type/{name}", summary="Точные поля типа или метода Bot API из текущей спецификации")
 def get_spec_type(name: str):
     t = spec.current.types.get(name) or spec.current.methods.get(name)
     if not t:

@@ -17,7 +17,7 @@
 | Публикация | сразу, по расписанию, «мне в личку», в несколько каналов, замена текста или только кнопок, удаление |
 | Канал | закреп без уведомления, первый комментарий в обсуждении, ответы на callback-кнопки, опросы и викторины для каналов, счётчики реакций и нажатий |
 | Свежесть | редактор строится из машиночитаемой спецификации Bot API, новые поля работают в день релиза |
-| Агенты | HTTP API, MCP-сервер на `/mcp` с 25 инструментами и предпросмотром прямо в чате, `dry_run`, `Idempotency-Key`, отметка о том, кто отправил пост |
+| Агенты | HTTP API, MCP-сервер на `/mcp` ([инструменты](docs/reference/mcp-tools.md)) с предпросмотром прямо в чате, `dry_run`, `Idempotency-Key`, отметка о том, кто отправил пост |
 
 ## Быстрый старт
 
@@ -178,28 +178,7 @@ HTML и Markdown предпросмотр разбирает так же, как
 
 Поле `post` везде одинаковое: `{"rich_message": {...}, "reply_markup": {...}, "options": {...}, "pin": true, "comment": {"html": "..."}, "callbacks": {"like": "Спасибо!"}}`. Последние три поля студия обрабатывает сама и в Telegram их не отправляет. Файлы из загрузок указываются как `upload:<имя>`.
 
-| Метод | Что делает |
-|---|---|
-| `GET /api/spec`, `GET /api/spec/type/{name}`, `GET /api/spec/raw`, `POST /api/spec/refresh` | версия и типы Bot API, спецификация целиком, обновление с отчётом об изменениях |
-| `GET /api/config` | что нужно редактору: канал по умолчанию, чат для «Мне в личку», задан ли токен, версия спецификации, приём событий |
-| `POST /api/validate` | проверка по спецификации: ошибки, предупреждения, символы |
-| `POST /api/render?theme=dark`, `GET /render/draft/{id}` | отдельная HTML-страница предпросмотра; черновик по id (`preview_path` из `save_draft`) |
-| `GET/POST/PUT/DELETE /api/drafts` | черновики (открываются в редакторе); `chat_ids` — каналы черновика, публикация из него без `chat_id` уходит туда; `PUT` с `version` вернёт 409, если черновик сохранили в другом месте |
-| `POST /api/preview-send` | отправить себе в личку; в ответе `parsed`: блоки, на которые Telegram разобрал пост, и они же для повторной отправки (`input_blocks`) |
-| `GET /api/check?chat_id=` | бот админ канала? права? Канал запоминается с названием |
-| `GET/POST /api/channels`, `PUT /api/channels/{id}/topics`, `DELETE /api/channels/{id}` | каналы: название, форум и его темы, права бота; темы вручную (Bot API их не перечисляет) или сами из событий создания темы |
-| `GET /api/posts?status=&chat=`, `GET /api/posts/{id}` | посты студии, новые сверху: первая строка (`title`), миниатюра (`thumb`), ссылка t.me (`link`), нажатия (`clicks`) и текст кнопки каждого `callback_data` (`buttons`); один пост целиком с `payload`; неудачные отправки со статусом `failed` и ошибкой |
-| `POST /api/send`, `/api/schedule`, `/api/edit`, `/api/posts/{id}/edit`, `DELETE /api/posts/{id}` | публикация (`chat_ids` для нескольких каналов), отложка, замена (`?post_version=` из поля `version` поста: если пост с тех пор заменили, 409), удаление; `DELETE` неудачной отправки убирает её из списка |
-| `POST/DELETE /api/posts/{id}/pin`, `POST /api/posts/{id}/buttons` | закрепить, открепить, заменить только кнопки |
-| `GET /api/posts/{id}/versions`, `POST /api/posts/{id}/reschedule` | как пост выглядел до каждой замены; перенести отложенный или вернуть пропущенный |
-| `POST /api/poll`, `POST /api/posts/{id}/stop-poll` | опрос или викторина (сразу или с `at`), закрыть опрос; опрос сразу после поста — поле `poll_after` в самом посте (проверяется по `sendPoll` до отправки поста: до 12 вариантов, вопрос до 300 символов, у викторины отмечен ответ) |
-| `GET /api/updates` | состояние приёма событий от Telegram |
-| `GET /api/health` | состояние студии: проверки `ok/warn/fail` с подсказкой, что делать, счётчики, последние ошибки |
-| `GET /api/logs?level=&limit=&since=&logger=&q=` | журнал студии (строки JSON) с фильтрами; `q=<request_id>` — всё, что сделал один запрос |
-| `GET /healthz`, `GET /readyz` | жив ли процесс; готова ли студия работать (503 и имена сбойных проверок), обе без ключа |
-| `GET /api/export` | бэкап: zip с базой и файлами |
-| `POST /api/media`, `POST /api/media/fetch` (по ссылке), `GET /api/media`, `POST /api/media/cleanup`, `DELETE /api/media/{name}` | загрузка файлов (`fetch` ходит только на публичные адреса, проверяя каждый редирект; локальная сеть: `MEDIA_FETCH_PRIVATE=1`); `used` у файла, удаление всех ненужных; удаление файла, нужного отложенному посту или черновику, даёт 409 (`?force=true` удаляет всё равно) |
-| `POST /api/raw/{method}` | любой метод Bot API как есть |
+Все маршруты с описаниями: [docs/reference/http-api.md](docs/reference/http-api.md) (собирается из кода командой `make docs`), интерактивно с примерами: `/docs` работающей студии. Ещё два маршрута без ключа и вне схемы: `GET /healthz` (жив ли процесс) и `GET /readyz` (готова ли студия работать: 503 и имена сбойных проверок).
 
 Время в `/api/schedule` передавайте как unix или ISO 8601 с часовым поясом (`2026-10-10T09:00:00+03:00`). Контракт API записан в `docs/openapi.json`.
 
@@ -274,7 +253,7 @@ claude mcp add --transport http rich-studio http://localhost:8080/mcp
 claude mcp add --transport http rich-studio http://localhost:8080/mcp --header "X-API-Key: <ключ>"
 ```
 
-Инструменты: `bot_api_status`, `refresh_bot_api` (скачать спецификацию сейчас), `studio_status` (что работает: токен, приём событий, предел опоздания отложки), `studio_health` (что сломано и что делать), `studio_logs` (журнал), `describe_type`, `validate_post`, `preview_post`, `save_draft` (новый или обновить существующий с проверкой версии; сразу возвращает результат проверки), `list_drafts`, `get_draft`, `list_media`, `upload_media` (по ссылке или base64), `send_preview_to_me`, `check_channel` (запоминает канал с названием), `list_channels` (названия, темы форума, права), `publish_post` (с `idempotency_key` и `dry_run`), `schedule_post` (тоже с `dry_run`), `send_poll` (опрос или викторина), `list_posts` (первая строка, ссылка, фильтр по статусу и каналу), `get_post`, `post_history`, `edit_post` (с версией поста из `get_post`: чужая правка с тех пор даёт ошибку, а не перезапись), `reschedule_post`, `cancel_scheduled_post`.
+Инструменты с описаниями: [docs/reference/mcp-tools.md](docs/reference/mcp-tools.md) (собирается из кода командой `make docs`). Главные: `save_draft` (сразу возвращает проверку), `preview_post` (предпросмотр в чате), `publish_post` и `schedule_post` (с `idempotency_key` и `dry_run`), `edit_post` (с версией поста из `get_post`), `list_posts`, `studio_health`.
 
 Ответы `save_draft`, `preview_post` и `get_draft` содержат `editor_url` (черновик в редакторе, `/?draft=<id>`) и `preview_url`, `get_post` даёт `editor_url` вида `/?post=<id>`, который открывает пост на правку. Адрес берётся из `STUDIO_URL` (по умолчанию `http://localhost:8080`). Открытый в редакторе черновик, который поменял агент, обновляется сам через несколько секунд. Если в редакторе есть несохранённые правки, он спросит, чью версию оставить.
 

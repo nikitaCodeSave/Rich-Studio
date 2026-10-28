@@ -4,6 +4,7 @@ import contextlib
 import json
 import sqlite3
 from collections.abc import Iterator
+from pathlib import Path
 
 import settings
 
@@ -17,7 +18,8 @@ create table if not exists posts(
   sent_at integer, error text, created_at integer);
 """
 
-# columns added after the first release; created on start for existing databases
+# columns added after the first release; created on start for existing databases. Closed: a new column is a
+# migration file (alter table) below
 EXTRA_COLUMNS = {
     "kind": "text default 'rich'",  # rich | poll
     "chat_num": "integer",  # numeric chat id from Telegram (chat_id may be @username)
@@ -33,33 +35,22 @@ EXTRA_COLUMNS = {
     "version": "integer not null default 0",  # +1 on every replacement of the content: edits with an older one get 409
 }
 
-# Numbered steps after the columns above (PRAGMA user_version). Append only; never edit a shipped step.
-MIGRATIONS: list[str] = [
-    # 1: lookups by incoming updates and by the scheduler
-    """create index if not exists posts_by_message on posts(chat_num, message_id);
-       create index if not exists posts_by_poll on posts(poll_id);
-       create index if not exists posts_due on posts(status, scheduled_at);""",
-    # 2: small key-value state that must survive a restart (getUpdates offset)
-    """create table if not exists meta(key text primary key, value text);""",
-    # 3: Idempotency-Key: a retried send returns the first result instead of posting twice
-    """create table if not exists idempotency(
-         key text primary key, scope text not null, fingerprint text not null,
-         status text not null, response text, created_at integer not null);""",
-    # 4: a draft open in two tabs: a save based on an older version is refused instead of overwriting
-    """alter table drafts add column version integer not null default 0;""",
-    # 5: what a published post looked like before each replacement; the draft that edits a post
-    """create table if not exists post_versions(
-         id integer primary key autoincrement, post_id text not null, payload text not null,
-         replaced_at integer not null, actor text);
-       create index if not exists post_versions_by_post on post_versions(post_id);
-       alter table drafts add column post_id text;""",
-    # 6: channels with their titles and forum topics; the channels a draft is meant for
-    """create table if not exists channels(
-         chat_id text primary key, chat_num integer, title text, username text, type text,
-         is_forum integer not null default 0, topics text, can_post integer, rights text,
-         checked_at integer, created_at integer not null);
-       alter table drafts add column chat_ids text;""",
-]
+# Numbered steps after the columns above (PRAGMA user_version): one file per step in migrations/,
+# NNNN_name.sql. Add a new file with the next number; never edit a shipped one. New columns go here too:
+# EXTRA_COLUMNS is closed.
+MIGRATIONS_DIR = Path(__file__).with_name("migrations")
+
+
+def load_migrations(folder: Path = MIGRATIONS_DIR) -> list[str]:
+    """The steps in order; numbers must run 1, 2, 3... without gaps or repeats (two PRs that took one number)."""
+    files = sorted(folder.glob("*.sql"))
+    nums = [int(f.name.split("_", 1)[0]) for f in files]
+    if nums != list(range(1, len(files) + 1)):
+        raise RuntimeError(f"migration numbers must be 1..{len(files)} without gaps or repeats: {nums}")
+    return [f.read_text(encoding="utf-8") for f in files]
+
+
+MIGRATIONS = load_migrations()
 
 JSON_FIELDS = ("payload", "reactions", "clicks", "poll_results", "chat_ids", "topics", "rights")
 

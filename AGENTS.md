@@ -12,7 +12,7 @@ make check                                      # всё: ruff, format, mypy, с
 make fmt                                        # автоисправление формата и линтеров
 ```
 
-Изменение готово, только когда `make check` зелёный. Изменил маршруты или модели API намеренно — `make openapi` и закоммить `docs/openapi.json` (тест `test_openapi_contract.py` сверяет их). Браузерные проверки: `make mock`, `make dev`, затем `make e2e` (нужен Chromium для Playwright).
+Изменение готово, только когда `make check` зелёный. Изменил маршруты, модели API или инструменты MCP намеренно — `make docs` и закоммить `docs/openapi.json` и `docs/reference/` (тесты `test_openapi_contract.py` и `test_reference_docs.py` сверяют их). Браузерные проверки: `make mock`, `make dev`, затем `make e2e` (нужен Chromium для Playwright).
 
 ## Главные правила
 
@@ -34,20 +34,20 @@ make fmt                                        # автоисправление
 | Область | Пути |
 |---|---|
 | backend | `app/services/`, `app/store/`, `app/telegram/`, `app/spec/` |
-| api+mcp | `app/api/`, `app/mcp_tools/`, `app/models.py`, `docs/openapi.json` |
-| editor | `app/static/`, `types/`, `tests/e2e_ui.mjs`, `tests/*.mjs` |
+| api+mcp | `app/api/`, `app/mcp_tools/`, `app/models.py`, `docs/openapi.json`, `docs/reference/` |
+| editor | `app/static/`, `types/`, `tests/e2e/`, `tests/*.mjs` |
 | platform | `Dockerfile`, `docker-compose.yml`, `.github/`, `Makefile`, `scripts/`, `.claude/hooks/` |
 | docs | `README.md`, `.claude/skills/`, `docs/` |
 
-- Файлы, которые правит почти каждый PR (README, `SKILL.md`, `tests/e2e_ui.mjs`, `app/mcp_tools/server.py`, `MIGRATIONS`): правьте точечно, в конце списка или таблицы, без переформатирования соседних строк.
-- Перед PR: rebase на свежий `main`, `make openapi`, если менялись маршруты, затем `make check`. Номер нового шага `MIGRATIONS` сверьте с `main` после rebase.
+- Общие списки разнесены по файлам, чтобы параллельные PR не правили одну строку: шаг схемы — новый файл `app/store/migrations/NNNN_имя.sql`, инструмент MCP — функция в `app/mcp_tools/tools/<область>.py` (новая область — новый файл), браузерная проверка — новый файл `tests/e2e/NN-имя.mjs`. Списки маршрутов и инструментов в `docs/reference/` собирает `make docs`; при конфликте в них не сливайте руками, а пересоберите. README и `SKILL.md` правьте точечно, без переформатирования соседних строк.
+- Перед PR: rebase на свежий `main`, `make docs`, если менялись маршруты или инструменты, затем `make check`. Номер нового файла миграции, занятый другим PR, роняет `test_migrations.py`: после rebase возьмите следующий свободный.
 - Ревью делает не автор (см. раздел 9 в `docs/REVIEW_CHECKLIST.md`). Approve и merge только у человека.
 - Job `supply-chain` и Trivy в `docker` падают и от свежей CVE в зависимости, которой нет в диффе. Сначала попробуйте обновить зависимость отдельным PR. Если исправления нет, временно игнорируйте её: `pip-audit --ignore-vuln <ID>` в `ci.yml` или строка в `.trivyignore`, всегда с комментарием «почему, ссылка, до какой даты». Отключать job нельзя.
 - В облачной сессии зависимости ставит `.claude/hooks/session-start.sh` (в `.venv` и `node_modules`). Для промежуточных шагов есть `make check-fast` (без браузера), перед PR нужен полный `make check`.
 
 ## Документация в том же PR
 
-- Новая возможность или изменённое поведение: в том же PR поправь README (таблица API, список инструментов MCP, «Что обновляется вручную») и `.claude/skills/telegram-rich-posts/SKILL.md`, если это касается агентов. Список инструментов MCP сверяет тест.
+- Новая возможность или изменённое поведение: в том же PR поправь README (описание возможности, «Что обновляется вручную») и `.claude/skills/telegram-rich-posts/SKILL.md`, если это касается агентов. Описание маршрута — его `summary=` и docstring, инструмента — его docstring: оттуда `make docs` собирает `docs/reference/`, руками эти списки не правятся.
 - Изменил слои, политику ошибок или «куда добавлять новое»: поправь `docs/ARCHITECTURE.md`.
 - Принял решение, которое не видно из кода (выбор библиотеки, отказ от подхода): запись в [docs/decisions/](docs/decisions/README.md). Перед тем как предлагать сборщик, фреймворк или другой источник спецификации, прочитай, почему от них уже отказались.
 - Изменил вид редактора: `make e2e` сохраняет скриншоты в `test-results/ui/` (1400 и 390 px). Посмотри их и покажи человеку вместе с PR. В CI они лежат в артефакте `editor-screenshots`, скриншоты предпросмотра — в `preview-screenshots`.
@@ -56,7 +56,7 @@ make fmt                                        # автоисправление
 
 - Не править `app/bundled/api.json` руками: это копия спецификации с https://github.com/PaulSonOfLars/telegram-bot-api-spec. Обновляет её `make spec-update` (код выхода 10, если версия новая); после него сделай зелёным `tests/test_spec_coverage.py`.
 - Не подменять `asyncio.sleep` глобально в тестах: это останавливает подставной Telegram в соседнем потоке. Подменяй `_sleep` модуля.
-- Не менять старые шаги `MIGRATIONS` в `app/store/db.py`, только добавлять в конец.
+- Не менять старые файлы в `app/store/migrations/`, только добавлять новые.
 - Не добавлять сборщик, фреймворк или новую рантайм-зависимость без обсуждения: редактор специально работает без сборки.
 - Не отправлять ничего в настоящий Telegram из тестов. Для всего есть `tests/mock_telegram.py`.
 
@@ -67,7 +67,7 @@ make fmt                                        # автоисправление
 | новый метод Bot API для постов | `app/services/posts.py` + `app/api/posts.py` + тест |
 | новое событие из getUpdates | `app/services/updates.py` (`handle_update`, `ALLOWED_UPDATES`) |
 | новая настройка | `app/settings.py` + `.env.example` |
-| инструмент MCP для агентов | `app/mcp_tools/server.py` + тест в `tests/test_mcp.py` |
+| инструмент MCP для агентов | `app/mcp_tools/tools/<область>.py` + тест в `tests/test_mcp.py` + `make docs` |
 | редактор | `app/static/js/` (см. AGENTS.md там) |
 | предпросмотр | `app/static/render.js`, стили `tg.css`; в чате Claude: `app/static/preview-app.js` + `app/mcp_tools/preview_app.py` |
 | журнал, `/api/health`, уборка | `app/logs.py`, `app/metrics.py`, `app/services/health.py`, `housekeeping.py`; устройство в `docs/OBSERVABILITY.md` |
