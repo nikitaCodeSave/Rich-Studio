@@ -7,6 +7,8 @@ Telegram transport in telegram/, storage in store/, the Bot API spec in spec/.
 import asyncio
 import contextlib
 import logging
+import os
+import sys
 import time
 from pathlib import Path
 
@@ -18,6 +20,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 import logs
 import mcp_tools
 import metrics
+import security
 import settings
 import spec
 import store
@@ -103,11 +106,40 @@ async def _observe(request: Request, call_next):
                 )
 
 
+def _data_dir_writable(cfg: settings.Settings) -> None:
+    """The usual reason it is not: ./data made by Docker or an older image as root, the process runs as a user.
+    Everything inside counts too: an own folder with studio.db and logs/ from a root image starts fine and then
+    fails every write."""
+    try:
+        cfg.data_dir.mkdir(parents=True, exist_ok=True)
+        probe = cfg.data_dir / ".write-test"
+        probe.write_bytes(b"")
+        probe.unlink()
+        locked = next((p for p in cfg.data_dir.rglob("*") if not os.access(p, os.W_OK)), None)
+        if locked:
+            raise PermissionError(13, f"{locked} не записывается")
+    except OSError as e:
+        raise settings.SettingsError(
+            [
+                f"нет записи в DATA_DIR={cfg.data_dir} ({e.strerror}) для пользователя {os.getuid()}; "
+                f"если папку создал Docker или прежний образ от root: sudo chown -R {os.getuid()}:{os.getgid()} data"
+            ]
+        ) from None
+
+
 @contextlib.asynccontextmanager
 async def lifespan(app):
     cfg = settings.get()
+    _data_dir_writable(cfg)
     logs.setup()
     store.init()
+    if cfg.mode == "server" and not security.auth_on():  # tokens live in the database, so they are checked here
+        raise settings.SettingsError(
+            [
+                "STUDIO_MODE=server: нет ни токена, ни STUDIO_API_KEY. Выдайте токен: "
+                "docker compose run --rm rich-studio python cli.py token add NAME --level admin"
+            ]
+        )
     cfg.media_dir.mkdir(parents=True, exist_ok=True)
     spec.current.load_initial()
     updates.reset_status()
@@ -198,4 +230,8 @@ def create_app(cfg: settings.Settings | None = None) -> FastAPI:
     return app
 
 
+try:  # one clear message instead of a traceback from the first module that reads a setting
+    settings.get()
+except settings.SettingsError as e:
+    sys.exit(f"Rich Studio не запущена: {e}")
 app = create_app()

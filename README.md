@@ -26,6 +26,7 @@
 ```bash
 cd rich-studio
 cp .env.example .env        # впишите TG_BOT_TOKEN, TG_DEFAULT_CHAT, TG_PREVIEW_CHAT
+mkdir -p data               # данные студии; папка ваша, не root
 docker compose up -d --build
 ```
 
@@ -35,6 +36,8 @@ docker compose up -d --build
 - **«Мне в личку»:** в `TG_PREVIEW_CHAT` ваш числовой id ([@userinfobot](https://t.me/userinfobot)); один раз напишите своему боту `/start`.
 - Сервис слушает только `127.0.0.1`. Если откроете его в сеть, задайте `STUDIO_API_KEY` или выдайте именные токены (раздел «Доступ» ниже).
 - Данные лежат в `./data` (черновики, посты, файлы, кэш спецификации). Обновление: `docker compose up -d --build`.
+- Студия в контейнере работает не от root, а от вашего пользователя (`STUDIO_UID`/`STUDIO_GID` в `.env`, по умолчанию 1000:1000; на Linux с другим uid впишите `id -u` и `id -g`). Если `./data` создал Docker или прежний образ от root, студия при запуске скажет об этом; исправить: `sudo chown -R $(id -u):$(id -g) data`. На Docker Desktop (Mac, Windows) это не нужно.
+- **На своём сервере** с HTTPS, копией базы в S3 и готовым образом из GHCR: [deploy/README.md](deploy/README.md).
 
 Без Docker: `pip install -r requirements.txt`, затем `cd app && DATA_DIR=../data uvicorn main:app --port 8080` (переменные из `.env` экспортируйте сами).
 
@@ -49,6 +52,8 @@ docker compose up -d --build
 <img src="docs/images/spec.jpg" alt="Окно спецификации: Bot API 10.3, источник и кнопка проверки обновлений" width="640">
 
 Что обновляется вручную: русские подписи блоков (без них показывается имя из спецификации), заготовки HTML-тегов в `app/static/snippets.js` и правила разбора HTML и Markdown в `render.js` (грамматики нет в спецификации; сверяются с настоящим Telegram через `scripts/capture_telegram_parse.py` и `npm run test:parity`) и отрисовка новых блоков в предпросмотре (до этого новый блок показывается рамкой с его JSON). Чего из этого не хватает для текущей спецификации, показывает окно спецификации (поле `gaps` в `GET /api/spec`) и проверяет тест `tests/test_spec_coverage.py`.
+
+На сервере (`STUDIO_MODE=server`) спецификация закреплена (`SPEC_PIN`): студия ничего не скачивает и работает на копии из образа, новая версия приходит с обновлением образа. Ещё вручную: после изменения `requirements.txt` (и после PR Dependabot) `make lock` пересобирает `requirements.lock` с хэшами, из которого ставит пакеты образ.
 
 ## Редактор
 
@@ -304,10 +309,12 @@ claude mcp add --transport http rich-studio http://localhost:8080/mcp --header "
 ## Безопасность
 
 - Принимаются только запросы с `localhost`/`127.0.0.1` (другие имена добавляются в `ALLOWED_HOSTS`). Запросы с чужих сайтов и не-JSON отклоняются, так что открытая в браузере вкладка не может отправить пост от вашего бота.
-- **Доступ.** Пока не задан `STUDIO_API_KEY` и нет ни одного токена, студия открыта, как локальный инструмент. Иначе каждый запрос, кроме страницы редактора и `/healthz`/`/readyz`, должен прийти с ключом или токеном: `Authorization: Bearer <токен>` или `X-API-Key`. Токены именные, у каждого свой уровень: `read` (только читать), `draft` (черновики, файлы, предпросмотр себе в личку; предпросмотр в другой чат уже требует `publish`), `publish` (публиковать, откладывать, заменять, удалять посты), `admin` (ещё `/api/raw` и скачивание бэкапа). `STUDIO_API_KEY` равен `admin`. Выдать: `make token NAME=claude-laptop LEVEL=draft` (токен печатается один раз, хранится только хэш), список: `make tokens`, отозвать: `make token-revoke NAME=claude-laptop` (заодно закрывает его сессии в редакторе). В контейнере: `docker compose exec studio python cli.py token add claude-laptop --level draft`. Отзыв последнего токена студию не открывает.
+- **Доступ.** Пока не задан `STUDIO_API_KEY` и нет ни одного токена, студия открыта, как локальный инструмент. Иначе каждый запрос, кроме страницы редактора и `/healthz`/`/readyz`, должен прийти с ключом или токеном: `Authorization: Bearer <токен>` или `X-API-Key`. Токены именные, у каждого свой уровень: `read` (только читать), `draft` (черновики, файлы, предпросмотр себе в личку; предпросмотр в другой чат уже требует `publish`), `publish` (публиковать, откладывать, заменять, удалять посты), `admin` (ещё `/api/raw` и скачивание бэкапа). `STUDIO_API_KEY` равен `admin`. Выдать: `make token NAME=claude-laptop LEVEL=draft` (токен печатается один раз, хранится только хэш), список: `make tokens`, отозвать: `make token-revoke NAME=claude-laptop` (заодно закрывает его сессии в редакторе). В контейнере: `docker compose exec rich-studio python cli.py token add claude-laptop --level draft`. Отзыв последнего токена студию не открывает.
 - В историю постов пишется имя токена (`claude-laptop`, с заголовком `X-Studio-Client: mcp:claude` — `mcp:claude@claude-laptop`), так что видно, какой агент что опубликовал. Инструменты MCP проверяют уровень токена: агенту с `draft` публикующие инструменты ответят ошибкой. `MCP_PUBLISH=off` по-прежнему убирает их у всех. Для Claude Code токен кладётся в переменную `STUDIO_TOKEN`: `.mcp.json` передаёт её сам.
 - Редактор спрашивает ключ или токен один раз и меняет его на cookie сессии (`HttpOnly`, `SameSite=Strict`, `Secure` по HTTPS, `SESSION_DAYS` дней): скрипты страницы ключа не видят. Сессия, открытая по `STUDIO_API_KEY`, кончается, когда ключ меняют или убирают. Выйти: `DELETE /api/session`.
 - `/api/raw` доступен только уровню `admin`; `RAW_API=off` выключает его совсем.
+- Настройки проверяются при запуске: неверные значения перечисляются разом, и студия не стартует. Секреты можно передать файлами: `TG_BOT_TOKEN_FILE`, `STUDIO_API_KEY_FILE`. С `STUDIO_MODE=server` студия не стартует без токена или ключа, без `https://` в `STUDIO_URL` и без токена бота.
+- `DEADMAN_URL` (healthchecks.io и похожие): студия пингует его раз в 5 минут, `…/fail` при отчёте `fail`; если пинги пропали, внешний сервис напишет вам.
 - `options` не может переписать `chat_id`, `rich_message`, `reply_markup`, `message_id`. Через `/api/raw` без подтверждения работают только методы, которые читают, отправляют или редактируют сообщения (`get*`, `send*`, `edit*`, `answer*`, `copy*`, `forward*`, закреп, `stopPoll` и `setMessageReaction`). Всё остальное, включая `delete*`, `set*`, `logOut` и методы, которые Telegram добавит позже, требует заголовок `X-Confirm: yes`.
 - Предпросмотр чистит HTML по белому списку тегов и ссылок, страницы работают под строгим CSP.
 - Отложенный пост захватывается атомарно. Если сервис упал во время отправки, пост помечается как «мог уйти» и повторно не отправляется.

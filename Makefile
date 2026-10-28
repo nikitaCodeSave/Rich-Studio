@@ -3,8 +3,9 @@
 PY ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 
 LINT_IMPORTS = $(if $(wildcard .venv/bin/lint-imports),.venv/bin/lint-imports,lint-imports)
+UV = $(if $(wildcard .venv/bin/uv),.venv/bin/uv,uv)
 
-.PHONY: check check-fast check-py check-js fmt test openapi docs e2e mock dev spec-update token tokens token-revoke
+.PHONY: check check-fast check-py check-js fmt test openapi docs e2e mock dev spec-update token tokens token-revoke lock
 
 check: check-py check-js
 
@@ -48,7 +49,7 @@ docs:
 	UPDATE_OPENAPI=1 UPDATE_DOCS=1 $(PY) -m pytest -q tests/test_openapi_contract.py tests/test_reference_docs.py
 
 # Именные токены доступа (README → Безопасность). База — ./data, как у docker compose; другая: DATA=путь.
-# В контейнере то же: docker compose exec studio python cli.py token add NAME --level draft
+# В контейнере то же: docker compose exec rich-studio python cli.py token add NAME --level draft
 DATA ?= $(CURDIR)/data
 LEVEL ?= draft
 token:
@@ -71,6 +72,12 @@ dev:
 # Браузерные проверки: сначала `make mock` и `make dev` в соседних терминалах.
 e2e:
 	npm run --silent test:e2e
+
+# requirements.lock: every runtime package with hashes, for the image. After a change in requirements.txt
+# (by hand or Dependabot) run it and commit the lock; tests/test_lock.py checks they agree.
+lock:
+	$(UV) pip compile requirements.txt --universal --python-version 3.12 --generate-hashes \
+	  --annotation-style line --custom-compile-command "make lock" -o requirements.lock
 
 # newer Bot API spec into app/bundled/api.json; exit 10 = updated, then make tests/test_spec_coverage.py green
 spec-update:

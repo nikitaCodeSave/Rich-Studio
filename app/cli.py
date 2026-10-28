@@ -1,5 +1,5 @@
 """Access tokens from the command line (the studio has no screen for them on purpose: whoever runs this owns the
-server). In the container: `docker compose exec studio python cli.py token add claude-code --level draft`.
+server). In the container: `docker compose exec rich-studio python cli.py token add claude-code --level draft`.
 
     python cli.py token add NAME [--level read|draft|publish|admin]   prints the token once
     python cli.py token list

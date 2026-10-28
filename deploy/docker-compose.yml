@@ -1,0 +1,72 @@
+# Rich Studio on a server: Caddy (HTTPS on STUDIO_DOMAIN) → studio; Litestream copies the database off the server
+# continuously. Steps: deploy/README.md. Images are pinned by digest; Dependabot (docker) bumps them.
+name: rich-studio
+services:
+  rich-studio:
+    image: ghcr.io/nikitacodesave/rich-studio:${STUDIO_TAG:-main}
+    env_file: .env
+    environment:
+      STUDIO_MODE: server                         # no start without a token, https STUDIO_URL, pinned spec
+      STUDIO_URL: https://${STUDIO_DOMAIN:?STUDIO_DOMAIN in deploy/.env}
+      TG_BOT_TOKEN_FILE: /run/secrets/tg_bot_token
+    secrets: [tg_bot_token]
+    volumes:
+      - data:/data
+    read_only: true                               # writes go only to /data and /tmp
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 256
+    restart: unless-stopped
+    stop_grace_period: 60s                        # uvicorn 10 s + sends under way 30 s (services/loops.py)
+    logging: &logging
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+    # no ports: only Caddy reaches it
+
+  caddy:
+    image: caddy:2.11.7-alpine@sha256:eb4d35b7452d1ab6171fbdbe8d9275b2301dad6dad92115d91e19fb9b24d510f
+    environment:
+      STUDIO_DOMAIN: ${STUDIO_DOMAIN}
+    ports: ["80:80", "443:443", "443:443/udp"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data                          # certificates: keep this volume, Let's Encrypt limits re-issues
+      - caddy_config:/config
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    restart: unless-stopped
+    depends_on: [rich-studio]
+    logging: *logging
+
+  litestream:
+    image: litestream/litestream:0.5.17@sha256:4b02b9859a6b6b4087d8b8944e15f7e984bd7957cba322bbeee38b0e27b9656a
+    command: replicate
+    user: "10001:10001"                           # the studio's user: Litestream writes next to studio.db
+    env_file: litestream.env                      # LITESTREAM_REPLICA_URL and the S3 keys: only here, not in the studio
+    volumes:
+      - data:/data
+      - ./litestream.yml:/etc/litestream.yml:ro
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    restart: unless-stopped
+    depends_on: [rich-studio]
+    logging: *logging
+
+volumes:
+  data:
+  caddy_data:
+  caddy_config:
+
+secrets:
+  tg_bot_token:
+    file: ./secrets/tg_bot_token                  # one line, chmod 600; not in git

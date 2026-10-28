@@ -1,0 +1,8 @@
+# Litestream: every change of studio.db goes to the replica within seconds (the studio keeps WAL mode).
+# LITESTREAM_REPLICA_URL (deploy/litestream.env): s3://bucket/rich-studio (keys LITESTREAM_ACCESS_KEY_ID, LITESTREAM_SECRET_ACCESS_KEY;
+# other S3 providers also need endpoint=... in the URL), or file:///path for a check. Uploads (media) are not here:
+# the studio's zip backup (GET /api/export) has them.
+dbs:
+  - path: /data/studio.db
+    replica:
+      url: ${LITESTREAM_REPLICA_URL}

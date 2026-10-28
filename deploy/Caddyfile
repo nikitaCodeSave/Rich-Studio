@@ -1,0 +1,14 @@
+# HTTPS for the studio: Caddy gets and renews the certificate for STUDIO_DOMAIN itself (ports 80 and 443 open)
+{$STUDIO_DOMAIN} {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+	# uploads up to MAX_UPLOAD_MB (50 by default) plus the form around them
+	request_body {
+		max_size 60MB
+	}
+	# the studio sets the Secure flag on its session cookie from X-Forwarded-Proto, which Caddy sends
+	reverse_proxy rich-studio:8080
+}

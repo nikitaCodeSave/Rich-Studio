@@ -36,7 +36,7 @@ make fmt                                        # автоисправление
 | backend | `app/services/`, `app/store/`, `app/telegram/`, `app/spec/` |
 | api+mcp | `app/api/`, `app/mcp_tools/`, `app/models.py`, `docs/openapi.json`, `docs/reference/` |
 | editor | `app/static/`, `types/`, `tests/e2e/`, `tests/*.mjs` |
-| platform | `Dockerfile`, `docker-compose.yml`, `.github/`, `Makefile`, `scripts/`, `.claude/hooks/` |
+| platform | `Dockerfile`, `docker-compose.yml`, `deploy/`, `requirements.lock`, `.github/`, `Makefile`, `scripts/`, `.claude/hooks/` |
 | docs | `README.md`, `.claude/skills/`, `docs/` |
 
 - Общие списки разнесены по файлам, чтобы параллельные PR не правили одну строку: шаг схемы — новый файл `app/store/migrations/NNNN_имя.sql`, инструмент MCP — функция в `app/mcp_tools/tools/<область>.py` (новая область — новый файл), браузерная проверка — новый файл `tests/e2e/NN-имя.mjs`. Списки маршрутов и инструментов в `docs/reference/` собирает `make docs`; при конфликте в них не сливайте руками, а пересоберите. README и `SKILL.md` правьте точечно, без переформатирования соседних строк.
@@ -57,6 +57,7 @@ make fmt                                        # автоисправление
 - Не править `app/bundled/api.json` руками: это копия спецификации с https://github.com/PaulSonOfLars/telegram-bot-api-spec. Обновляет её `make spec-update` (код выхода 10, если версия новая); после него сделай зелёным `tests/test_spec_coverage.py`.
 - Не подменять `asyncio.sleep` глобально в тестах: это останавливает подставной Telegram в соседнем потоке. Подменяй `_sleep` модуля.
 - Не менять старые файлы в `app/store/migrations/`, только добавлять новые.
+- Не править `requirements.lock` руками: после изменения `requirements.txt` (и в PR Dependabot) `make lock`, `tests/test_lock.py` сверяет их.
 - Не добавлять сборщик, фреймворк или новую рантайм-зависимость без обсуждения: редактор специально работает без сборки.
 - Не отправлять ничего в настоящий Telegram из тестов. Для всего есть `tests/mock_telegram.py`.
 
@@ -67,6 +68,7 @@ make fmt                                        # автоисправление
 | новый метод Bot API для постов | `app/services/posts.py` + `app/api/posts.py` + тест |
 | новое событие из getUpdates | `app/services/updates.py` (`handle_update`, `ALLOWED_UPDATES`) |
 | новая настройка | `app/settings.py` + `.env.example` |
+| сервер: образ, Caddy, Litestream, восстановление | `deploy/` (там README), `Dockerfile`, `scripts/restore_check.sh` |
 | инструмент MCP для агентов | `app/mcp_tools/tools/<область>.py` + тест в `tests/test_mcp.py` + `make docs` |
 | редактор | `app/static/js/` (см. AGENTS.md там) |
 | предпросмотр | `app/static/render.js`, стили `tg.css`; в чате Claude: `app/static/preview-app.js` + `app/mcp_tools/preview_app.py` |

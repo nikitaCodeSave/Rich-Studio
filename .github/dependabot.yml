@@ -2,6 +2,8 @@
 # Merge order matters as for any PR: rebase on main, make check green.
 version: 2
 updates:
+  # requirements.lock (what the image installs) is not bumped by Dependabot: after its PR run `make lock`
+  # and push the lock, tests/test_lock.py fails until then
   - package-ecosystem: pip
     directory: /
     schedule: { interval: weekly, day: monday }
@@ -14,6 +16,9 @@ updates:
       js: { patterns: ["*"] }
   - package-ecosystem: docker
     directory: /
+    schedule: { interval: weekly, day: monday }
+  - package-ecosystem: docker-compose   # deploy/: Caddy and Litestream, tag and digest together
+    directory: /deploy
     schedule: { interval: weekly, day: monday }
   - package-ecosystem: github-actions
     directory: /
