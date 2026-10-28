@@ -65,14 +65,19 @@ def get(sid: str) -> dict | None:
 
 
 def update(sid: str, **fields) -> dict | None:
+    """The state only moves forward: «approved» after approveSuggestedPost answered never undoes a «paid» or
+    «failed» that came meanwhile from getUpdates."""
     bad = set(fields) - FIELDS
     if bad:
         raise ValueError(f"unknown suggested post columns: {sorted(bad)}")
     if fields.get("message") is not None:
         fields["message"] = json.dumps(fields["message"], ensure_ascii=False)
-    sets = ", ".join(f"{k}=?" for k in fields)
+    sets = ", ".join(
+        f"{k}=iif({_rank('?')} < {_rank('state')}, state, ?)" if k == "state" else f"{k}=?" for k in fields
+    )
+    values = [v for k, v in fields.items() for v in ((v, v) if k == "state" else (v,))]
     with conn() as c:
-        c.execute(f"update suggested_posts set {sets} where id=?", (*fields.values(), sid))  # noqa: S608 - names checked above
+        c.execute(f"update suggested_posts set {sets} where id=?", (*values, sid))  # noqa: S608 - names checked above
     return get(sid)
 
 

@@ -52,3 +52,20 @@ def test_an_old_database_gets_only_the_new_steps():
         assert c.execute("pragma user_version").fetchone()[0] == len(db.MIGRATIONS)
         assert c.execute("select value from meta where key='kept'").fetchone()[0] == "1"
         c.execute("select post_id, chat_ids from drafts")
+
+
+def test_a_step_that_fails_halfway_leaves_nothing_and_runs_again(monkeypatch):
+    """The step and user_version go in one transaction: a step stopped halfway is not half applied."""
+    done = len(db.MIGRATIONS)
+    broken = "-- test\ncreate table half_done(x);\ninsert into no_such_table values (1);"
+    monkeypatch.setattr(db, "MIGRATIONS", [*db.MIGRATIONS, broken])
+    with pytest.raises(sqlite3.OperationalError):
+        db.init()
+    with store.conn() as c:
+        assert c.execute("pragma user_version").fetchone()[0] == done
+        assert not c.execute("select 1 from sqlite_master where name='half_done'").fetchone()
+    monkeypatch.setattr(db, "MIGRATIONS", [*db.MIGRATIONS[:done], broken.replace("no_such_table", "half_done")])
+    db.init()
+    with store.conn() as c:
+        assert c.execute("pragma user_version").fetchone()[0] == done + 1
+        assert c.execute("select x from half_done").fetchone()[0] == 1

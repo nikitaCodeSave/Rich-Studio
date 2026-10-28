@@ -30,7 +30,7 @@
 | `app/services/idempotency.py` | `run`: ключ повтора для всего, что публикует в канал (см. политику ошибок ниже) | |
 | `app/services/backup.py` | бэкап: zip с базой и файлами, ежедневная копия базы | |
 | `app/telegram/` | транспорт к Bot API, `upload:` → `attach://` (в полях файлов `media`, `photo`, `live_photo`, `thumbnail`, `cover`), проверка прав бота | не меняет payload, кроме `upload:` |
-| `app/store/` | SQLite: соединения, миграции (`PRAGMA user_version`), черновики, посты, каналы | |
+| `app/store/` | SQLite: соединения, миграции (`PRAGMA user_version`; шаг и его номер в одной транзакции), черновики, посты, каналы | |
 | `app/spec/` | загрузка и кэш api.json (с `SPEC_PIN` только копия из образа), сводка для редактора, diff версий, валидатор, перевод блоков из ответа Telegram в отправляемые (`convert.py`) | |
 | `app/static/js/` | редактор: ES-модули без сборки, вход `main.js`; общее состояние в `state.js` | не пишет пользовательский HTML в `innerHTML` (это запрещает ESLint) |
 | `app/static/render.js` | предпросмотр поста, очистка HTML/Markdown (`sanitize`), разбор HTML/Markdown по правилам Telegram, `outline` для сверки | правила разбора меняются только вместе с примером в `tests/telegram_parse/`, записанным с настоящего Telegram |

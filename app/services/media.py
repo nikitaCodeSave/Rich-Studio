@@ -109,9 +109,10 @@ def free_name(filename: str | None) -> str:
 
 
 def used_by(name: str) -> list[str]:
-    """What still needs the file: scheduled posts and drafts that mention upload:<name>."""
+    """What still needs the file: scheduled or missed posts and drafts that mention upload:<name>."""
     ref = describe(name)["ref"]
-    posts = [f"отложенный пост в {p['chat_id']}" for p in store.using_upload(ref)]
+    waiting = {"scheduled": "отложенный", "missed": "пропущенный"}
+    posts = [f"{waiting[p['status']]} пост в {p['chat_id']}" for p in store.using_upload(ref)]
     return posts + [f"черновик «{d['title'] or 'Без названия'}»" for d in store.drafts_using(ref)]
 
 
