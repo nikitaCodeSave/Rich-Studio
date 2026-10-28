@@ -197,3 +197,19 @@ def test_refused_buttons_give_the_version_back(client, tg):
     p = store.get_post(pid)
     assert p["version"] == 0 and not p["payload"].get("reply_markup")
     assert client.get(f"/api/posts/{pid}/versions").json() == []
+
+
+def test_buttons_cut_off_mid_request_may_have_changed(client, tg, monkeypatch):
+    """The request reached Telegram, then the connection dropped: say so, keep the version taken."""
+    import telegram
+
+    pid = client.post("/api/send", json={"post": {"rich_message": {"markdown": "пост"}}}).json()["post"]["id"]
+
+    async def timeout(method, params=None, timeout=60):
+        raise TimeoutError("read timeout")
+
+    monkeypatch.setattr(telegram, "call", timeout)
+    kb = {"inline_keyboard": [[{"text": "Сайт", "url": "https://t.me/telegram"}]]}
+    r = client.post(f"/api/posts/{pid}/buttons", json={"reply_markup": kb})
+    assert r.status_code != 500 and "Кнопки могли смениться" in str(r.json()["detail"])
+    assert store.get_post(pid)["version"] == 1

@@ -338,6 +338,10 @@ async def set_buttons(pid: str, reply_markup: dict | None, callbacks: dict | Non
         if NOT_MODIFIED not in e.description:
             store.release_version(pid, taken)
             raise
+    except Exception as e:  # network error mid-request: the buttons may have changed, the version stays taken
+        raise MayHaveGone(
+            f"{type(e).__name__}: {e}. Кнопки могли смениться: проверьте пост в канале (get_post покажет записанное)"
+        ) from e
     store.replace_sent(pid, payload, p["payload"], actor)
     return store.get_post(pid)
 
