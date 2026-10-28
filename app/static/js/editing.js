@@ -2,7 +2,7 @@
 import { api } from './api.js';
 import { closeDialog, openDialog } from './dialogs.js';
 import { $, act, h, toast } from './dom.js';
-import { openDraft, saveDraft } from './drafts.js';
+import { openDraft, saveDraft, setDraft } from './drafts.js';
 import { buildPost, changed, flushSave, loadPost } from './editor.js';
 import { resetHistory } from './history.js';
 import { loadPosts } from './posts.js';
@@ -17,7 +17,7 @@ export async function editPost(p) {
   const own = S.drafts.find((d) => d.post_id === p.id);
   if (own) { await openDraft(own.id); return; }
   const full = await api('GET', '/api/posts/' + p.id);
-  S.draftId = null; S.draftVersion = null;
+  setDraft(null, null);
   // the draft keeps the name the post was written under, so the list does not fill with «Правка поста #N»
   const origin = (p.draft_id && S.drafts.find((d) => d.id === p.draft_id)?.title) || p.title || '';
   $('#title').value = 'Правка: ' + (origin || 'пост ' + (p.message_id ? '#' + p.message_id : p.chat_id));

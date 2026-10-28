@@ -1,5 +1,6 @@
 // Published and scheduled posts.
 import { api } from './api.js';
+import { setDraft } from './drafts.js';
 import { $, h, toast } from './dom.js';
 import { autosave, buildPost, callbacksFor, flushSave, loadPost, updatesLabel } from './editor.js';
 import { resetHistory } from './history.js';
@@ -72,7 +73,7 @@ async function openCopy(p) {
   try {
     await flushSave();
     const full = await api('GET', '/api/posts/' + p.id);
-    S.draftId = null; S.draftVersion = null; editing.value = null;
+    setDraft(null, null); editing.value = null;
     $('#title').value = 'Копия поста ' + (p.message_id || '');
     loadPost(full.payload);
     resetHistory();
