@@ -110,8 +110,8 @@ def test_key_session_ends_when_the_key_changes(client, monkeypatch):
 def test_session_of_an_unknown_token_is_not_admin(client):
     token("t", "read")
     store.add_session("orphan", "ghost", 3600)  # a token name that is not in the table
-    client.cookies.set(security.SESSION_COOKIE, "orphan")
-    assert client.get("/api/drafts").status_code == 401
+    # a header, not the shared client's jar: a cookie left there would shadow real sessions in later tests
+    assert client.get("/api/drafts", headers={"Cookie": f"{security.SESSION_COOKIE}=orphan"}).status_code == 401
 
 
 def test_non_ascii_key_is_refused_not_an_error(client, monkeypatch):
