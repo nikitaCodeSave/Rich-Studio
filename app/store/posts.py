@@ -10,6 +10,41 @@ from .db import EXTRA_COLUMNS, JSON_FIELDS, conn, row
 UPDATABLE = {"chat_id", "message_id", "payload", "status", "scheduled_at", "sent_at", "error", *EXTRA_COLUMNS}
 
 
+def _insert(
+    c,
+    chat_id,
+    payload: dict,
+    draft_id: str | None,
+    status: str,
+    message_id: int | None,
+    scheduled_at: int | None,
+    error: str | None,
+    kind: str,
+    actor: str | None,
+) -> str:
+    pid = uuid.uuid4().hex[:12]
+    now = int(time.time())
+    c.execute(
+        """insert into posts(id,draft_id,chat_id,message_id,payload,status,scheduled_at,sent_at,error,created_at,kind,actor)
+                 values(?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (
+            pid,
+            draft_id,
+            str(chat_id),
+            message_id,
+            json.dumps(payload, ensure_ascii=False),
+            status,
+            scheduled_at,
+            now if status == "sent" else None,
+            error,
+            now,
+            kind,
+            actor,
+        ),
+    )
+    return pid
+
+
 def add_post(
     chat_id,
     payload: dict,
@@ -21,28 +56,18 @@ def add_post(
     kind: str = "rich",
     actor: str | None = None,
 ) -> dict:
-    pid = uuid.uuid4().hex[:12]
-    now = int(time.time())
     with conn() as c:
-        c.execute(
-            """insert into posts(id,draft_id,chat_id,message_id,payload,status,scheduled_at,sent_at,error,created_at,kind,actor)
-                     values(?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (
-                pid,
-                draft_id,
-                str(chat_id),
-                message_id,
-                json.dumps(payload, ensure_ascii=False),
-                status,
-                scheduled_at,
-                now if status == "sent" else None,
-                error,
-                now,
-                kind,
-                actor,
-            ),
-        )
+        pid = _insert(c, chat_id, payload, draft_id, status, message_id, scheduled_at, error, kind, actor)
     return get_post(pid)  # type: ignore[return-value]
+
+
+def add_scheduled(
+    chats: list, payload: dict, at: int, draft_id: str | None = None, kind: str = "rich", actor: str | None = None
+) -> list[dict]:
+    """The same post scheduled to several chats: all rows or none."""
+    with conn() as c:
+        ids = [_insert(c, chat, payload, draft_id, "scheduled", None, at, None, kind, actor) for chat in chats]
+    return [get_post(i) for i in ids]  # type: ignore[misc]
 
 
 def update_post(pid: str, **fields) -> dict | None:
@@ -76,7 +101,7 @@ def list_posts(limit: int = 100, status: str | None = None, chat: str | None = N
     with conn() as c:
         rows = c.execute(
             f"""select id, draft_id, chat_id, message_id, status, scheduled_at, sent_at, error, created_at,
-                                   kind, actor, pinned, comment_status, reactions, clicks, poll_results, payload,
+                                   kind, actor, version, pinned, comment_status, reactions, clicks, poll_results, payload,
                                    json_extract(payload, '$.poll.question') as poll_question
                             from posts {cond} order by coalesce(scheduled_at, sent_at, created_at) desc, rowid desc limit ?""",  # noqa: S608 - fixed fragments
             (*args, limit),
@@ -163,13 +188,17 @@ def reschedule(pid: str, at: int) -> bool:
         return cur.rowcount == 1
 
 
+def _add_version(c, pid: str, payload: dict, actor: str | None) -> None:
+    c.execute(
+        "insert into post_versions(post_id, payload, replaced_at, actor) values(?,?,?,?)",
+        (pid, json.dumps(payload, ensure_ascii=False), int(time.time()), actor),
+    )
+
+
 def add_version(pid: str, payload: dict, actor: str | None) -> None:
     """Keep the content a post had before it was replaced."""
     with conn() as c:
-        c.execute(
-            "insert into post_versions(post_id, payload, replaced_at, actor) values(?,?,?,?)",
-            (pid, json.dumps(payload, ensure_ascii=False), int(time.time()), actor),
-        )
+        _add_version(c, pid, payload, actor)
 
 
 def list_versions(pid: str) -> list[dict]:
@@ -181,12 +210,14 @@ def list_versions(pid: str) -> list[dict]:
         return [row(r) for r in rows]  # type: ignore[misc]
 
 
-def recover_stale_sending() -> int:
-    """Posts stuck in 'sending' after a crash: never retry blindly, they may already be in the channel."""
+def recover_stale_sending(keep: set[str] | frozenset[str] = frozenset()) -> int:
+    """Posts stuck in 'sending' after a crash: never retry blindly, they may already be in the channel.
+    `keep`: the ones this process is sending right now."""
+    marks = ",".join("?" * len(keep))
     with conn() as c:
         cur = c.execute(
-            "update posts set status='failed', error=? where status='sending'",
-            ("сервис остановился во время отправки; проверьте канал, пост мог уйти",),
+            f"update posts set status='failed', error=? where status='sending' and id not in ({marks})",  # noqa: S608 - placeholders only
+            ("сервис остановился во время отправки; проверьте канал, пост мог уйти", *keep),
         )
         return cur.rowcount
 
@@ -217,14 +248,42 @@ def retry_later(pid: str, at: int, error: str) -> None:
         )
 
 
-def replace_scheduled(pid: str, payload: dict) -> bool:
-    """New content for a post that is still waiting; False if the scheduler already took it."""
+def claim_version(pid: str, expected: int | None) -> bool:
+    """Take the next version of a post before replacing its content; False if someone replaced it since
+    `expected` (None: whatever the version is). Taken before Telegram is asked, so two edits never both pass."""
+    with conn() as c:
+        cur = c.execute(
+            "update posts set version=version+1 where id=? and (? is null or version=?)", (pid, expected, expected)
+        )
+        return cur.rowcount == 1
+
+
+def release_version(pid: str, taken: int | None) -> None:
+    """Give back a version taken by claim_version when the edit was refused and nothing changed; a no-op if
+    someone took a newer one meanwhile."""
+    with conn() as c:
+        c.execute("update posts set version=version-1 where id=? and version=?", (pid, taken))
+
+
+def replace_scheduled(pid: str, payload: dict, old: dict, actor: str | None) -> bool:
+    """New content for a post that is still waiting, and the old one into its history, in one transaction;
+    False if the scheduler already took it."""
     with conn() as c:
         cur = c.execute(
             "update posts set payload=? where id=? and status='scheduled'",
             (json.dumps(payload, ensure_ascii=False), pid),
         )
-        return cur.rowcount == 1
+        if cur.rowcount != 1:
+            return False
+        _add_version(c, pid, old, actor)
+        return True
+
+
+def replace_sent(pid: str, payload: dict, old: dict, actor: str | None) -> None:
+    """A published post after an edit in the channel, and the old content into its history, in one transaction."""
+    with conn() as c:
+        _add_version(c, pid, old, actor)
+        c.execute("update posts set payload=? where id=?", (json.dumps(payload, ensure_ascii=False), pid))
 
 
 def expire_comments(sent_before: int, error: str) -> int:

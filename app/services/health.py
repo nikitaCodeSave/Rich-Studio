@@ -16,8 +16,8 @@ import settings
 import spec
 import store
 
-from . import media, updates
-from . import scheduler as schedule_loop
+from . import loops as loops_lease
+from . import media, publisher, updates
 
 ORDER = {"ok": 0, "warn": 1, "fail": 2}
 DAY = 24 * 3600
@@ -104,6 +104,15 @@ def _expected_loops() -> dict[str, float]:
 def loops() -> dict:
     if not settings.get().background:
         return _check("loops", "ok", "фоновые циклы выключены (STUDIO_BACKGROUND=off)")
+    if loops_lease.STATE.role == "standby":
+        return _check(
+            "loops",
+            "warn",
+            f"фоновые циклы ведёт другой процесс студии ({loops_lease.STATE.holder or '?'}), этот ждёт",
+            "запускайте студию одним процессом (один контейнер, без --workers); "
+            "этот процесс сам продолжит, если тот остановится",
+            details=loops_lease.STATE.as_dict(),
+        )
     now, uptime = time.time(), time.time() - metrics.STARTED_AT
     dead, failing = [], []
     for name, interval in _expected_loops().items():
@@ -149,7 +158,7 @@ def scheduler() -> dict:
 def posts() -> dict:
     found = store.stats.problem_posts(int(time.time()) - DAY)
     # a post the scheduler is sending this second is "sending" in the table; only one left behind is a problem
-    found = [p for p in found if not (p["status"] == "sending" and p["id"] in schedule_loop.in_flight)]
+    found = [p for p in found if not (p["status"] == "sending" and p["id"] in publisher.in_flight)]
     if not found:
         return _check("posts", "ok", "за сутки без сбоев")
     return _check(

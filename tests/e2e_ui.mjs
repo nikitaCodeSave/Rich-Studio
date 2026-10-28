@@ -387,8 +387,13 @@ check('Header fits one row at 1440px', Math.abs(header.pub - header.brand) < 12 
   const barText = await page.locator('#edit-bar').textContent().catch(() => '') || await page.evaluate(() => document.querySelector('#edit-bar').shadowRoot.textContent);
   await applyJson({ rich_message: { markdown: 'Вторая версия' } });
   await page.click('#edit-bar >> text=Обновить пост');
-  await page.waitForTimeout(600);
-  const edits = (await mockLog()).filter((c) => c.method === 'editMessageText' && c.body.message_id === mid);
+  // the edit goes through the studio to Telegram and back: wait for it instead of a fixed pause
+  let edits = [];
+  for (let i = 0; i < 50 && !edits.length; i++) {
+    await page.waitForTimeout(100);
+    edits = (await mockLog()).filter((c) => c.method === 'editMessageText' && c.body.message_id === mid);
+  }
+  await page.waitForTimeout(200);
   await page.click('#edit-bar >> text=История');
   await page.waitForSelector('dialog[open] >> text=История поста');
   const history = await page.locator('dialog[open] li').allTextContents();

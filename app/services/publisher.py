@@ -7,6 +7,7 @@ Error policy (see docs/REVIEW_CHECKLIST.md, section 2):
 - a send Telegram refused, or that may have gone, is recorded as failed with the error.
 """
 
+import asyncio
 import logging
 import re
 import time
@@ -23,6 +24,9 @@ log = logging.getLogger("rich-studio.publisher")
 RESERVED_PARAMS = {"chat_id", "rich_message", "reply_markup", "message_id"}
 MAY_HAVE_GONE = "Пост мог уйти в канал, проверьте перед повтором"
 POLL_MAY_HAVE_GONE = "Опрос мог уйти в канал, проверьте перед повтором"
+# ids of posts this process is sending right now (now or from the scheduler): their "sending" status is normal,
+# not stuck; health reads it, and startup recovery only exists because a crash empties it
+in_flight: set[str] = set()
 
 
 _CHAT = re.compile(r"@\w+|-?\d+")
@@ -119,26 +123,27 @@ def validate(post: dict) -> dict:
     return r
 
 
-def poll_error(poll) -> str | None:
-    """What sendPoll would refuse before it is asked: the poll after a post goes out only once the post is sent."""
+def poll_error(poll, label: str = "опрос после поста") -> str | None:
+    """What sendPoll would refuse before it is asked: a poll after a post goes out only once the post is sent,
+    a scheduled poll only at its time."""
     if not isinstance(poll, dict):
-        return "poll_after: ожидался объект sendPoll"
+        return f"{label}: ожидался объект sendPoll"
     if "chat_id" in poll:
-        return "poll_after: chat_id задаётся не в опросе"
+        return f"{label}: chat_id задаётся не в опросе"
     if not str(poll.get("question") or "").strip():
-        return "опрос после поста: пустой вопрос"
+        return f"{label}: пустой вопрос"
     opts = poll.get("options")
     texts = [o.get("text") if isinstance(o, dict) else o for o in opts] if isinstance(opts, list) else []
     if len([t for t in texts if str(t or "").strip()]) < 2:
-        return "опрос после поста: нужно минимум два варианта"
+        return f"{label}: нужно минимум два варианта"
     if len(texts) > 12:
-        return "опрос после поста: больше 12 вариантов"
+        return f"{label}: больше 12 вариантов"
     if len(str(poll["question"])) > 300:
-        return "опрос после поста: вопрос длиннее 300 символов"
+        return f"{label}: вопрос длиннее 300 символов"
     if poll.get("type") == "quiz" and not poll.get("correct_option_ids") and poll.get("correct_option_id") is None:
-        return "опрос после поста: у викторины не отмечен правильный ответ"
+        return f"{label}: у викторины не отмечен правильный ответ"
     normalized = {**poll, "options": [o if isinstance(o, dict) else {"text": str(o)} for o in opts or []]}
-    bad = spec.method_errors(spec.current, "sendPoll", normalized, "опрос после поста", frozenset({"chat_id"}))
+    bad = spec.method_errors(spec.current, "sendPoll", normalized, label, frozenset({"chat_id"}))
     return bad[0] if bad else None
 
 
@@ -247,30 +252,49 @@ def _record_failure(chat, post: dict, draft_id: str | None, error: str, kind: st
         log.exception("could not record the failed send to %s", chat)
 
 
+def _mark_failed(pid: str, error: str) -> None:
+    """The row written before the send gets the outcome; never hides Telegram's own error behind a database one."""
+    try:
+        store.update_post(pid, status="failed", error=error)
+    except Exception:
+        log.exception("could not record the failed send %s", pid)
+
+
 async def publish(chats: list, post: dict, draft_id: str | None = None, kind: str = "rich", actor: str = "api"):
-    """Send to every chat; one failing channel does not stop the others. Returns (results, warnings)."""
+    """Send to every chat; one failing channel does not stop the others. Returns (results, warnings).
+
+    Each send is written down as "sending" before Telegram is asked, like a scheduled one: if the process dies
+    between Telegram's answer and the update, the row is still there, and the next start marks it "may have gone"."""
     out: list[dict] = []
     warnings: list[str] = []
     for chat in chats:
+        rec = store.add_post(chat, post, draft_id, "sending", kind=kind, actor=actor)
+        in_flight.add(rec["id"])
         try:
             res = await send(chat, post)
         except tg.TelegramError as e:
             # kept in the list of posts, so a refusal is not lost with the toast that showed it
-            _record_failure(chat, post, draft_id, e.description, kind, actor)
+            _mark_failed(rec["id"], e.description)
             if len(chats) == 1:
                 raise
             out.append({"chat_id": chat, "ok": False, "error": e.description})
             continue
-        except StudioError:  # the request itself is wrong (e.g. a missing upload): same for every channel
+        except StudioError:  # the request itself is wrong (e.g. a missing upload): nothing went out anywhere
+            store.delete_post(rec["id"])
             raise
         except Exception as e:
             err = f"{type(e).__name__}: {e}. {MAY_HAVE_GONE}"
-            _record_failure(chat, post, draft_id, err, kind, actor)
+            _mark_failed(rec["id"], err)
             if len(chats) == 1:
                 raise MayHaveGone(err) from e
             out.append({"chat_id": chat, "ok": False, "error": err})
             continue
-        rec = store.add_post(chat, post, draft_id, "sent", res["message_id"], kind=kind, actor=actor)
+        except asyncio.CancelledError:  # shutdown mid-send: the request may have reached Telegram
+            _mark_failed(rec["id"], f"студия остановилась во время отправки. {MAY_HAVE_GONE}")
+            raise
+        finally:
+            in_flight.discard(rec["id"])
+        store.update_post(rec["id"], status="sent", message_id=res["message_id"], sent_at=int(time.time()))
         if draft_id:
             store.drop_refused(chat, draft_id, MAY_HAVE_GONE, POLL_MAY_HAVE_GONE)
         w = await after_send(rec["id"], post, res, actor)

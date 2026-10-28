@@ -432,14 +432,21 @@ def build() -> MCPServer:
 
     @tool(PUBLIC)
     async def edit_post(
-        post_id: PostIdArg, post: OptPostArg = None, draft_id: DraftArg = None, version: VersionArg = None
+        post_id: PostIdArg,
+        post: OptPostArg = None,
+        draft_id: DraftArg = None,
+        version: VersionArg = None,
+        post_version: Annotated[
+            int | None,
+            Field(description="version поста из get_post: если его с тех пор заменил кто-то другой, правка не пройдёт"),
+        ] = None,
     ) -> dict | None:
         """Заменить содержимое опубликованного или отложенного поста. Только после подтверждения пользователя.
-        Сначала прочитайте пост через get_post. Новое содержимое: post или draft_id с version (черновик-правка
-        этого поста из get_draft). Ответы на кнопки и первый комментарий остаются, если их не передать;
-        прежняя версия попадёт в post_history."""
+        Сначала прочитайте пост через get_post и передайте его version как post_version. Новое содержимое: post
+        или draft_id с version (черновик-правка этого поста из get_draft). Ответы на кнопки и первый комментарий
+        остаются, если их не передать; прежняя версия попадёт в post_history."""
         p, _ = _source(post, draft_id, version, publish=True, edits=post_id)
-        return await posts.edit(post_id, p, actor=ACTOR)
+        return await posts.edit(post_id, p, actor=ACTOR, post_version=post_version)
 
     @tool(PUBLIC)
     async def reschedule_post(

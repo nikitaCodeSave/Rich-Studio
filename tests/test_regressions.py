@@ -84,3 +84,15 @@ def test_healthcheck_works_behind_api_key(client, monkeypatch):
 
 def test_favicon_is_not_a_404(client):
     assert client.get("/favicon.ico").status_code == 204
+
+
+def test_poll_is_checked_like_a_poll_after_a_post(client, tg):
+    """A scheduled poll Telegram would refuse is refused now, not at its time (prod review #8)."""
+    import store
+
+    poll = {"question": "Какой?", "options": [f"вариант {i}" for i in range(13)]}
+    for body in ({"poll": poll}, {"poll": poll, "at": int(time.time()) + 3600}):
+        r = client.post("/api/poll", json=body)
+        assert r.status_code == 422 and "больше 12 вариантов" in str(r.json()["detail"])
+    assert store.list_posts() == []
+    assert not [c for c in tg.calls if c["method"] == "sendPoll"]

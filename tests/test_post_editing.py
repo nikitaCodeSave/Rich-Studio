@@ -82,3 +82,56 @@ def test_rest_never_sends_an_edit_copy_as_a_second_post_unless_asked(client, tg)
     assert len(store.list_posts()) == 1
     r = client.post("/api/send", json={"post": BLOCKS_POST, "chat_id": "@x", "draft_id": d["id"], "as_new": True})
     assert r.status_code == 200 and len(store.list_posts()) == 2
+
+
+def test_edit_based_on_an_older_version_is_refused(client, tg):
+    """Two agents edit one post: the second, based on what it read before the first edit, gets 409."""
+    p = client.post("/api/send", json={"post": BLOCKS_POST}).json()["post"]
+    assert p["version"] == 0
+    first = client.post(f"/api/posts/{p['id']}/edit?post_version=0", json=NEW)
+    assert first.status_code == 200 and first.json()["version"] == 1
+    edits = len([c for c in tg.calls if c["method"] == "editMessageText"])
+    late = client.post(f"/api/posts/{p['id']}/edit?post_version=0", json={"rich_message": {"markdown": "чужая"}})
+    assert late.status_code == 409 and "версия 1" in late.json()["detail"]
+    assert len([c for c in tg.calls if c["method"] == "editMessageText"]) == edits  # Telegram was not asked
+    assert store.get_post(p["id"])["payload"]["rich_message"] == NEW["rich_message"]
+    # without post_version an edit still goes through, and still moves the version on
+    assert client.post(f"/api/posts/{p['id']}/edit", json=BLOCKS_POST).json()["version"] == 2
+
+
+def test_refused_edit_leaves_the_version_alone(client, tg):
+    """Telegram refused the edit: nothing changed, so a retry with the same post_version is not a false 409."""
+    p = client.post("/api/send", json={"post": BLOCKS_POST}).json()["post"]
+    tg.fail["editMessageText"] = "Bad Request: message to edit not found"
+    refused = client.post(f"/api/posts/{p['id']}/edit?post_version=0", json=NEW)
+    assert refused.status_code not in (200, 409)
+    assert store.get_post(p["id"])["version"] == 0
+    tg.fail.clear()
+    retry = client.post(f"/api/posts/{p['id']}/edit?post_version=0", json=NEW)
+    assert retry.status_code == 200 and retry.json()["version"] == 1
+
+
+def test_scheduled_post_edit_checks_the_version_too(client):
+    rec = client.post("/api/schedule", json={"post": BLOCKS_POST, "at": int(time.time()) + 3600}).json()
+    assert client.post(f"/api/posts/{rec['id']}/edit?post_version=0", json=NEW).status_code == 200
+    assert client.post(f"/api/posts/{rec['id']}/edit?post_version=0", json=BLOCKS_POST).status_code == 409
+    assert len(client.get(f"/api/posts/{rec['id']}/versions").json()) == 1
+
+
+def test_scheduling_to_several_channels_is_all_or_nothing(client, monkeypatch):
+    import store.posts
+
+    real, n = store.posts._insert, {"calls": 0}
+
+    def second_fails(*a, **kw):
+        n["calls"] += 1
+        if n["calls"] == 2:
+            raise RuntimeError("disk full")
+        return real(*a, **kw)
+
+    monkeypatch.setattr(store.posts, "_insert", second_fails)
+    r = client.post(
+        "/api/schedule", json={"post": BLOCKS_POST, "at": int(time.time()) + 3600, "chat_ids": ["@a", "@b"]}
+    )
+    assert r.status_code == 500
+    assert store.list_posts() == []

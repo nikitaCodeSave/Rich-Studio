@@ -30,6 +30,7 @@ EXTRA_COLUMNS = {
     "poll_results": "text",  # {"total": n, "options": [{"text", "voter_count"}], "is_closed"}
     "actor": "text",  # who asked for the post: ui | api | the X-Studio-Client value (e.g. mcp:claude-code)
     "retry_at": "integer",  # scheduled post that could not reach Telegram: next attempt (nothing was sent)
+    "version": "integer not null default 0",  # +1 on every replacement of the content: edits with an older one get 409
 }
 
 # Numbered steps after the columns above (PRAGMA user_version). Append only; never edit a shipped step.
@@ -70,6 +71,9 @@ def conn() -> Iterator[sqlite3.Connection]:
     cfg.data_dir.mkdir(parents=True, exist_ok=True)
     c = sqlite3.connect(cfg.db_path, timeout=10)
     c.row_factory = sqlite3.Row
+    # FULL even with WAL (set once in init): the "sending" row written before a send must survive a power cut too;
+    # the studio writes a handful of rows a minute, so it costs nothing
+    c.execute("pragma synchronous = FULL")
     try:
         with c:
             yield c
@@ -79,6 +83,9 @@ def conn() -> Iterator[sqlite3.Connection]:
 
 def init() -> None:
     with conn() as c:
+        # health and agents read while the scheduler writes; stays in the file. A filesystem that cannot do WAL
+        # (some network mounts) answers with the old mode, and the studio works as before
+        c.execute("pragma journal_mode = WAL")
         c.executescript(SCHEMA)
         have = {r["name"] for r in c.execute("pragma table_info(posts)")}
         for col, decl in EXTRA_COLUMNS.items():
