@@ -20,13 +20,12 @@ import store
 import telegram as tg
 from errors import Invalid, MayHaveGone, StudioError
 
+from . import kinds
+
 log = logging.getLogger("rich-studio.publisher")
 RESERVED_PARAMS = {"chat_id", "rich_message", "reply_markup", "message_id"}
 MAY_HAVE_GONE = "Пост мог уйти в канал, проверьте перед повтором"
 POLL_MAY_HAVE_GONE = "Опрос мог уйти в канал, проверьте перед повтором"
-# media messages that are not rich posts: the post's key (and the post's kind) -> the Bot API method
-MEDIA_METHODS = {"live_photo": "sendLivePhoto", "paid_media": "sendPaidMedia"}
-MEDIA_LABELS = {"live_photo": "Live Photo", "paid_media": "платный контент"}
 # ids of posts this process is sending right now (now or from the scheduler): their "sending" status is normal,
 # not stuck; health reads it, and startup recovery only exists because a crash empties it
 in_flight: set[str] = set()
@@ -121,59 +120,9 @@ def validate(post: dict) -> dict:
                 }
             )
         r = {**r, "warnings": r["warnings"] + ["комментарий: " + w for w in c["warnings"]]}
-    if post.get("poll_after") is not None and (bad := poll_error(post["poll_after"])):
+    if post.get("poll_after") is not None and (bad := kinds.poll_error(post["poll_after"])):
         raise Invalid({"message": "опрос после поста не прошёл проверку", **r, "ok": False, "errors": [bad]})
     return r
-
-
-def poll_error(poll, label: str = "опрос после поста") -> str | None:
-    """What sendPoll would refuse before it is asked: a poll after a post goes out only once the post is sent,
-    a scheduled poll only at its time."""
-    if not isinstance(poll, dict):
-        return f"{label}: ожидался объект sendPoll"
-    if "chat_id" in poll:
-        return f"{label}: chat_id задаётся не в опросе"
-    if not str(poll.get("question") or "").strip():
-        return f"{label}: пустой вопрос"
-    opts = poll.get("options")
-    texts = [o.get("text") if isinstance(o, dict) else o for o in opts] if isinstance(opts, list) else []
-    if len([t for t in texts if str(t or "").strip()]) < 2:
-        return f"{label}: нужно минимум два варианта"
-    if len(texts) > 12:
-        return f"{label}: больше 12 вариантов"
-    if len(str(poll["question"])) > 300:
-        return f"{label}: вопрос длиннее 300 символов"
-    if poll.get("type") == "quiz" and not poll.get("correct_option_ids") and poll.get("correct_option_id") is None:
-        return f"{label}: у викторины не отмечен правильный ответ"
-    normalized = {**poll, "options": [o if isinstance(o, dict) else {"text": str(o)} for o in opts or []]}
-    bad = spec.method_errors(spec.current, "sendPoll", normalized, label, frozenset({"chat_id"}))
-    return bad[0] if bad else None
-
-
-STARS_MAX = 25000  # sendPaidMedia.star_count: 1-25000
-
-
-def media_error(kind: str, params) -> str | None:
-    """What sendLivePhoto / sendPaidMedia would refuse before it is asked (a scheduled one only at its time)."""
-    label = MEDIA_LABELS[kind]
-    if not isinstance(params, dict):
-        return f"{label}: ожидался объект {MEDIA_METHODS[kind]}"
-    if "chat_id" in params:
-        return f"{label}: chat_id задаётся не здесь"
-    if kind == "paid_media":
-        media = params.get("media")
-        if not isinstance(media, list) or not 1 <= len(media) <= 10:
-            return f"{label}: в media от 1 до 10 фото или видео"
-        stars = params.get("star_count")
-        if isinstance(stars, int) and not isinstance(stars, bool) and not 1 <= stars <= STARS_MAX:
-            return f"{label}: star_count от 1 до {STARS_MAX} звёзд"
-    bad = spec.method_errors(spec.current, MEDIA_METHODS[kind], params, label, frozenset({"chat_id"}))
-    return bad[0] if bad else None
-
-
-def media_kind(post: dict) -> str | None:
-    """live_photo or paid_media when the post is one of those media messages, else None."""
-    return next((k for k in MEDIA_METHODS if k in post), None)
 
 
 def poll_after(post: dict) -> dict:
@@ -205,25 +154,24 @@ def parse_at(at: int | str) -> int:
     return at
 
 
-async def send(chat_id, post: dict) -> dict:
-    """One Bot API call: sendPoll for polls, sendLivePhoto / sendPaidMedia for those, sendRichMessage otherwise."""
-    method, params = request(chat_id, post)
+async def send(chat_id, post: dict, kind: str | None = kinds.RICH) -> dict:
+    """One Bot API call, the method of the post's kind (services/kinds.py)."""
+    method, params = request(chat_id, post, kind)
     return await tg.call(method, params)
 
 
-def request(chat_id, post: dict) -> tuple[str, dict]:
+def request(chat_id, post: dict, kind: str | None = kinds.RICH) -> tuple[str, dict]:
     """The Bot API method and parameters a send makes, exactly as they go to Telegram."""
-    if "poll" in post:
-        return "sendPoll", {**post["poll"], "chat_id": chat_id}
-    if kind := media_kind(post):
-        return MEDIA_METHODS[kind], {**post[kind], "chat_id": chat_id}
+    k = kinds.get(kind)
+    if k.key:  # a message with parameters of its own: they go as they are
+        return k.method, {**post[k.key], "chat_id": chat_id}
     params = {**options(post), "chat_id": chat_id, "rich_message": post["rich_message"]}
     if post.get("reply_markup"):
         params["reply_markup"] = post["reply_markup"]
     return "sendRichMessage", params
 
 
-async def after_send(pid: str, post: dict, res: dict, actor: str = "api") -> list[str]:
+async def after_send(pid: str, post: dict, res: dict, actor: str = "api", kind: str | None = kinds.RICH) -> list[str]:
     """Remember the numeric chat id, then pin, queue the first comment and send the poll after it. Returns warnings."""
     warnings = []
     fields: dict[str, Any] = {"chat_num": (res.get("chat") or {}).get("id")}
@@ -251,7 +199,7 @@ async def after_send(pid: str, post: dict, res: dict, actor: str = "api") -> lis
             warnings.append(f"не удалось закрепить: {e.description}")
         except Exception as e:  # noqa: BLE001 - network: the post itself is already sent
             warnings.append(f"не удалось закрепить: {type(e).__name__}: {e}")
-    if post.get("poll_after") and "poll" not in post:
+    if post.get("poll_after") and kind == kinds.RICH:  # the poll after a post is a field of a rich post
         warnings += await _send_poll_after(pid, post, res, actor)
     return warnings
 
@@ -262,15 +210,15 @@ async def _send_poll_after(pid: str, post: dict, res: dict, actor: str) -> list[
     chat = rec.get("chat_id") or res["chat"]["id"]
     sent = {"poll": poll_after(post)}
     try:
-        r = await tg.call("sendPoll", {**sent["poll"], "chat_id": res["chat"]["id"]})
+        r = await send(res["chat"]["id"], sent, kinds.POLL)
     except tg.TelegramError as e:
-        _record_failure(chat, sent, rec.get("draft_id"), e.description, "poll", actor)
+        _record_failure(chat, sent, rec.get("draft_id"), e.description, kinds.POLL, actor)
         return [f"опрос после поста не отправлен: {e.description}"]
     except Exception as e:  # noqa: BLE001 - never resent on its own, like any send that may have gone
         err = f"{type(e).__name__}: {e}. {POLL_MAY_HAVE_GONE}"
-        _record_failure(chat, sent, rec.get("draft_id"), err, "poll", actor)
+        _record_failure(chat, sent, rec.get("draft_id"), err, kinds.POLL, actor)
         return [f"опрос после поста: {err}"]
-    poll_rec = store.add_post(chat, sent, rec.get("draft_id"), "sent", r["message_id"], kind="poll", actor=actor)
+    poll_rec = store.add_post(chat, sent, rec.get("draft_id"), "sent", r["message_id"], kind=kinds.POLL, actor=actor)
     store.update_post(poll_rec["id"], chat_num=(r.get("chat") or {}).get("id"), poll_id=(r.get("poll") or {}).get("id"))
     return []
 
@@ -291,7 +239,7 @@ def _mark_failed(pid: str, error: str) -> None:
         log.exception("could not record the failed send %s", pid)
 
 
-async def publish(chats: list, post: dict, draft_id: str | None = None, kind: str = "rich", actor: str = "api"):
+async def publish(chats: list, post: dict, draft_id: str | None = None, kind: str = kinds.RICH, actor: str = "api"):
     """Send to every chat; one failing channel does not stop the others. Returns (results, warnings).
 
     Each send is written down as "sending" before Telegram is asked, like a scheduled one: if the process dies
@@ -302,7 +250,7 @@ async def publish(chats: list, post: dict, draft_id: str | None = None, kind: st
         rec = store.add_post(chat, post, draft_id, "sending", kind=kind, actor=actor)
         in_flight.add(rec["id"])
         try:
-            res = await send(chat, post)
+            res = await send(chat, post, kind)
         except tg.TelegramError as e:
             # kept in the list of posts, so a refusal is not lost with the toast that showed it
             _mark_failed(rec["id"], e.description)
@@ -328,7 +276,7 @@ async def publish(chats: list, post: dict, draft_id: str | None = None, kind: st
         store.update_post(rec["id"], status="sent", message_id=res["message_id"], sent_at=int(time.time()))
         if draft_id:
             store.drop_refused(chat, draft_id, MAY_HAVE_GONE, POLL_MAY_HAVE_GONE)
-        w = await after_send(rec["id"], post, res, actor)
+        w = await after_send(rec["id"], post, res, actor, kind)
         warnings += [f"{chat}: {x}" for x in w] if len(chats) > 1 else w
         out.append({"chat_id": chat, "ok": True, "post": store.get_post(rec["id"]), "message": res})
     return out, warnings

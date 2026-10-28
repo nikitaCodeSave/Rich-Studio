@@ -4,7 +4,7 @@ from fastapi import APIRouter
 
 import settings
 import spec
-from services import updates
+from services import kinds, updates
 
 router = APIRouter(tags=["service"])
 
@@ -28,6 +28,7 @@ def config():
         "spec_version": spec.current.version,
         "auth": bool(cfg.api_key),
         "updates": updates.STATUS.as_dict(),
+        "kinds": kinds.describe(),
     }
 
 

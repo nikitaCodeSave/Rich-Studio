@@ -40,6 +40,12 @@ export function channelTitle(id) {
   return (c && c.title) || id || '';
 }
 /** A channel as the person reads it: its title and its id, so two channels never look alike. @param {string} id */
+/** What the studio says about a post's kind (GET /api/config `kinds`, from services/kinds.py); a kind it does not
+ * know is shown by its name and opens nowhere. */
+export const kindOf = (/** @type {PostRow} */ p) => {
+  const name = p.kind || 'rich';
+  return (S.config.kinds || {})[name] || { label: name, badge: name, editable: false, stoppable: false, media: false };
+};
 export const chatLabel = (id) => { const t = channelTitle(id); return t === id ? id : `${t} · ${id}`; };
 /** Where the post goes, as the person reads it: titles, and the forum topic when there is one. */
 export const targetLabel = () => {

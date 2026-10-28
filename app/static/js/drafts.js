@@ -6,7 +6,7 @@ import { $, h, store, toast } from './dom.js';
 import { changed, draftPayload, flushSave, loadPost } from './editor.js';
 import { followDraft } from './editing.js';
 import { pushHistory, resetHistory } from './history.js';
-import { chatLabel, chats, dirty, editing, S, saveState } from './state.js';
+import { chatLabel, chats, dirty, editing, kindOf, S, saveState } from './state.js';
 
 // the draft's own channels; one without them goes to the channel the editor used to remember
 // (rs.chat, before drafts kept channels; dropped once a draft saves it) or to the default channel.
@@ -21,7 +21,7 @@ function setChannels(ids) {
 /** Whether the draft already went out: «правка» for a post's working copy, else what its posts are now. */
 function draftBadge(d) {
   if (d.post_id) return h('span', { class: 'badge', text: 'правка', title: 'Рабочая копия опубликованного поста' });
-  const own = S.posts.filter((p) => p.draft_id === d.id && p.kind !== 'poll');
+  const own = S.posts.filter((p) => p.draft_id === d.id && kindOf(p).editable);
   if (own.some((p) => p.status === 'sent')) return h('span', { class: 'badge ok', text: 'опубликован', title: 'Пост из этого черновика уже вышел' });
   if (own.some((p) => p.status === 'scheduled')) return h('span', { class: 'badge w', text: 'отложен', title: 'Пост из этого черновика ждёт своего времени' });
   return null;

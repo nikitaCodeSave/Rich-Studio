@@ -68,6 +68,16 @@ interface StudioConfig {
   spec_version?: string;
   auth?: boolean;
   updates?: UpdatesStatus;
+  kinds?: Record<string, MessageKind>;
+}
+
+/** A kind of message in /api/config `kinds` (services/kinds.py) */
+interface MessageKind {
+  label: string;
+  badge: string | null;
+  editable: boolean;
+  stoppable: boolean;
+  media: boolean;
 }
 
 /** GET /api/drafts row */

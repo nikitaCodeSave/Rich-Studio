@@ -5,7 +5,7 @@ import re
 
 import store
 
-from . import channels
+from . import channels, kinds
 
 TITLE_LEN = 120
 # a closing block tag or a line break ends a line of the post
@@ -52,15 +52,12 @@ def _first_line(text: str) -> str:
     return next((line.strip() for line in text.splitlines() if line.strip()), "")
 
 
-def title(payload: dict) -> str:
+def title(payload: dict, kind: str | None = kinds.RICH) -> str:
     """The first line a reader sees, for the list of posts; empty when the post has no text."""
     if not isinstance(payload, dict):
         return ""
-    if isinstance(payload.get("poll"), dict):
-        return str(payload["poll"].get("question") or "")
-    for kind, label in (("live_photo", "Live Photo"), ("paid_media", "Платный контент")):
-        if isinstance(payload.get(kind), dict):
-            return _first_line(str(payload[kind].get("caption") or "")) or label
+    if (k := kinds.get(kind)).key:
+        return k.title(payload)
     rm = payload.get("rich_message") or {}
     if not isinstance(rm, dict):
         return ""
@@ -79,7 +76,8 @@ def title(payload: dict) -> str:
 
 def thumb(payload: dict) -> str | None:
     """The first photo uploaded through the studio, as a URL the editor can show; None otherwise."""
-    stack = [payload.get(k) for k in ("rich_message", "live_photo", "paid_media")] if isinstance(payload, dict) else []
+    keys = ["rich_message", *(k.key for k in kinds.KINDS.values() if k.key)]
+    stack = [payload.get(k) for k in keys] if isinstance(payload, dict) else []
     while stack:
         x = stack.pop(0)
         if isinstance(x, dict):
@@ -96,9 +94,9 @@ def thumb(payload: dict) -> str | None:
     return None
 
 
-def button_texts(payload: dict) -> dict[str, str]:
+def button_texts(payload: dict, kind: str | None = kinds.RICH) -> dict[str, str]:
     """callback_data → the text on its button, so clicks read «🔔 Приду 7» instead of a generated key."""
-    rm = payload.get("reply_markup") if isinstance(payload, dict) else None
+    rm = kinds.get(kind).buttons_holder(payload).get("reply_markup") if isinstance(payload, dict) else None
     rows = rm.get("inline_keyboard") if isinstance(rm, dict) else None
     out: dict[str, str] = {}
     for row in rows if isinstance(rows, list) else []:
@@ -129,9 +127,9 @@ def list_posts(limit: int = 100, status: str | None = None, chat: str | None = N
             titles[c] = channels.title_of(c)
         p["chat_title"] = titles[c]
         payload = p.pop("payload", None) or {}
-        p["title"] = title(payload)
+        p["title"] = title(payload, p.get("kind"))
         p["thumb"] = thumb(payload)
-        p["buttons"] = button_texts(payload)
+        p["buttons"] = button_texts(payload, p.get("kind"))
         p["link"] = link(p["chat_id"], p["message_id"])
         p["pinned"] = bool(p.get("pinned"))
         out.append(p)
