@@ -56,8 +56,14 @@ def http_api() -> str:
 
 def mcp_tools() -> str:
     import mcp_tools
+    import settings
 
-    tools = asyncio.run(mcp_tools.build().list_tools())
+    cfg = settings.get()
+    publish, cfg.mcp_publish = cfg.mcp_publish, True  # the full list, whatever MCP_PUBLISH the shell has
+    try:
+        tools = asyncio.run(mcp_tools.build().list_tools())
+    finally:
+        cfg.mcp_publish = publish
     out = [
         HEADER,
         "",
