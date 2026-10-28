@@ -145,6 +145,7 @@ KINDS: dict[str, Kind] = {
             key="poll",
             badge="опрос",
             edit_refusal="опрос заменить нельзя; можно закрыть или удалить",
+            buttons_in_params=True,
             stoppable=True,
             title_field="question",
             prepare=_prepare_poll,

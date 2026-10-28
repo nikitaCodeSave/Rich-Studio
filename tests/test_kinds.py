@@ -48,6 +48,21 @@ def test_unknown_kind_fails_the_scheduled_send_without_telegram(client, tg):
     assert len(tg.calls) == calls
 
 
+def test_poll_buttons_go_out_with_the_poll(client, tg):
+    """reply_markup is a parameter of sendPoll: buttons changed on a scheduled poll must reach Telegram."""
+    at = int(time.time()) + 60
+    poll = {"question": "Как?", "options": ["Да", "Нет"]}
+    rec = client.post("/api/poll", json={"poll": poll, "chat_id": "@chan", "at": at}).json()["scheduled"][0]
+    keyboard = {"inline_keyboard": [[{"text": "Сайт", "url": "https://t.me/telegram"}]]}
+    r = client.post(f"/api/posts/{rec['id']}/buttons", json={"reply_markup": keyboard})
+    assert r.status_code == 200, r.text
+    assert r.json()["payload"]["poll"]["reply_markup"] == keyboard and "reply_markup" not in r.json()["payload"]
+    with store.conn() as c:
+        c.execute("update posts set scheduled_at = ? where id = ?", (int(time.time()) - 1, rec["id"]))
+    asyncio.run(scheduler.run_due_posts())
+    assert tg.last("sendPoll")["body"]["reply_markup"] == keyboard
+
+
 def test_list_reads_buttons_where_the_kind_keeps_them():
     keyboard = {"inline_keyboard": [[{"text": "Да", "callback_data": "yes"}]]}
     assert listing.button_texts({"live_photo": {"reply_markup": keyboard}}, "live_photo") == {"yes": "Да"}
@@ -72,6 +87,7 @@ def test_migration_gives_old_rows_the_kind_of_their_content():
         "c": (None, {"paid_media": {"star_count": 1}}),
         "d": (None, {"rich_message": {"markdown": "x"}}),
         "e": ("poll", {"poll": {"question": "?"}}),
+        "g": ("rich", {"rich_message": {"markdown": "x"}, "live_photo": {"caption": "лишнее поле"}}),
     }
     for pid, (kind, payload) in rows.items():
         old.execute(
@@ -84,4 +100,12 @@ def test_migration_gives_old_rows_the_kind_of_their_content():
     db.init()
     with store.conn() as c:
         got = dict(c.execute("select id, kind from posts").fetchall())
-    assert got == {"a": "poll", "b": "live_photo", "c": "paid_media", "d": "rich", "e": "poll", "f": "rich"}
+    assert got == {
+        "a": "poll",
+        "b": "live_photo",
+        "c": "paid_media",
+        "d": "rich",
+        "e": "poll",
+        "f": "rich",
+        "g": "rich",
+    }
