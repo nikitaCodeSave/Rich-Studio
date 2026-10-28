@@ -131,9 +131,9 @@ def test_fetch_checks_every_redirect_and_leaves_no_partial_file(client, tg, monk
     def mocked(**kw):
         return real_client(transport=httpx.MockTransport(handler), **kw)
 
-    async def check(host, port):
+    async def check(host, port, **kw):
         if host != "files.example":  # stands for a public host (no DNS in tests)
-            await real_check(host, port)
+            await real_check(host, port, **kw)
 
     monkeypatch.setattr(media.httpx, "AsyncClient", mocked)
     monkeypatch.setattr(media, "_public_only", check)
@@ -172,6 +172,81 @@ def test_fetch_connects_to_the_address_it_checked(client, tg, monkeypatch):
     _, f, _ = call(client, "upload_media", url="https://files.example/cover.jpg")
     assert f["ref"] == "upload:cover.jpg"
     assert lookups == ["files.example"] and seen == [("93.184.216.34", "files.example", "files.example")]
+
+
+def test_fetch_goes_through_the_system_proxy_like_telegram(client, tg, monkeypatch):
+    """HTTPS_PROXY set: the download goes through it by name (the proxy connects), NO_PROXY hosts go directly to
+    the checked address; both name the studio in User-Agent, since some file hosts refuse python-httpx."""
+    import httpx
+
+    from services import media
+
+    clients, seen = [], []
+
+    async def resolve(host, port):
+        return {"files.example": ["93.184.216.34"], "cdn.inside": ["8.8.8.8"]}[host]
+
+    def handler(request):
+        seen.append((request.url.host, request.headers["user-agent"]))
+        if request.url.path == "/start":
+            return httpx.Response(302, headers={"location": "https://cdn.inside/cover.jpg"})
+        if request.url.path == "/to-metadata":
+            return httpx.Response(302, headers={"location": "http://metadata.google.internal/computeMetadata/v1/"})
+        return httpx.Response(200, content=b"img")
+
+    real_client = httpx.AsyncClient
+
+    def mocked(**kw):
+        clients.append(kw.pop("proxy", None))
+        return real_client(transport=httpx.MockTransport(handler), **kw)
+
+    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.local:3128")
+    monkeypatch.setenv("NO_PROXY", "cdn.inside")
+    monkeypatch.setattr(media, "_resolve", resolve)
+    monkeypatch.setattr(media.httpx, "AsyncClient", mocked)
+    _, f, _ = call(client, "upload_media", url="https://files.example/start")
+    assert f["ref"] == "upload:start"
+    assert clients == ["http://proxy.local:3128", None]
+    assert [h for h, _ in seen] == ["files.example", "8.8.8.8"]
+    assert all(ua.startswith("RichStudio/") for _, ua in seen)
+    # a redirect to an internal name is refused before it could reach the proxy
+    res, _, text = call(client, "upload_media", url="https://files.example/to-metadata")
+    assert res["isError"] and "внутренний" in text and len(clients) == 3
+
+
+def test_fetch_behind_a_proxy_lets_it_resolve_unknown_names(client, tg, monkeypatch):
+    """A network where only the proxy sees the internet: no local DNS answer is not an error then, but an
+    address that resolves to the local network still is."""
+    import asyncio
+
+    import pytest
+
+    from errors import StudioError
+    from services import media
+
+    async def resolve(host, port):
+        if host == "inside.example":
+            return ["10.0.0.5"]
+        raise StudioError(f"не удалось скачать: адрес {host} не найден")
+
+    monkeypatch.setattr(media, "_resolve", resolve)
+    assert asyncio.run(media._public_only("files.example", 443, proxied=True)) is None
+    with pytest.raises(StudioError, match="не найден"):
+        asyncio.run(media._public_only("files.example", 443))
+    with pytest.raises(StudioError, match="внутренний"):
+        asyncio.run(media._public_only("inside.example", 443, proxied=True))
+    # local names never reach the proxy, resolved or not
+    for host in (
+        "intranet",
+        "localhost",
+        "db.corp",
+        "metadata.google.internal",
+        "nas.local",
+        "router.home.arpa",
+        "x.lan.",
+    ):
+        with pytest.raises(StudioError, match="внутренний"):
+            asyncio.run(media._public_only(host, 443, proxied=True))
 
 
 def test_send_poll_through_mcp(client, tg):

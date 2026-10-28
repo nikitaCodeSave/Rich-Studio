@@ -19,3 +19,4 @@
 | [0009](0009-named-tokens.md) | Именные токены с уровнями и cookie-сессия редактора, а не пользователи и OAuth |
 | [0010](0010-server-image-and-pinned-spec.md) | Сервер: образ из GHCR, закреплённая спецификация, Caddy и Litestream |
 | [0011](0011-dead-mans-switch.md) | Внешний сигнал «жива»: dead man's switch и `/readyz` снаружи |
+| [0012](0012-media-fetch-proxy.md) | Скачивание по ссылке через системный прокси, как запросы к Telegram |
