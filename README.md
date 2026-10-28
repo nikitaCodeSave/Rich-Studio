@@ -26,6 +26,7 @@
 ```bash
 cd rich-studio
 cp .env.example .env        # впишите TG_BOT_TOKEN, TG_DEFAULT_CHAT, TG_PREVIEW_CHAT
+mkdir -p data               # данные студии; папка ваша, не root
 docker compose up -d --build
 ```
 
@@ -35,7 +36,7 @@ docker compose up -d --build
 - **«Мне в личку»:** в `TG_PREVIEW_CHAT` ваш числовой id ([@userinfobot](https://t.me/userinfobot)); один раз напишите своему боту `/start`.
 - Сервис слушает только `127.0.0.1`. Если откроете его в сеть, задайте `STUDIO_API_KEY` или выдайте именные токены (раздел «Доступ» ниже).
 - Данные лежат в `./data` (черновики, посты, файлы, кэш спецификации). Обновление: `docker compose up -d --build`.
-- Образ работает от пользователя с uid 10001. Если `./data` создал прежний образ от root (Linux), студия при запуске скажет об этом; исправить: `sudo chown -R 10001:10001 data`. На Docker Desktop это не нужно.
+- Студия в контейнере работает не от root, а от вашего пользователя (`STUDIO_UID`/`STUDIO_GID` в `.env`, по умолчанию 1000:1000; на Linux с другим uid впишите `id -u` и `id -g`). Если `./data` создал Docker или прежний образ от root, студия при запуске скажет об этом; исправить: `sudo chown -R $(id -u):$(id -g) data`. На Docker Desktop (Mac, Windows) это не нужно.
 - **На своём сервере** с HTTPS, копией базы в S3 и готовым образом из GHCR: [deploy/README.md](deploy/README.md).
 
 Без Docker: `pip install -r requirements.txt`, затем `cd app && DATA_DIR=../data uvicorn main:app --port 8080` (переменные из `.env` экспортируйте сами).

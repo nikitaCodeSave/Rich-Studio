@@ -8,7 +8,9 @@
 
 ```sh
 git clone … rich-studio && cd rich-studio/deploy
-cp .env.example .env                      # домен, каналы, Litestream; при желании DEADMAN_URL
+cp .env.example .env                      # домен, каналы; при желании DEADMAN_URL
+cp litestream.env.example litestream.env  # бакет S3 и ключи: их видит только Litestream
+chmod 600 .env litestream.env
 mkdir -p secrets && printf '%s\n' '123:ABC…' > secrets/tg_bot_token
 sudo chown 10001:10001 secrets/tg_bot_token && sudo chmod 400 secrets/tg_bot_token   # студия работает от uid 10001
 echo "$GHCR_TOKEN" | docker login ghcr.io -u <github-login> --password-stdin  # образ приватный: PAT с read:packages

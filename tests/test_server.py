@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 
 import httpx
 import pytest
@@ -66,7 +67,7 @@ def test_unwritable_data_dir_check(tmp_path, monkeypatch):
         raise PermissionError(13, "Permission denied")
 
     monkeypatch.setattr(type(cfg.data_dir), "write_bytes", refuse)
-    with pytest.raises(settings.SettingsError, match="sudo chown -R 10001:10001 data"):
+    with pytest.raises(settings.SettingsError, match=f"sudo chown -R {os.getuid()}:{os.getgid()} data"):
         main._data_dir_writable(cfg)
 
 

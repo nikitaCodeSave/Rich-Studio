@@ -6,7 +6,7 @@ WORKDIR /app
 COPY requirements.lock .
 RUN pip install --no-cache-dir --require-hashes --no-deps -r requirements.lock
 COPY app/ .
-# an unprivileged user; /data is its own. A ./data made by an older image as root: sudo chown -R 10001:10001 data
+# an unprivileged user that owns /data (the server's named volume); the local compose runs as the host user
 RUN useradd --system --uid 10001 --user-group --no-create-home --shell /usr/sbin/nologin studio \
     && mkdir -p /data && chown 10001:10001 /data
 USER 10001:10001

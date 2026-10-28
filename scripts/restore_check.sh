@@ -14,8 +14,8 @@ cat >"$WORK/.env" <<ENV
 STUDIO_DOMAIN=studio.test
 STUDIO_TAG=restore-check
 TG_UPDATES=off
-LITESTREAM_REPLICA_URL=file:///replica/studio
 ENV
+echo "LITESTREAM_REPLICA_URL=file:///replica/studio" >"$WORK/litestream.env"
 cat >"$WORK/docker-compose.check.yml" <<YML
 services:
   litestream:

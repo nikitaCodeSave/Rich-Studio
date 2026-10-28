@@ -1,6 +1,7 @@
 name: image
 # The studio's image in GHCR for the server (deploy/docker-compose.yml): :main and :<sha> on every push to main,
-# :<version> on a v* tag. Build provenance and an SBOM go with it.
+# :<version> on a v* tag, for amd64 and arm64 (QEMU), with build provenance and an SBOM from buildx.
+# No actions/attest-build-provenance: artifact attestations in a private repo need GitHub Enterprise Cloud.
 on:
   push:
     branches: [main]
@@ -19,10 +20,9 @@ jobs:
     permissions:
       contents: read
       packages: write
-      id-token: write          # signed build provenance
-      attestations: write
     steps:
       - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3   # arm64 RUN steps on the amd64 runner
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
@@ -37,8 +37,7 @@ jobs:
             type=raw,value=main,enable={{is_default_branch}}
             type=sha,format=long,prefix=
             type=semver,pattern={{version}}
-      - id: push
-        uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -49,8 +48,3 @@ jobs:
           sbom: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      - uses: actions/attest-build-provenance@v2
-        with:
-          subject-name: ghcr.io/${{ github.repository }}
-          subject-digest: ${{ steps.push.outputs.digest }}
-          push-to-registry: true

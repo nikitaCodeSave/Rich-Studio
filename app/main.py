@@ -107,7 +107,7 @@ async def _observe(request: Request, call_next):
 
 
 def _data_dir_writable(cfg: settings.Settings) -> None:
-    """The image runs as uid 10001: a ./data made by an older image as root is the usual reason it is not."""
+    """The usual reason it is not: ./data made by Docker or an older image as root, the process runs as a user."""
     try:
         cfg.data_dir.mkdir(parents=True, exist_ok=True)
         probe = cfg.data_dir / ".write-test"
@@ -117,7 +117,7 @@ def _data_dir_writable(cfg: settings.Settings) -> None:
         raise settings.SettingsError(
             [
                 f"нет записи в DATA_DIR={cfg.data_dir} ({e.strerror}) для пользователя {os.getuid()}; "
-                "если папку создал прежний образ от root: sudo chown -R 10001:10001 data"
+                f"если папку создал Docker или прежний образ от root: sudo chown -R {os.getuid()}:{os.getgid()} data"
             ]
         ) from None
 
