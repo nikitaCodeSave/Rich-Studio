@@ -150,6 +150,9 @@ def poll_error(poll, label: str = "опрос после поста") -> str | N
     return bad[0] if bad else None
 
 
+STARS_MAX = 25000  # sendPaidMedia.star_count: 1-25000
+
+
 def media_error(kind: str, params) -> str | None:
     """What sendLivePhoto / sendPaidMedia would refuse before it is asked (a scheduled one only at its time)."""
     label = MEDIA_LABELS[kind]
@@ -161,6 +164,9 @@ def media_error(kind: str, params) -> str | None:
         media = params.get("media")
         if not isinstance(media, list) or not 1 <= len(media) <= 10:
             return f"{label}: в media от 1 до 10 фото или видео"
+        stars = params.get("star_count")
+        if isinstance(stars, int) and not isinstance(stars, bool) and not 1 <= stars <= STARS_MAX:
+            return f"{label}: star_count от 1 до {STARS_MAX} звёзд"
     bad = spec.method_errors(spec.current, MEDIA_METHODS[kind], params, label, frozenset({"chat_id"}))
     return bad[0] if bad else None
 

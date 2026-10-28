@@ -222,7 +222,10 @@ async def edit(pid: str, post: dict, actor: str = "api", post_version: int | Non
     if p.get("kind") == "poll":
         raise StudioError("опрос заменить нельзя; можно закрыть или удалить")
     if p.get("kind") in publisher.MEDIA_METHODS:
-        raise StudioError(f"{publisher.MEDIA_LABELS[p['kind']]} заменить нельзя; можно поменять кнопки или удалить")
+        raise StudioError(
+            f"{publisher.MEDIA_LABELS[p['kind']]} заменить нельзя; можно удалить или сменить кнопки "
+            "(POST /api/posts/{id}/buttons)"
+        )
     if p["status"] == "sent" and not p["message_id"]:
         raise StudioError(f"пост в статусе {p['status']}, редактировать нечего")
     publisher.validate(post)
@@ -306,16 +309,21 @@ async def set_buttons(pid: str, reply_markup: dict | None, callbacks: dict | Non
     if p["status"] not in ("sent", "scheduled"):
         raise StudioError(f"пост в статусе {p['status']}")
     payload = dict(p["payload"])
+    # a Live Photo or paid media keeps its keyboard among its own parameters, where a scheduled send takes it from
+    kind = publisher.media_kind(payload)
+    holder = payload
+    if kind:
+        holder = payload[kind] = dict(payload[kind])
     if reply_markup and reply_markup.get("inline_keyboard"):
-        payload["reply_markup"] = reply_markup
+        holder["reply_markup"] = reply_markup
     else:
-        payload.pop("reply_markup", None)
+        holder.pop("reply_markup", None)
     if callbacks is not None:
         payload["callbacks"] = callbacks
     if p["status"] == "sent":
         params = {"chat_id": publisher.resolve_chat(p["chat_id"]), "message_id": p["message_id"]}
-        if payload.get("reply_markup"):
-            params["reply_markup"] = payload["reply_markup"]
+        if holder.get("reply_markup"):
+            params["reply_markup"] = holder["reply_markup"]
         try:
             await tg.call("editMessageReplyMarkup", params)
         except tg.TelegramError as e:

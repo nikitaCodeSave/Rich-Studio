@@ -28,6 +28,12 @@ def test_live_photo_goes_with_both_files(client, tg):
     # not a rich post: it cannot be replaced by a post
     r = client.post(f"/api/posts/{rec['id']}/edit", json={"rich_message": {"markdown": "x"}})
     assert r.status_code == 400 and "Live Photo" in r.json()["detail"]
+    # buttons can change; they stay among its own parameters, not next to them
+    keyboard = {"inline_keyboard": [[{"text": "Сайт", "url": "https://t.me/telegram"}]]}
+    r = client.post(f"/api/posts/{rec['id']}/buttons", json={"reply_markup": keyboard})
+    assert r.status_code == 200, r.text
+    assert r.json()["payload"]["live_photo"]["reply_markup"] == keyboard and "reply_markup" not in r.json()["payload"]
+    assert tg.last("editMessageReplyMarkup")["body"]["reply_markup"]
 
 
 def test_paid_media_is_checked_and_can_wait(client, tg):
@@ -38,6 +44,10 @@ def test_paid_media_is_checked_and_can_wait(client, tg):
         "/api/media-post", json={"kind": "paid_media", "params": {"media": [{"type": "photo", "media": pic}]}}
     )
     assert missing.status_code == 422 and "star_count" in str(missing.json())
+    for stars in (0, 25001):  # a scheduled one would only fail at its time
+        price = {"star_count": stars, "media": [{"type": "photo", "media": pic}]}
+        r = client.post("/api/media-post", json={"kind": "paid_media", "params": price, "at": int(time.time()) + 60})
+        assert r.status_code == 422 and "25000" in str(r.json())
     assert client.post("/api/media-post", json={"kind": "voice", "params": {}}).status_code == 422
     params = {"star_count": 5, "media": [{"type": "photo", "media": pic}], "caption": "Закрытый кадр"}
     at = int(time.time()) + 3600
