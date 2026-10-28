@@ -89,3 +89,18 @@ def test_a_message_refused_by_every_chat_is_an_error_not_sent(client, tg):
     tg.fail.clear()
     r = client.post("/api/poll", json={"poll": poll, "chat_ids": ["@a", "@b"]})
     assert r.status_code == 200 and [x["ok"] for x in r.json()["results"]] == [True, True]
+
+
+def test_no_answer_from_telegram_is_not_called_not_sent(client, tg, monkeypatch):
+    """Several chats and no answer from Telegram: the headline does not say «не отправлено»."""
+    import telegram
+
+    async def timeout(method, params=None, *a, **kw):
+        raise TimeoutError("read timeout")
+
+    monkeypatch.setattr(telegram, "call", timeout)
+    r = client.post(
+        "/api/poll", json={"poll": {"question": "Когда?", "options": ["Утром", "Вечером"]}, "chat_ids": ["@a", "@b"]}
+    )
+    detail = r.json()["detail"]
+    assert r.status_code == 502 and "могло уйти" in detail["message"] and "не отправлено" not in detail["message"]
