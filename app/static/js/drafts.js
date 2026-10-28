@@ -60,7 +60,7 @@ export async function openDraft(id) {
 /** Put the draft as the server has it into the editor; synchronous, so nothing typed in between is lost.
  * @param {Json} d @param {boolean} keepHistory an outside change becomes one more undo step */
 function showDraft(d, keepHistory) {
-  S.draftId = d.id; S.draftVersion = d.version;
+  setDraft(d.id, d.version);
   $('#title').value = d.title || '';
   const migrated = setChannels(d.chat_ids);
   loadPost(d.payload);
@@ -106,8 +106,16 @@ export async function watchDrafts() {
 // one save at a time: a second one sent before the first returns would carry a stale version and get 409
 let saving = Promise.resolve();
 let pending = 0; // saves in flight: their new version is ours, not someone else's
-// which draft the editor shows: «Новый пост» bumps it, so a save of the draft left behind never touches the editor
-let generation = 0;
+// the draft the editor shows, as far as the saves of it know: a new object each time the editor switches drafts,
+// so a save of the draft left behind never touches the editor, and the saves still in line for it share its id and version
+/** @type {{ id: string | null, version: number | null }} */
+let shown = { id: null, version: null };
+
+/** The editor switches to another draft (or to a new one, id null). */
+export function setDraft(id, version) {
+  shown = { id, version };
+  S.draftId = id; S.draftVersion = version;
+}
 
 /** What a save sends, taken when it is asked for: what is typed while it waits in line or is on the way is the next save's. */
 function snapshot() {
@@ -115,7 +123,9 @@ function snapshot() {
 }
 
 export function saveDraft(silent, overwrite) {
-  const snap = { gen: generation, id: S.draftId, version: S.draftVersion, body: snapshot() };
+  // the draft on screen may have been opened or reloaded since its last save: its id and version are the editor's
+  shown.id = S.draftId; shown.version = S.draftVersion;
+  const snap = { slot: shown, body: snapshot() };
   pending++;
   const run = saving.then(() => doSave(snap, silent, overwrite)).finally(() => { pending--; });
   saving = run.catch(() => {});
@@ -123,10 +133,11 @@ export function saveDraft(silent, overwrite) {
 }
 
 async function doSave(snap, silent, overwrite) {
-  const here = snap.gen === generation;
-  // still the draft on screen: an earlier save in the line may have created it or moved its version
-  const id = here ? S.draftId : snap.id;
-  const version = here ? S.draftVersion : snap.version;
+  const { slot } = snap;
+  // still the draft on screen: what the editor knows (a conflict may have asked to save as new); otherwise
+  // the left-behind draft as its earlier saves left it, so a second one neither POSTs again nor sends a stale version
+  if (slot === shown) { slot.id = S.draftId; slot.version = S.draftVersion; }
+  const { id, version } = slot;
   const body = { ...snap.body, title: snap.body.title.trim() || 'Пост ' + new Date().toLocaleDateString('ru-RU') };
   let d;
   try {
@@ -134,11 +145,13 @@ async function doSave(snap, silent, overwrite) {
     d = id ? await api('PUT', '/api/drafts/' + id, { ...body, version: overwrite ? null : version }) : await api('POST', '/api/drafts', body);
   } catch (e) {
     if (e.status !== 409) throw e;
-    if (here) draftConflict(e.detail);
+    if (slot === shown) draftConflict(e.detail);
     else toast(`Черновик «${body.title}» не сохранён: его изменили в другом месте. Откройте его из списка`, 'err');
     return null;
   }
-  if (!here) { loadDrafts(); return d; } // the editor shows another draft now
+  slot.id = d.id; slot.version = d.version;
+  // checked after the request: «Новый пост» or another draft may have been opened while it was on the way
+  if (slot !== shown) { loadDrafts(); return d; }
   S.draftId = d.id; S.draftVersion = d.version;
   const sameTitle = $('#title').value === snap.body.title;
   if (sameTitle) $('#title').value = d.title;
@@ -179,8 +192,7 @@ function draftConflict(detail) {
 export async function newDraft() {
   // the draft left behind saves as it is now; the editor switches at once, so what is typed next is the new post's
   const left = dirty.value && !S.conflict ? saveDraft(true).catch(() => {}) : null;
-  generation++;
-  S.draftId = null; S.draftVersion = null; editing.value = null;
+  setDraft(null, null); editing.value = null;
   $('#title').value = '';
   setChannels(null);
   loadPost({ rich_message: { blocks: [{ type: 'heading', size: 1, text: 'Заголовок' }, { type: 'paragraph', text: 'Текст поста' }] } });
