@@ -35,4 +35,5 @@ def read_logs(
     logger: str = Query("", description="начало имени, например rich-studio.telegram"),
     q: str = Query("", description="подстрока в строке журнала"),
 ):
+    """`q=<request_id>` — всё, что сделал один запрос."""
     return {"file": str(logs.current_file() or ""), "lines": logs.read(level, limit, since, logger, q)}

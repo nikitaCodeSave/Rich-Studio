@@ -32,6 +32,7 @@ async def send(req: PublishReq, who: str = Depends(actor), key: str | None = Dep
 
 @router.post("/api/preview-send", summary="Отправить пост себе в личку (TG_PREVIEW_CHAT)")
 async def preview_send(req: SendReq):
+    """В ответе `parsed`: блоки, на которые Telegram разобрал пост, и они же для повторной отправки (`input_blocks`)."""
     return await posts.preview(req.post.model_dump(), req.chat_id)
 
 
@@ -57,6 +58,7 @@ async def schedule(req: ScheduleReq, who: str = Depends(actor), key: str | None 
 
 @router.post("/api/poll", summary="Опрос или викторина в канал (sendPoll), сразу или отложенно")
 async def send_poll(req: PollReq, who: str = Depends(actor), key: str | None = Depends(idempotency_key)):
+    """Опрос сразу после поста — поле `poll_after` в самом посте: оно проверяется по `sendPoll` до отправки поста."""
     return await idempotency.run(
         key,
         "poll",
@@ -89,10 +91,12 @@ async def set_buttons(pid: str, req: ButtonsReq):
 
 @router.get("/api/posts", summary="Опубликованные, отложенные и неудачные посты: первая строка, миниатюра, ссылка")
 def list_posts(status: str | None = None, chat: str | None = None, limit: int = Query(100, ge=1, le=500)):
+    """Для каждого поста: `title`, `thumb`, `link`, нажатия (`clicks`) и текст кнопки каждого `callback_data`
+    (`buttons`). Отправка, которой Telegram отказал, — статус `failed` с ошибкой."""
     return listing.list_posts(limit, status=status, chat=chat)
 
 
-@router.get("/api/posts/{pid}")
+@router.get("/api/posts/{pid}", summary="Пост целиком: payload, статус, канал, version, реакции, нажатия")
 def post(pid: str):
     p = store.get_post(pid)
     if not p:
@@ -111,6 +115,7 @@ async def edit_post(
         "молчаливая перезапись чужой правки",
     ),
 ):
+    """`?post_version=` — поле `version` поста из `GET /api/posts/{id}`: если пост с тех пор заменили, 409."""
     return await posts.edit(pid, new.model_dump(), who, post_version)
 
 
@@ -128,4 +133,5 @@ def reschedule(pid: str, req: RescheduleReq):
 
 @router.delete("/api/posts/{pid}", summary="Отменить отложенный или пропущенный пост, или удалить пост из канала")
 async def delete_post(pid: str):
+    """`DELETE` неудачной отправки убирает её из списка."""
     return await posts.delete(pid)

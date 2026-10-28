@@ -48,7 +48,7 @@
 
 - Новый метод Bot API для постов: функция в `services/posts.py` + маршрут в `api/posts.py` + тест в `tests/`.
 - Новое событие от Telegram: ветка в `services/updates.handle_update` и тип в `ALLOWED_UPDATES`.
-- Новая колонка в БД: `EXTRA_COLUMNS` в `store/db.py`, если это колонка; иначе новый шаг в `MIGRATIONS` (только добавлять в конец).
+- Изменение схемы БД, новая колонка тоже: новый файл `store/migrations/NNNN_имя.sql` со следующим номером (старые не менять; `EXTRA_COLUMNS` закрыт). Номера идут подряд, повтор или пропуск останавливает запуск.
 - Новая настройка: поле в `Settings` + `from_env` + строка в `.env.example`.
 - Новый фоновый цикл: функция в списке `factories` в `main.lifespan` (запускается под lease, только в одном процессе) и строки по [OBSERVABILITY.md](OBSERVABILITY.md#куда-добавлять-новое).
 - Новая проверка состояния, событие в журнале или фоновый цикл: [OBSERVABILITY.md](OBSERVABILITY.md#куда-добавлять-новое).
@@ -59,7 +59,7 @@
 - Ожидание в коде подменяется через `_sleep` модуля (`telegram.client`, `services.updates`), а не через `asyncio.sleep`: глобальная подмена останавливает фейковый сервер в соседнем потоке, и тесты зависают.
 - Подменять настройки: `monkeypatch.setattr(settings.get(), "preview_chat", "")`.
 - Подменять Telegram: `monkeypatch.setattr(telegram, "call", fake)`.
-- `tests/e2e_ui.mjs` — проверки в браузере против запущенной студии и `tests/mock_telegram.py`.
+- `tests/e2e_ui.mjs` — раннер браузерных проверок против запущенной студии и `tests/mock_telegram.py`; сами проверки — по файлу на каждую в `tests/e2e/`.
 - `npm run test:render` — `tests/render_unit.mjs`: очистка HTML/Markdown в render.js на враждебных примерах (script, on*, javascript:, svg, mXSS), без студии. Новая дыра в санитайзере → сначала пример сюда.
 - `npm run test:parity` — `tests/render_parity.mjs`: предпросмотр каждого примера из `tests/telegram_parse/captured.json` совпадает с предпросмотром блоков, которые для него вернул настоящий Telegram. Новый пример: добавить в `cases.json` и записать `scripts/capture_telegram_parse.py` (нужен токен и чат, сообщения сразу удаляются). Осознанное расхождение помечается `known_gap` с причиной.
 - `npm run lint` — ESLint для `app/static` и тестов на JS: ловит неопределённые имена и забытые импорты, которые браузер покажет только при клике.

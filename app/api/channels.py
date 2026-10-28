@@ -20,6 +20,7 @@ async def check_channel(req: ChannelReq):
 
 @router.put("/api/channels/{chat_id}/topics", summary="Темы форума вручную: Bot API не умеет их перечислять")
 def set_topics(chat_id: str, req: TopicsReq):
+    """Темы приходят и сами, из событий создания темы."""
     return channels.set_topics(chat_id, [t.model_dump() for t in req.topics])
 
 

@@ -1,39 +1,14 @@
 """MCP server at /mcp: tool list, a full JSON-RPC round trip, and that publishing keeps the studio rules."""
 
 import json
-import re
 
 import store
 from test_api import BLOCKS_POST
+from test_reference_docs import documented_tools
 
 HEADERS = {"Accept": "application/json, text/event-stream", "MCP-Protocol-Version": "2025-06-18"}
-EXPECTED_TOOLS = {
-    "studio_health",
-    "studio_logs",
-    "bot_api_status",
-    "refresh_bot_api",
-    "describe_type",
-    "validate_post",
-    "save_draft",
-    "list_drafts",
-    "send_preview_to_me",
-    "check_channel",
-    "list_channels",
-    "publish_post",
-    "schedule_post",
-    "edit_post",
-    "list_posts",
-    "preview_post",
-    "get_draft",
-    "list_media",
-    "upload_media",
-    "send_poll",
-    "studio_status",
-    "reschedule_post",
-    "cancel_scheduled_post",
-    "get_post",
-    "post_history",
-}
+# the tools the server has are recorded in docs/reference/mcp-tools.md (generated, see test_reference_docs.py)
+EXPECTED_TOOLS = documented_tools()
 PUBLISHING = {"publish_post", "schedule_post", "edit_post", "reschedule_post", "cancel_scheduled_post", "send_poll"}
 
 
@@ -350,15 +325,12 @@ def test_preview_app(client, tg):
     assert not tg.calls
 
 
-def test_readme_lists_every_tool():
-    """README is where a person learns what agents can do: it must not drift from the server."""
+def test_readme_points_at_the_tool_reference():
+    """README is where a person learns what agents can do: it links the generated list instead of keeping one."""
     from pathlib import Path
 
     readme = (Path(__file__).resolve().parent.parent / "README.md").read_text("utf-8")
-    line = next(s for s in readme.splitlines() if s.startswith("Инструменты: "))
-    listed = set(re.findall(r"`([a-z_]+)`", line)) - {"idempotency_key", "dry_run"}
-    assert listed == EXPECTED_TOOLS
-    assert f"с {len(EXPECTED_TOOLS)} инструментами" in readme
+    assert "docs/reference/mcp-tools.md" in readme and "docs/reference/http-api.md" in readme
 
 
 # ---------- continuing the user's work ----------

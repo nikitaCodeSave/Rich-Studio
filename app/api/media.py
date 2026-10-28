@@ -11,7 +11,7 @@ from services import media
 router = APIRouter()
 
 
-@router.get("/api/media", tags=["media"])
+@router.get("/api/media", tags=["media"], summary="Загруженные файлы; used — нужен ли файл черновику или посту")
 def media_list():
     return media.list_files()
 
@@ -40,6 +40,7 @@ async def media_upload(file: UploadFile = File(...)):
 
 @router.post("/api/media/fetch", tags=["media"], summary="Скачать файл по ссылке в загрузки; дальше он upload:<name>")
 async def media_fetch(req: FetchReq):
+    """Ходит только на публичные адреса и проверяет каждый редирект; локальная сеть: `MEDIA_FETCH_PRIVATE=1`."""
     return await media.fetch(req.url, req.filename)
 
 

@@ -28,7 +28,7 @@ def render_page(post: dict, theme: str = "auto", title: str = "Предпрос�
     return re.sub(r"__(TITLE|THEME|PAYLOAD)__", lambda m: values[m.group(0)], TEMPLATE.read_text("utf-8"))
 
 
-@router.post("/api/validate", tags=["posts"])
+@router.post("/api/validate", tags=["posts"], summary="Проверить пост по спецификации: ошибки, предупреждения, символы")
 def validate(post: Post):
     return publisher.check(post.model_dump())
 
@@ -43,7 +43,12 @@ def render(post: Post, theme: str = "auto"):
     return render_page(post.model_dump(), theme)
 
 
-@router.get("/render/draft/{did}", response_class=HTMLResponse, tags=["preview"])
+@router.get(
+    "/render/draft/{did}",
+    response_class=HTMLResponse,
+    tags=["preview"],
+    summary="Страница предпросмотра черновика (preview_path из save_draft)",
+)
 def render_draft(did: str, theme: str = "auto"):
     d = store.get_draft(did)
     if not d:

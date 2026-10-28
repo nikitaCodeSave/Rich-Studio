@@ -775,6 +775,7 @@
   },
   "/api/channels/{chat_id}/topics": {
    "put": {
+    "description": "Темы приходят и сами, из событий создания темы.",
     "operationId": "set_topics_api_channels__chat_id__topics_put",
     "parameters": [
      {
@@ -883,7 +884,7 @@
       "description": "Successful Response"
      }
     },
-    "summary": "Config",
+    "summary": "Что нужно редактору: канал по умолчанию, чат для «Мне в личку», задан ли токен, версия спецификации",
     "tags": [
      "service"
     ]
@@ -902,7 +903,7 @@
       "description": "Successful Response"
      }
     },
-    "summary": "Drafts",
+    "summary": "Черновики студии, последние сверху",
     "tags": [
      "drafts"
     ]
@@ -939,7 +940,7 @@
       "description": "Validation Error"
      }
     },
-    "summary": "Create Draft",
+    "summary": "Новый черновик; он сразу открывается в редакторе",
     "tags": [
      "drafts"
     ]
@@ -979,7 +980,7 @@
       "description": "Validation Error"
      }
     },
-    "summary": "Del Draft",
+    "summary": "Удалить черновик",
     "tags": [
      "drafts"
     ]
@@ -1017,12 +1018,13 @@
       "description": "Validation Error"
      }
     },
-    "summary": "Draft",
+    "summary": "Черновик целиком: пост, название, version, каналы",
     "tags": [
      "drafts"
     ]
    },
    "put": {
+    "description": "`chat_ids` — каналы черновика: публикация из него без `chat_id` уходит туда. Без поля остаются прежние.",
     "operationId": "put_draft_api_drafts__did__put",
     "parameters": [
      {
@@ -1065,7 +1067,7 @@
       "description": "Validation Error"
      }
     },
-    "summary": "Put Draft",
+    "summary": "Сохранить черновик; с version — 409, если его сохранили в другом месте",
     "tags": [
      "drafts"
     ]
@@ -1165,6 +1167,7 @@
   },
   "/api/logs": {
    "get": {
+    "description": "`q=<request_id>` — всё, что сделал один запрос.",
     "operationId": "read_logs_api_logs_get",
     "parameters": [
      {
@@ -1280,7 +1283,7 @@
       "description": "Successful Response"
      }
     },
-    "summary": "Media List",
+    "summary": "Загруженные файлы; used — нужен ли файл черновику или посту",
     "tags": [
      "media"
     ]
@@ -1344,6 +1347,7 @@
   },
   "/api/media/fetch": {
    "post": {
+    "description": "Ходит только на публичные адреса и проверяет каждый редирект; локальная сеть: `MEDIA_FETCH_PRIVATE=1`.",
     "operationId": "media_fetch_api_media_fetch_post",
     "requestBody": {
      "content": {
@@ -1433,6 +1437,7 @@
   },
   "/api/poll": {
    "post": {
+    "description": "Опрос сразу после поста — поле `poll_after` в самом посте: оно проверяется по `sendPoll` до отправки поста.",
     "operationId": "send_poll_api_poll_post",
     "parameters": [
      {
@@ -1510,6 +1515,7 @@
   },
   "/api/posts": {
    "get": {
+    "description": "Для каждого поста: `title`, `thumb`, `link`, нажатия (`clicks`) и текст кнопки каждого `callback_data`\n(`buttons`). Отправка, которой Telegram отказал, — статус `failed` с ошибкой.",
     "operationId": "list_posts_api_posts_get",
     "parameters": [
      {
@@ -1585,6 +1591,7 @@
   },
   "/api/posts/{pid}": {
    "delete": {
+    "description": "`DELETE` неудачной отправки убирает её из списка.",
     "operationId": "delete_post_api_posts__pid__delete",
     "parameters": [
      {
@@ -1655,7 +1662,7 @@
       "description": "Validation Error"
      }
     },
-    "summary": "Post",
+    "summary": "Пост целиком: payload, статус, канал, version, реакции, нажатия",
     "tags": [
      "telegram"
     ]
@@ -1713,6 +1720,7 @@
   },
   "/api/posts/{pid}/edit": {
    "post": {
+    "description": "`?post_version=` — поле `version` поста из `GET /api/posts/{id}`: если пост с тех пор заменили, 409.",
     "operationId": "edit_post_api_posts__pid__edit_post",
     "parameters": [
      {
@@ -2016,6 +2024,7 @@
   },
   "/api/preview-send": {
    "post": {
+    "description": "В ответе `parsed`: блоки, на которые Telegram разобрал пост, и они же для повторной отправки (`input_blocks`).",
     "operationId": "preview_send_api_preview_send_post",
     "requestBody": {
      "content": {
@@ -2402,7 +2411,7 @@
       "description": "Validation Error"
      }
     },
-    "summary": "Get Spec Type",
+    "summary": "Точные поля типа или метода Bot API из текущей спецификации",
     "tags": [
      "spec"
     ]
@@ -2460,7 +2469,7 @@
       "description": "Validation Error"
      }
     },
-    "summary": "Validate",
+    "summary": "Проверить пост по спецификации: ошибки, предупреждения, символы",
     "tags": [
      "posts"
     ]
@@ -2512,7 +2521,7 @@
       "description": "Validation Error"
      }
     },
-    "summary": "Render Draft",
+    "summary": "Страница предпросмотра черновика (preview_path из save_draft)",
     "tags": [
      "preview"
     ]
