@@ -1,8 +1,10 @@
 """Editing a post: versions before each replacement, moving a scheduled or missed post, the working-copy draft."""
 
+import asyncio
 import time
 
 import store
+from services import posts, scheduler
 from test_api import BLOCKS_POST
 
 NEW = {"rich_message": {"markdown": "# Исправлено"}}
@@ -146,3 +148,52 @@ def test_scheduling_to_several_channels_is_all_or_nothing(client, monkeypatch):
     )
     assert r.status_code == 500
     assert store.list_posts() == []
+
+
+def test_a_missed_post_is_edited_before_it_is_scheduled_again(client, tg):
+    """«Править» on a missed post: its new content is what goes out after «Отложить заново»."""
+    rec = store.add_scheduled(["@chan"], {"rich_message": {"markdown": "старый"}}, int(time.time()) - 7200)[0]
+    store.mark_missed(rec["id"], "студия не работала")
+    r = client.post(
+        f"/api/posts/{rec['id']}/edit", params={"post_version": 0}, json={"rich_message": {"markdown": "новый"}}
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "missed" and r.json()["version"] == 1
+    assert client.get(f"/api/posts/{rec['id']}/versions").json()[0]["payload"]["rich_message"] == {"markdown": "старый"}
+    client.post(f"/api/posts/{rec['id']}/reschedule", json={"at": int(time.time()) + 60})
+    with store.conn() as c:
+        c.execute("update posts set scheduled_at = ? where id = ?", (int(time.time()) - 1, rec["id"]))
+    asyncio.run(scheduler.run_due_posts())
+    assert tg.last("sendRichMessage")["body"]["rich_message"] == {"markdown": "новый"}
+
+
+def test_buttons_of_a_scheduled_post_are_a_version_and_wait_for_the_scheduler(client, tg, monkeypatch):
+    kb = {"inline_keyboard": [[{"text": "Сайт", "url": "https://t.me/telegram"}]]}
+    rec = client.post(
+        "/api/schedule", json={"post": {"rich_message": {"markdown": "пост"}}, "at": int(time.time()) + 3600}
+    ).json()
+    r = client.post(f"/api/posts/{rec['id']}/buttons", json={"reply_markup": kb}, headers={"X-Studio-Client": "ui"})
+    assert r.status_code == 200 and r.json()["version"] == 1 and r.json()["payload"]["reply_markup"] == kb
+    [before] = client.get(f"/api/posts/{rec['id']}/versions").json()
+    assert not before["payload"].get("reply_markup") and before["actor"] == "ui"
+    # the same buttons again change nothing
+    assert client.post(f"/api/posts/{rec['id']}/buttons", json={"reply_markup": kb}).json()["version"] == 1
+    # the scheduler takes it between the read and the write: the buttons that go out stay the record
+    read = store.get_post(rec["id"])
+    assert store.claim_post(rec["id"])
+    monkeypatch.setattr(posts, "_get", lambda pid: read)
+    r = client.post(f"/api/posts/{rec['id']}/buttons", json={"reply_markup": None})
+    assert r.status_code == 400 and "уже отправляется" in r.json()["detail"]
+    p = store.get_post(rec["id"])
+    assert p["payload"]["reply_markup"] == kb and p["version"] == 1
+
+
+def test_refused_buttons_give_the_version_back(client, tg):
+    pid = client.post("/api/send", json={"post": {"rich_message": {"markdown": "пост"}}}).json()["post"]["id"]
+    tg.fail["editMessageReplyMarkup"] = "Bad Request: message can't be edited"
+    kb = {"inline_keyboard": [[{"text": "Сайт", "url": "https://t.me/telegram"}]]}
+    r = client.post(f"/api/posts/{pid}/buttons", json={"reply_markup": kb})
+    assert r.status_code == 422
+    p = store.get_post(pid)
+    assert p["version"] == 0 and not p["payload"].get("reply_markup")
+    assert client.get(f"/api/posts/{pid}/versions").json() == []

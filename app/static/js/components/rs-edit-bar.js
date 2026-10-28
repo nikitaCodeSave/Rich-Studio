@@ -38,7 +38,7 @@ export class RsEditBar extends LitElement {
     return html`<div class="bar" role="status">
   <span class="what">Правите пост <b>${p.message_id ? '#' + p.message_id : ''} в ${p.chat_id}</b>
     <span class="muted">· ${STATUS[p.status] || p.status}${at}</span></span>
-  ${p.status === 'sent' || p.status === 'scheduled'
+  ${p.status === 'sent' || waiting
     ? html`<button class="primary" @click=${() => this.fire('update')} title="Заменить этот пост содержимым редактора">Обновить пост</button>` : nothing}
   ${waiting ? html`<button @click=${() => this.fire('reschedule')}>${p.status === 'missed' ? 'Отложить заново' : 'Перенести'}</button>` : nothing}
   <button @click=${() => this.fire('history')} title="Как пост выглядел до замен">История</button>
