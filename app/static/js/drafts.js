@@ -3,7 +3,7 @@ import { api } from './api.js';
 import { showTarget } from './channels.js';
 import { closeDialog, openDialog } from './dialogs.js';
 import { $, h, store, toast } from './dom.js';
-import { changed, draftPayload, flushSave, loadPost } from './editor.js';
+import { autosave, changed, draftPayload, flushSave, loadPost } from './editor.js';
 import { followDraft } from './editing.js';
 import { pushHistory, resetHistory } from './history.js';
 import { chatLabel, chats, dirty, editing, kindOf, S, saveState } from './state.js';
@@ -106,26 +106,50 @@ export async function watchDrafts() {
 // one save at a time: a second one sent before the first returns would carry a stale version and get 409
 let saving = Promise.resolve();
 let pending = 0; // saves in flight: their new version is ours, not someone else's
+// which draft the editor shows: «Новый пост» bumps it, so a save of the draft left behind never touches the editor
+let generation = 0;
+
+/** What a save sends, taken when it is asked for: what is typed while it waits in line or is on the way is the next save's. */
+function snapshot() {
+  return { title: $('#title').value, post: draftPayload(), post_id: editing.value ? editing.value.id : null, chat_ids: chats() };
+}
+
 export function saveDraft(silent, overwrite) {
+  const snap = { gen: generation, id: S.draftId, version: S.draftVersion, body: snapshot() };
   pending++;
-  const run = saving.then(() => doSave(silent, overwrite)).finally(() => { pending--; });
+  const run = saving.then(() => doSave(snap, silent, overwrite)).finally(() => { pending--; });
   saving = run.catch(() => {});
   return run;
 }
 
-async function doSave(silent, overwrite) {
-  const body = { title: $('#title').value.trim() || 'Пост ' + new Date().toLocaleDateString('ru-RU'), post: draftPayload(), post_id: editing.value ? editing.value.id : null, chat_ids: chats() };
+async function doSave(snap, silent, overwrite) {
+  const here = snap.gen === generation;
+  // still the draft on screen: an earlier save in the line may have created it or moved its version
+  const id = here ? S.draftId : snap.id;
+  const version = here ? S.draftVersion : snap.version;
+  const body = { ...snap.body, title: snap.body.title.trim() || 'Пост ' + new Date().toLocaleDateString('ru-RU') };
   let d;
   try {
     // the version this tab started from: if another tab or an agent saved since, the server answers 409
-    d = S.draftId ? await api('PUT', '/api/drafts/' + S.draftId, { ...body, version: overwrite ? null : S.draftVersion }) : await api('POST', '/api/drafts', body);
+    d = id ? await api('PUT', '/api/drafts/' + id, { ...body, version: overwrite ? null : version }) : await api('POST', '/api/drafts', body);
   } catch (e) {
     if (e.status !== 409) throw e;
-    draftConflict(e.detail);
+    if (here) draftConflict(e.detail);
+    else toast(`Черновик «${body.title}» не сохранён: его изменили в другом месте. Откройте его из списка`, 'err');
     return null;
   }
-  S.draftId = d.id; S.draftVersion = d.version; $('#title').value = d.title;
-  dirty.value = false; saveState.value = 'сохранено ' + new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  if (!here) { loadDrafts(); return d; } // the editor shows another draft now
+  S.draftId = d.id; S.draftVersion = d.version;
+  const sameTitle = $('#title').value === snap.body.title;
+  if (sameTitle) $('#title').value = d.title;
+  // only what was sent is saved: a change made while the request was on the way stays unsaved and saves next
+  const rest = (b) => JSON.stringify({ ...b, title: '' });
+  if (sameTitle && rest(snapshot()) === rest(snap.body)) {
+    dirty.value = false; saveState.value = 'сохранено ' + new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  } else {
+    dirty.value = true; saveState.value = 'есть изменения';
+    autosave();
+  }
   store.set('lastDraft', d.id);
   showAddress(d.id);
   if (body.chat_ids.length) store.del('chat'); // the channel lives in the draft now
@@ -153,14 +177,17 @@ function draftConflict(detail) {
 }
 
 export async function newDraft() {
-  await flushSave().catch(() => {});
+  // the draft left behind saves as it is now; the editor switches at once, so what is typed next is the new post's
+  const left = dirty.value && !S.conflict ? saveDraft(true).catch(() => {}) : null;
+  generation++;
   S.draftId = null; S.draftVersion = null; editing.value = null;
   $('#title').value = '';
   setChannels(null);
   loadPost({ rich_message: { blocks: [{ type: 'heading', size: 1, text: 'Заголовок' }, { type: 'paragraph', text: 'Текст поста' }] } });
   showTarget();
   resetHistory();
-  saveState.value = '';
+  dirty.value = false; saveState.value = '';
   showAddress(null);
   loadDrafts();
+  await left;
 }
