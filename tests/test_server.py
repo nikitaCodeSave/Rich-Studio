@@ -71,6 +71,20 @@ def test_unwritable_data_dir_check(tmp_path, monkeypatch):
         main._data_dir_writable(cfg)
 
 
+def test_a_locked_file_inside_data_dir_is_found(tmp_path, monkeypatch):
+    cfg = settings.Settings.from_env({"DATA_DIR": str(tmp_path)})
+    (tmp_path / "logs").mkdir()
+    (tmp_path / "logs" / "studio.log").write_text("")
+    (tmp_path / "studio.db").write_text("")
+    main._data_dir_writable(cfg)
+    # an own folder with files a root image left behind: the folder itself is writable, they are not
+    locked = {str(tmp_path / "logs" / "studio.log")}
+    real = os.access
+    monkeypatch.setattr(main.os, "access", lambda p, mode: str(p) not in locked and real(p, mode))
+    with pytest.raises(settings.SettingsError, match=r"studio\.log не записывается.*chown -R"):
+        main._data_dir_writable(cfg)
+
+
 def test_pinned_spec_is_the_bundled_one_and_never_downloads(monkeypatch, fresh_data):
     cache = fresh_data / "api.json"
     newer = json.loads(source.BUNDLED.read_text("utf-8")) | {"version": "Bot API 99.0"}

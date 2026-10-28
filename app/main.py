@@ -107,12 +107,17 @@ async def _observe(request: Request, call_next):
 
 
 def _data_dir_writable(cfg: settings.Settings) -> None:
-    """The usual reason it is not: ./data made by Docker or an older image as root, the process runs as a user."""
+    """The usual reason it is not: ./data made by Docker or an older image as root, the process runs as a user.
+    Everything inside counts too: an own folder with studio.db and logs/ from a root image starts fine and then
+    fails every write."""
     try:
         cfg.data_dir.mkdir(parents=True, exist_ok=True)
         probe = cfg.data_dir / ".write-test"
         probe.write_bytes(b"")
         probe.unlink()
+        locked = next((p for p in cfg.data_dir.rglob("*") if not os.access(p, os.W_OK)), None)
+        if locked:
+            raise PermissionError(13, f"{locked} не записывается")
     except OSError as e:
         raise settings.SettingsError(
             [
