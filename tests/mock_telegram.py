@@ -84,6 +84,7 @@ class FakeTelegram:
         self.next_id = 100
         self.next_update = 1
         self.fail: dict[str, str] = {}  # method -> description of a 400 error
+        self.fail_code: dict[str, int] = {}  # method -> another error code (a 502 is "may have gone")
         self.queue: dict[str, list] = {}  # method -> raw responses (dicts or Responses) before the normal answer
         self.updates: list[dict] = []  # what the next getUpdates returns
         self.messages: dict[tuple, dict] = {}  # (chat_id, message_id) -> content, to answer edits like Telegram
@@ -93,6 +94,7 @@ class FakeTelegram:
     def reset(self):
         self.calls.clear()
         self.fail.clear()
+        self.fail_code.clear()
         self.queue.clear()
         self.updates.clear()
         self.messages.clear()
@@ -121,7 +123,7 @@ class FakeTelegram:
         if self.queue.get(method):
             return self.queue[method].pop(0)
         if method in self.fail:
-            return {"ok": False, "error_code": 400, "description": self.fail[method]}
+            return {"ok": False, "error_code": self.fail_code.get(method, 400), "description": self.fail[method]}
         if method == "getMe":
             return {
                 "ok": True,
@@ -245,11 +247,14 @@ class FakeTelegram:
 
         @app.post("/fail")
         def set_fail(req: dict):
-            """{"method": ..., "description": ...} makes that method answer 400; description null clears it."""
+            """{"method": ..., "description": ..., "error_code"?: 502} makes that method answer 400 (or that code);
+            description null clears it."""
             if req.get("description"):
                 self.fail[req["method"]] = req["description"]
+                self.fail_code[req["method"]] = req.get("error_code") or 400
             else:
                 self.fail.pop(req["method"], None)
+                self.fail_code.pop(req["method"], None)
             return {"ok": True}
 
         @app.get("/log")

@@ -22,6 +22,7 @@ PUBLISHING = {
     "send_media_post",
     "approve_suggested_post",
     "decline_suggested_post",
+    "reopen_suggested_post",
 }
 
 

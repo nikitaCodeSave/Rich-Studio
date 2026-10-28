@@ -191,3 +191,51 @@ def test_an_outcome_that_comes_while_approving_is_not_overwritten(client, tg, mo
     monkeypatch.setattr(telegram, "call", outcome_first)
     r = client.post("/api/suggested-posts/-1009:60/approve", json={}, headers={"X-Studio-Client": "ui"})
     assert r.status_code == 200 and r.json()["state"] == "paid" and r.json()["actor"] == "ui"
+
+
+def test_a_decision_without_an_answer_can_be_made_again(client, tg, monkeypatch):
+    """«Решить снова»: approving goes back to pending at once (no timer), the next decision goes to Telegram,
+    an agent's request key made from the request is a new one, and a late outcome still moves the state forward."""
+    import telegram
+
+    real = telegram.call
+    asyncio.run(updates.handle_update(_suggestion(70, {"state": "pending"})))
+    assert client.post("/api/suggested-posts/-1009:70/reopen").status_code == 400  # nothing to decide again
+
+    async def timeout(method, params=None, *a, **kw):
+        if method == "approveSuggestedPost":
+            raise TimeoutError("read timeout")
+        return await real(method, params, *a, **kw)
+
+    monkeypatch.setattr(telegram, "call", timeout)
+    res, _, text = call(client, "approve_suggested_post", suggestion_id="-1009:70")
+    assert res.get("isError") and "могло дойти" in text
+    monkeypatch.setattr(telegram, "call", real)
+    # the same request from the agent is still the decision without an answer
+    res, _, text = call(client, "approve_suggested_post", suggestion_id="-1009:70")
+    assert res.get("isError") and not [c for c in tg.calls if c["method"] == "approveSuggestedPost"]
+    _, r, _ = call(client, "reopen_suggested_post", suggestion_id="-1009:70")
+    assert r["state"] == "pending" and r["reopened_at"]
+    _, r, text = call(client, "approve_suggested_post", suggestion_id="-1009:70")
+    assert r and r["state"] == "approved", text
+    assert tg.last("approveSuggestedPost")["body"]["message_id"] == 70
+    # decided now: no reopening
+    assert client.post("/api/suggested-posts/-1009:70/reopen").status_code == 400
+
+
+def test_reopened_then_the_late_outcome_comes(client, tg):
+    """The first decision did reach Telegram after all: its outcome moves the reopened suggestion forward."""
+    from store import suggested_posts as rows
+
+    asyncio.run(updates.handle_update(_suggestion(80, {"state": "pending"})))
+    assert rows.claim("-1009:80", ("pending",), "declining")
+    r = client.post("/api/suggested-posts/-1009:80/reopen", headers={"X-Studio-Client": "ui"})
+    assert r.status_code == 200 and r.json()["state"] == "pending" and r.json()["actor"] == "ui"
+    late = {
+        "message_id": 81,
+        "date": 1,
+        "chat": DM,
+        "suggested_post_declined": {"suggested_post_message": {"message_id": 80, "date": 1}},
+    }
+    asyncio.run(updates.handle_update({"message": late}))
+    assert rows.get("-1009:80")["state"] == "declined"

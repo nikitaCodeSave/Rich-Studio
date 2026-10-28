@@ -40,6 +40,17 @@ async def approve(
 
 
 @router.post(
+    "/api/suggested-posts/{sid}/reopen",
+    dependencies=PUBLISH,
+    summary="Решить снова: решение без ответа Telegram (approving/declining) возвращается в ожидание",
+)
+def reopen(sid: str, who: str = Depends(actor)):
+    """Только после проверки в личных сообщениях канала, что решение не дошло. Telegram решает предложение один раз:
+    дошедшее решение, принятое снова, он отклонит, а его итог всё равно придёт и обновит состояние."""
+    return suggested_posts.reopen(sid, actor=who)
+
+
+@router.post(
     "/api/suggested-posts/{sid}/decline",
     dependencies=PUBLISH,
     summary="Отклонить предложенный пост с комментарием автору (declineSuggestedPost)",
