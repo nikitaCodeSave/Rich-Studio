@@ -37,21 +37,12 @@ def register(tool: ToolDecorator) -> None:
         """Принять предложенный пост: Telegram опубликует его в канале, платный спишет звёзды с автора. Только после
         явного подтверждения пользователя для этого предложения."""
         body = {"sid": suggestion_id, "send_date": send_date}
-        # after «Решить снова» the same request is a new decision, not a retry of the one without an answer
-        auto = {**body, "round": suggested_posts.decision_round(suggestion_id)}
         return await idempotency.run(
-            request_key(idempotency_key, "suggested-approve", auto),
+            request_key(idempotency_key, "suggested-approve", body),
             "suggested-approve",
             body,
             lambda: suggested_posts.approve(suggestion_id, send_date, actor=actor()),
         )
-
-    @tool(PUBLIC)
-    async def reopen_suggested_post(suggestion_id: SuggestionArg) -> dict:
-        """Решить снова: предложение, решение по которому осталось без ответа Telegram (approving/declining),
-        возвращается в ожидание. Только после того, как пользователь проверил в личных сообщениях канала, что
-        решение не дошло, и сам попросил решить снова. Затем approve_suggested_post или decline_suggested_post."""
-        return suggested_posts.reopen(suggestion_id, actor=actor())
 
     @tool(PUBLIC)
     async def decline_suggested_post(

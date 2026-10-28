@@ -156,22 +156,17 @@ async def approve(sid: str, send_date=None, actor: str = "api") -> dict:
 def reopen(sid: str, actor: str = "api") -> dict:
     """«Решить снова»: a decision that got no answer from Telegram (approving/declining) goes back to waiting.
 
-    No timer: the person checks the channel's direct messages first. Telegram decides a suggestion once, so a decision
-    that did reach it and is made again is refused there, and its outcome still comes as a service message and moves
-    the state forward (RANK). An agent's key made from the request itself changes with reopened_at."""
+    No timer: the person checks the channel's direct messages first, then decides again with two more clicks. Only
+    a person does it (the editor or HTTP, not MCP): an agent cannot look into the direct messages, so it could only
+    resend blindly. A decision that did reach Telegram is probably refused there the second time (a decided suggestion
+    is no longer pending), and its outcome still comes as a service message and moves the state forward (RANK)."""
     rec = _get(sid)
     if rec["state"] not in ("approving", "declining"):
         raise StudioError(f"предложенный пост в состоянии {rec['state']}: решить снова можно только решение без ответа")
     if not store.suggested_posts.claim(sid, (rec["state"],), "pending"):  # the outcome came just now
         rec = _get(sid)
         raise StudioError(f"предложенный пост уже {rec['state']}: итог пришёл от Telegram")
-    return view(store.suggested_posts.update(sid, reopened_at=int(time.time()), actor=actor))  # type: ignore[arg-type]
-
-
-def decision_round(sid: str) -> int | None:
-    """Which decision this is: the same request after «Решить снова» is a new one, not a retry."""
-    rec = store.suggested_posts.get(sid)
-    return rec.get("reopened_at") if rec else None
+    return view(store.suggested_posts.update(sid, actor=actor))  # type: ignore[arg-type]
 
 
 async def decline(sid: str, comment: str | None = None, actor: str = "api") -> dict:

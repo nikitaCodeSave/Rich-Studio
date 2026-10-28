@@ -194,8 +194,8 @@ def test_an_outcome_that_comes_while_approving_is_not_overwritten(client, tg, mo
 
 
 def test_a_decision_without_an_answer_can_be_made_again(client, tg, monkeypatch):
-    """«Решить снова»: approving goes back to pending at once (no timer), the next decision goes to Telegram,
-    an agent's request key made from the request is a new one, and a late outcome still moves the state forward."""
+    """«Решить снова»: approving goes back to pending at once (no timer), the next decision goes to Telegram; the
+    same request with the same key is still the decision without an answer, and agents have no tool for it."""
     import telegram
 
     real = telegram.call
@@ -208,19 +208,24 @@ def test_a_decision_without_an_answer_can_be_made_again(client, tg, monkeypatch)
         return await real(method, params, *a, **kw)
 
     monkeypatch.setattr(telegram, "call", timeout)
-    res, _, text = call(client, "approve_suggested_post", suggestion_id="-1009:70")
-    assert res.get("isError") and "могло дойти" in text
+    key = {"Idempotency-Key": "approve-70"}
+    r = client.post("/api/suggested-posts/-1009:70/approve", json={}, headers=key)
+    assert r.status_code == 502 and "могло дойти" in r.json()["detail"]
     monkeypatch.setattr(telegram, "call", real)
-    # the same request from the agent is still the decision without an answer
-    res, _, text = call(client, "approve_suggested_post", suggestion_id="-1009:70")
-    assert res.get("isError") and not [c for c in tg.calls if c["method"] == "approveSuggestedPost"]
-    _, r, _ = call(client, "reopen_suggested_post", suggestion_id="-1009:70")
-    assert r["state"] == "pending" and r["reopened_at"]
-    _, r, text = call(client, "approve_suggested_post", suggestion_id="-1009:70")
-    assert r and r["state"] == "approved", text
+    r = client.post("/api/suggested-posts/-1009:70/reopen", headers={"X-Studio-Client": "ui"})
+    assert r.status_code == 200 and r.json()["state"] == "pending" and r.json()["actor"] == "ui"
+    # the same key is still the decision that got no answer: nothing goes to Telegram
+    assert client.post("/api/suggested-posts/-1009:70/approve", json={}, headers=key).status_code == 502
+    assert not [c for c in tg.calls if c["method"] == "approveSuggestedPost"]
+    r = client.post("/api/suggested-posts/-1009:70/approve", json={})
+    assert r.status_code == 200 and r.json()["state"] == "approved"
     assert tg.last("approveSuggestedPost")["body"]["message_id"] == 70
     # decided now: no reopening
     assert client.post("/api/suggested-posts/-1009:70/reopen").status_code == 400
+    # an agent cannot decide again by itself: the person checks the channel's direct messages first
+    import mcp_tools
+
+    assert not [t for t in asyncio.run(mcp_tools.build().list_tools()) if "reopen" in t.name]
 
 
 def test_reopened_then_the_late_outcome_comes(client, tg):

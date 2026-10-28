@@ -20,7 +20,7 @@ function price(s) {
  * @param {SuggestedPost} s */
 function stuck(s) {
   const reopen = () => {
-    if (!confirm('Решение не дошло до Telegram? Если оно всё-таки дошло, Telegram не примет второе, а итог появится сам.')) return;
+    if (!confirm('Решение не дошло до Telegram? Если оно всё-таки дошло, Telegram может не принять второе, а итог появится сам.')) return;
     act(() => api('POST', `/api/suggested-posts/${encodeURIComponent(s.id)}/reopen`), 'Можно решить снова').then((r) => { closeDialog(d); loadSuggested(); if (r) decide(r); });
   };
   const d = openDialog([

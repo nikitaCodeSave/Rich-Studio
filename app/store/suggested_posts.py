@@ -5,17 +5,7 @@ import time
 
 from .db import conn, row
 
-FIELDS = {
-    "state",
-    "price_amount",
-    "price_currency",
-    "send_date",
-    "comment",
-    "actor",
-    "decided_at",
-    "message",
-    "reopened_at",
-}
+FIELDS = {"state", "price_amount", "price_currency", "send_date", "comment", "actor", "decided_at", "message"}
 # how far a suggestion has got: a copy that arrives late (the same update again, an edit) never moves it back
 RANK = {
     "pending": 0,
