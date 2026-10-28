@@ -57,7 +57,7 @@ def _limits(expire_date: int | None, member_limit, creates_join_request: bool) -
         if creates_join_request:
             raise StudioError(
                 "у ссылки с заявками на вступление не бывает предела участников (так решил Telegram): "
-                "снимите предел, member_limit: 0"
+                "оставьте одно: снимите заявки (creates_join_request: false) или предел (member_limit: 0)"
             )
         params["member_limit"] = member_limit
     if creates_join_request:
