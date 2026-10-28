@@ -1,7 +1,7 @@
 // Live Photo (sendLivePhoto) and paid media for stars (sendPaidMedia): messages of their own, not rich posts.
 import { api } from './api.js';
 import { closeDialog, openDialog } from './dialogs.js';
-import { act, h, toast } from './dom.js';
+import { act, h, sentReport, toast } from './dom.js';
 import { loadPosts } from './posts.js';
 import { S, target, targetLabel } from './state.js';
 import { whenPicker } from './when.js';
@@ -71,7 +71,7 @@ export function showMediaPost() {
     if (scheduled) { const at = pick.value(); if (!at || at * 1000 < Date.now()) { toast('Выберите время в будущем', 'err'); return; } req.at = at; }
     const what = M.kind === 'live_photo' ? 'Live Photo' : `платный контент за ${M.stars} ⭐`;
     if (!scheduled && !confirm(`Отправить ${what} в ${targetLabel()}?`)) return;
-    const r = await act(() => api('POST', '/api/media-post', req), scheduled ? 'Запланировано' : (x) => 'Отправлено' + (x.warnings.length ? '\n' + x.warnings.join('; ') : ''));
+    const r = await act(() => api('POST', '/api/media-post', req), scheduled ? 'Запланировано' : (x) => sentReport('Отправлено', x));
     if (r) { closeDialog(d); loadPosts(); }
   };
   const kind = h('select', { 'aria-label': 'Что отправить', onchange: (e) => { M.kind = e.target.value; draw(); } },

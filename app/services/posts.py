@@ -61,6 +61,17 @@ async def send(
     if dry_run:
         return dry_run_report(chats, post, report["warnings"])
     results, warnings = await publisher.publish(chats, post, draft_id, actor=actor)
+    first = _first_sent(results)
+    return {
+        "post": first["post"],
+        "message": first["message"],
+        "results": results,
+        "warnings": report["warnings"] + warnings,
+    }
+
+
+def _first_sent(results: list[dict]) -> dict:
+    """The first chat it went to; none at all is an error, not a 200 with every chat refused."""
     for r in results:  # the agent and the editor name the channel, not only its id
         r["chat_title"] = channels.title_of(r["chat_id"])
     first = next((r for r in results if r["ok"]), None)
@@ -72,12 +83,7 @@ async def send(
         if any(publisher.MAY_HAVE_GONE in r["error"] for r in results):
             raise MayHaveGone(detail)
         raise Upstream(detail)
-    return {
-        "post": first["post"],
-        "message": first["message"],
-        "results": results,
-        "warnings": report["warnings"] + warnings,
-    }
+    return first
 
 
 def dry_run_report(chats: list, post: dict, warnings: list[str]) -> dict:
@@ -361,6 +367,7 @@ async def send_kind(
         recs = store.add_scheduled(publisher.targets(chat_id, chat_ids), post, when, kind=k.name, actor=actor)
         return {"scheduled": recs}
     results, warnings = await publisher.publish(publisher.targets(chat_id, chat_ids), post, kind=k.name, actor=actor)
+    _first_sent(results)
     return {"results": results, "warnings": warnings}
 
 
