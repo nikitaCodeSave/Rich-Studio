@@ -42,10 +42,11 @@ def _record(link: dict) -> dict:
     }
 
 
-def _limits(expire_date, member_limit, creates_join_request: bool) -> dict:
+def _limits(expire_date: int | None, member_limit, creates_join_request: bool) -> dict:
+    """expire_date is already unix time here: a new one is parsed by the caller, a kept one may be in the past."""
     params: dict = {}
-    if expire_date not in (None, ""):
-        params["expire_date"] = publisher.parse_at(expire_date)
+    if expire_date:
+        params["expire_date"] = expire_date
     if member_limit not in (None, 0):
         if (
             not isinstance(member_limit, int)
@@ -54,7 +55,10 @@ def _limits(expire_date, member_limit, creates_join_request: bool) -> dict:
         ):
             raise StudioError(f"member_limit: от 1 до {MEMBER_LIMIT_MAX}")
         if creates_join_request:
-            raise StudioError("у ссылки с заявками на вступление не бывает предела участников (так решил Telegram)")
+            raise StudioError(
+                "у ссылки с заявками на вступление не бывает предела участников (так решил Telegram): "
+                "снимите предел, member_limit: 0"
+            )
         params["member_limit"] = member_limit
     if creates_join_request:
         params["creates_join_request"] = True
@@ -84,9 +88,14 @@ async def create(
         params.update(subscription_period=SUBSCRIPTION_PERIOD, subscription_price=subscription_price)
         link = await tg.call("createChatSubscriptionInviteLink", params)
     else:
-        params.update(_limits(expire_date, member_limit, creates_join_request))
+        params.update(_limits(_expire(expire_date), member_limit, creates_join_request))
         link = await tg.call("createChatInviteLink", params)
     return store.invite_links.save(link["invite_link"], str(chat), actor=actor, **_record(link))
+
+
+def _expire(expire_date) -> int | None:
+    """A given expiry: unix or ISO 8601, not in the past; 0 or an empty string means none."""
+    return None if expire_date in (None, "", 0) else publisher.parse_at(expire_date)
 
 
 def _get(invite_link: str) -> dict:
@@ -101,21 +110,29 @@ async def edit(
     name: str | None = None,
     expire_date=None,
     member_limit: int | None = None,
-    creates_join_request: bool = False,
+    creates_join_request: bool | None = None,
 ) -> dict:
-    """New name or limits for a link the studio made; what is not given is taken off (as Telegram does).
-    A subscription link changes only its name."""
+    """New name or limits for a link the studio made. What is not given (None) stays as it is; name "",
+    expire_date 0 or "", member_limit 0 and creates_join_request false take it off. Telegram drops whatever an
+    edit does not repeat, so the studio repeats the rest from the stored link. A subscription changes only its name."""
     rec = _get(invite_link)
     if rec["is_revoked"]:
         raise StudioError("ссылка отозвана: её уже не изменить")
     chat = publisher.resolve_chat(rec["chat_id"])
-    params: dict = {"chat_id": chat, "invite_link": rec["invite_link"], "name": _name(name) or ""}
+    kept_name = rec["name"] if name is None else _name(name)
+    params: dict = {"chat_id": chat, "invite_link": rec["invite_link"], "name": kept_name or ""}
     if rec["kind"] == "subscription":
-        if expire_date not in (None, "") or member_limit or creates_join_request:
+        if expire_date not in (None, "", 0) or member_limit or creates_join_request:
             raise StudioError("у платной подписки меняется только название")
         link = await tg.call("editChatSubscriptionInviteLink", params)
     else:
-        params.update(_limits(expire_date, member_limit, creates_join_request))
+        params.update(
+            _limits(
+                rec["expire_date"] if expire_date is None else _expire(expire_date),
+                rec["member_limit"] if member_limit is None else member_limit,
+                bool(rec["creates_join_request"]) if creates_join_request is None else creates_join_request,
+            )
+        )
         link = await tg.call("editChatInviteLink", params)
     return store.invite_links.save(rec["invite_link"], rec["chat_id"], **_record(link))
 

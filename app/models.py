@@ -137,7 +137,12 @@ class InviteLinkReq(InviteLinkLimits):
 
 
 class InviteLinkEditReq(InviteLinkLimits):
+    """Непереданное поле остаётся как было; снять: name "", expire_date 0, member_limit 0, creates_join_request false."""
+
     invite_link: str = Field(..., description="Ссылка из /api/invite-links: https://t.me/+…")
+    creates_join_request: bool | None = Field(  # type: ignore[assignment]
+        None, description="Вступление по заявке: true включить, false снять, не передано — как было"
+    )
 
 
 class InviteLinkRef(BaseModel):

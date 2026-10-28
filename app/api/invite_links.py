@@ -31,7 +31,8 @@ async def create_link(req: InviteLinkReq, who: str = Depends(actor)):
 
 @router.patch("/api/invite-links", dependencies=PUBLISH, summary="Изменить название, срок или предел ссылки")
 async def edit_link(req: InviteLinkEditReq):
-    """Непереданные срок и предел снимаются, как в Telegram. У платной подписки меняется только название."""
+    """Непереданные поля остаются как были, снять их: `name: ""`, `expire_date: 0`, `member_limit: 0`,
+    `creates_join_request: false`. У платной подписки меняется только название."""
     return await invite_links.edit(**req.model_dump())
 
 

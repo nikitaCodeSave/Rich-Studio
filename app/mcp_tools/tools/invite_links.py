@@ -46,10 +46,13 @@ def register(tool: ToolDecorator) -> None:
         name: NameArg = None,
         expire_date: ExpireArg = None,
         member_limit: LimitArg = None,
-        creates_join_request: RequestArg = False,
+        creates_join_request: Annotated[
+            bool | None, Field(description="Заявки на вступление: true включить, false снять, не передано — как было")
+        ] = None,
     ) -> dict:
-        """Изменить ссылку, созданную студией. Непереданные срок и предел снимаются. У подписки — только название.
-        Только после подтверждения пользователя."""
+        """Изменить ссылку, созданную студией. Непереданное остаётся как было; снять: name "", expire_date "",
+        member_limit 0, creates_join_request false. У подписки — только название. Только после подтверждения
+        пользователя."""
         return await invite_links.edit(invite_link, name, expire_date, member_limit, creates_join_request)
 
     @tool(PUBLIC)

@@ -203,12 +203,19 @@
     "type": "object"
    },
    "InviteLinkEditReq": {
+    "description": "Непереданное поле остаётся как было; снять: name \"\", expire_date 0, member_limit 0, creates_join_request false.",
     "properties": {
      "creates_join_request": {
-      "default": false,
-      "description": "Вступление по заявке: её принимает админ (тогда без member_limit)",
-      "title": "Creates Join Request",
-      "type": "boolean"
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Вступление по заявке: true включить, false снять, не передано — как было",
+      "title": "Creates Join Request"
      },
      "expire_date": {
       "anyOf": [
@@ -1380,7 +1387,7 @@
     ]
    },
    "patch": {
-    "description": "Непереданные срок и предел снимаются, как в Telegram. У платной подписки меняется только название.",
+    "description": "Непереданные поля остаются как были, снять их: `name: \"\"`, `expire_date: 0`, `member_limit: 0`,\n`creates_join_request: false`. У платной подписки меняется только название.",
     "operationId": "edit_link_api_invite_links_patch",
     "requestBody": {
      "content": {

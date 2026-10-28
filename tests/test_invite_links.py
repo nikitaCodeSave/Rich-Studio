@@ -58,8 +58,19 @@ def test_join_requests_expiry_and_revoke(client, tg):
     r = client.post("/api/invite-links", json={"creates_join_request": True, "member_limit": 5})
     assert r.status_code == 400 and "заяв" in r.json()["detail"]
     assert client.post("/api/invite-links", json={"name": "x" * 33}).status_code == 400
+    # Telegram drops what an edit leaves out, so a rename repeats the expiry and the join requests
     edited = client.patch("/api/invite-links", json={"invite_link": link["invite_link"], "name": "Заявки 2"}).json()
-    assert edited["name"] == "Заявки 2" and edited["requests"] == 1 and not edited["expire_date"]
+    assert edited["name"] == "Заявки 2" and edited["requests"] == 1
+    assert edited["expire_date"] == at and edited["creates_join_request"] == 1
+    sent = tg.last("editChatInviteLink")["body"]
+    assert sent["expire_date"] == at and sent["creates_join_request"] is True
+    later = client.patch("/api/invite-links", json={"invite_link": link["invite_link"], "expire_date": at + 60}).json()
+    assert later["name"] == "Заявки 2" and later["expire_date"] == at + 60 and later["creates_join_request"] == 1
+    off = client.patch(
+        "/api/invite-links", json={"invite_link": link["invite_link"], "expire_date": 0, "creates_join_request": False}
+    ).json()
+    assert off["name"] == "Заявки 2" and not off["expire_date"] and off["creates_join_request"] == 0
+    assert "expire_date" not in tg.last("editChatInviteLink")["body"]
     revoked = client.post("/api/invite-links/revoke", json={"invite_link": link["invite_link"]}).json()
     assert revoked["is_revoked"] == 1 and revoked["name"] == "Заявки 2"
     assert client.patch("/api/invite-links", json={"invite_link": link["invite_link"]}).status_code == 400
@@ -92,5 +103,11 @@ def test_invite_links_through_mcp(client, tg):
     _, link, _ = call(client, "create_invite_link", chat_id="@chan", name="Telegram-чат")
     assert link["invite_link"].startswith("https://t.me/+")
     assert [x["name"] for x in call_list(client, "list_invite_links")] == ["Telegram-чат"]
+    _, limited, _ = call(client, "edit_invite_link", invite_link=link["invite_link"], member_limit=20)
+    assert limited["name"] == "Telegram-чат" and limited["member_limit"] == 20
+    _, renamed, _ = call(client, "edit_invite_link", invite_link=link["invite_link"], name="Чат")
+    assert renamed["name"] == "Чат" and renamed["member_limit"] == 20
+    _, unnamed, _ = call(client, "edit_invite_link", invite_link=link["invite_link"], name="", member_limit=0)
+    assert not unnamed["name"] and not unnamed["member_limit"]
     _, revoked, _ = call(client, "revoke_invite_link", invite_link=link["invite_link"])
     assert revoked["is_revoked"] == 1
