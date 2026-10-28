@@ -197,6 +197,7 @@ def test_a_decision_without_an_answer_can_be_made_again(client, tg, monkeypatch)
     """«Решить снова»: approving goes back to pending at once (no timer), the next decision goes to Telegram; the
     same request with the same key is still the decision without an answer, and agents have no tool for it."""
     import telegram
+    from store import suggested_posts as rows
 
     real = telegram.call
     asyncio.run(updates.handle_update(_suggestion(70, {"state": "pending"})))
@@ -223,6 +224,8 @@ def test_a_decision_without_an_answer_can_be_made_again(client, tg, monkeypatch)
     # decided now: no reopening
     assert client.post("/api/suggested-posts/-1009:70/reopen").status_code == 400
     # an agent cannot decide again by itself: the person checks the channel's direct messages first
+    rows.claim("-1009:70", ("approved",), "approving")
+    assert client.post("/api/suggested-posts/-1009:70/reopen", headers=token("agent", "publish")).status_code == 403
     import mcp_tools
 
     assert not [t for t in asyncio.run(mcp_tools.build().list_tools()) if "reopen" in t.name]

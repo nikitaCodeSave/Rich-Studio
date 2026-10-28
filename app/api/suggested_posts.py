@@ -41,11 +41,12 @@ async def approve(
 
 @router.post(
     "/api/suggested-posts/{sid}/reopen",
-    dependencies=PUBLISH,
+    dependencies=[Depends(need("admin"))],  # a person, not an agent's publish token: it would only resend blindly
     summary="Решить снова: решение без ответа Telegram (approving/declining) возвращается в ожидание",
 )
 def reopen(sid: str, who: str = Depends(actor)):
-    """Только человек и только после проверки в личных сообщениях канала, что решение не дошло (в MCP этого нет).
+    """Только человек (уровень admin; в MCP этого нет) и только после проверки в личных сообщениях канала, что
+    решение не дошло.
     Дошедшее решение Telegram, скорее всего, второй раз не примет, а его итог всё равно придёт и обновит состояние."""
     return suggested_posts.reopen(sid, actor=who)
 
