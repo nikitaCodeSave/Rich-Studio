@@ -7,6 +7,8 @@ Telegram transport in telegram/, storage in store/, the Bot API spec in spec/.
 import asyncio
 import contextlib
 import logging
+import os
+import sys
 import time
 from pathlib import Path
 
@@ -18,6 +20,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 import logs
 import mcp_tools
 import metrics
+import security
 import settings
 import spec
 import store
@@ -103,11 +106,35 @@ async def _observe(request: Request, call_next):
                 )
 
 
+def _data_dir_writable(cfg: settings.Settings) -> None:
+    """The image runs as uid 10001: a ./data made by an older image as root is the usual reason it is not."""
+    try:
+        cfg.data_dir.mkdir(parents=True, exist_ok=True)
+        probe = cfg.data_dir / ".write-test"
+        probe.write_bytes(b"")
+        probe.unlink()
+    except OSError as e:
+        raise settings.SettingsError(
+            [
+                f"нет записи в DATA_DIR={cfg.data_dir} ({e.strerror}) для пользователя {os.getuid()}; "
+                "если папку создал прежний образ от root: sudo chown -R 10001:10001 data"
+            ]
+        ) from None
+
+
 @contextlib.asynccontextmanager
 async def lifespan(app):
     cfg = settings.get()
+    _data_dir_writable(cfg)
     logs.setup()
     store.init()
+    if cfg.mode == "server" and not security.auth_on():  # tokens live in the database, so they are checked here
+        raise settings.SettingsError(
+            [
+                "STUDIO_MODE=server: нет ни токена, ни STUDIO_API_KEY. Выдайте токен: "
+                "docker compose run --rm rich-studio python cli.py token add NAME --level admin"
+            ]
+        )
     cfg.media_dir.mkdir(parents=True, exist_ok=True)
     spec.current.load_initial()
     updates.reset_status()
@@ -198,4 +225,8 @@ def create_app(cfg: settings.Settings | None = None) -> FastAPI:
     return app
 
 
+try:  # one clear message instead of a traceback from the first module that reads a setting
+    settings.get()
+except settings.SettingsError as e:
+    sys.exit(f"Rich Studio не запущена: {e}")
 app = create_app()

@@ -17,3 +17,5 @@
 | [0007](0007-one-process-lease.md) | Один процесс с lease в SQLite, а не несколько воркеров и не Postgres |
 | [0008](0008-shared-lists-as-files.md) | Общие списки как отдельные файлы, справочники маршрутов и инструментов собираются из кода |
 | [0009](0009-named-tokens.md) | Именные токены с уровнями и cookie-сессия редактора, а не пользователи и OAuth |
+| [0010](0010-server-image-and-pinned-spec.md) | Сервер: образ из GHCR, закреплённая спецификация, Caddy и Litestream |
+| [0011](0011-dead-mans-switch.md) | Внешний сигнал «жива»: dead man's switch и `/readyz` снаружи |

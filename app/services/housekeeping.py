@@ -2,12 +2,15 @@
 
 Service data (idempotency keys) is always cleaned. What the person made (uploads, versions of posts) is
 deleted only when MEDIA_UNUSED_DAYS / VERSIONS_KEEP say so; otherwise the health report says it grows.
+With DEADMAN_URL each round also tells an outside service it is alive: silence there means the studio is down.
 """
 
 import asyncio
 import logging
 import time
 from typing import Any
+
+import httpx
 
 import logs
 import metrics
@@ -55,18 +58,32 @@ def cleanup() -> dict:
     return done
 
 
+async def ping(status: str) -> None:
+    """Dead man's switch, healthchecks.io style: URL when alive, URL/fail when the report fails. The URL itself is
+    the secret, so it never goes to the log; a failed ping is a warning, never a failed round."""
+    url = settings.get().deadman_url
+    if not url:
+        return
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            (await client.get(url + "/fail" if status == "fail" else url)).raise_for_status()
+    except httpx.HTTPError as e:
+        log.warning("dead man's switch not reached: %s", type(e).__name__, extra={"event": "deadman.error"})
+
+
 async def loop() -> None:
     last_cleanup = 0.0
     while True:
-        error = None
+        error, status = None, "fail"
         with logs.bind(logs.new_id("housekeeping-")):  # to_thread copies the context: the id goes along
             try:
-                await asyncio.to_thread(watch)
+                status = (await asyncio.to_thread(watch))["status"]
                 if time.time() - last_cleanup >= CLEANUP_EVERY:
                     await asyncio.to_thread(cleanup)
                     last_cleanup = time.time()
             except Exception as e:
                 log.exception("housekeeping failed")
                 error = f"{type(e).__name__}: {e}"
+            await ping(status)
         metrics.beat("housekeeping", INTERVAL, error)
         await _sleep(INTERVAL)

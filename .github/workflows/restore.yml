@@ -1,0 +1,26 @@
+name: restore
+# The server setup (deploy/) can be brought back from its Litestream replica: daily on main, and on PRs that touch
+# what the drill depends on. scripts/restore_check.sh runs the same thing locally.
+on:
+  schedule:
+    - cron: "41 4 * * *"
+  workflow_dispatch:
+  pull_request:
+    paths: ["deploy/**", "Dockerfile", "requirements.lock", "app/store/**", "app/settings.py", "app/cli.py",
+            "scripts/restore_check.sh", ".github/workflows/restore.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  restore:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t rich-studio .
+      - name: Caddyfile is valid
+        run: |
+          docker run --rm -e STUDIO_DOMAIN=studio.test -v "$PWD/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            "$(grep -oP 'image: \Kcaddy:\S+' deploy/docker-compose.yml)" \
+            caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+      - run: scripts/restore_check.sh

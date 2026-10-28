@@ -37,9 +37,13 @@ class Spec:
         return settings.get().data_dir / "api.json"
 
     def load_initial(self):
-        """Use the newest valid copy: the cache, or the bundled one after an image upgrade."""
+        """Use the newest valid copy: the cache, or the bundled one after an image upgrade. A pinned spec
+        (SPEC_PIN) is only the bundled one: what was tested with the image is what runs."""
         best = None
-        for path, src in ((self._cache_file(), "cache"), (BUNDLED, "bundled")):
+        copies = [(self._cache_file(), "cache"), (BUNDLED, "bundled")]
+        if settings.get().spec_pinned:
+            copies = copies[1:]
+        for path, src in copies:
             try:
                 data = json.loads(path.read_text("utf-8"))
             except (OSError, ValueError):  # no cache yet, or a broken file: try the next copy
@@ -54,6 +58,13 @@ class Spec:
 
     async def refresh(self, force: bool = False) -> dict:
         """Download the newest spec. Returns a short report."""
+        if settings.get().spec_pinned:  # not a failed check: health stays ok, the editor shows why
+            return {
+                "updated": False,
+                "version": self.version,
+                "pinned": True,
+                "error": "спецификация закреплена (SPEC_PIN): новая версия приходит с обновлением образа",
+            }
         if (
             not force
             and time.time() - self.loaded_at < settings.get().spec_refresh_hours * 3600
