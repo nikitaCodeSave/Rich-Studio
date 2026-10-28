@@ -36,7 +36,8 @@ EXTRA_COLUMNS = {
 }
 
 # Numbered steps after the columns above (PRAGMA user_version): one file per step in migrations/,
-# NNNN_name.sql. Add a new file with the next number; never edit a shipped one. New columns go here too:
+# NNNN_name.sql. Add a new file with the next number; never edit a shipped one. A step runs in one transaction with
+# its number, so it has no begin/commit or vacuum of its own. New columns go here too:
 # EXTRA_COLUMNS is closed.
 MIGRATIONS_DIR = Path(__file__).with_name("migrations")
 
