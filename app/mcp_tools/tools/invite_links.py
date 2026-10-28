@@ -19,7 +19,8 @@ def register(tool: ToolDecorator) -> None:
     async def list_invite_links(chat_id: ChatArg = None) -> list:
         """Пригласительные ссылки, созданные студией: name, invite_link, joined (вступили), requests (заявки),
         expire_date, member_limit, is_revoked, kind (invite или subscription). Без chat_id — по всем каналам.
-        Счётчики ведёт студия по событиям Telegram, пока она запущена."""
+        Счётчики ведёт студия по событиям Telegram, пока она запущена; это вступления, а не люди: кто вышел и
+        вступил снова, посчитан дважды."""
         return invite_links.listing(chat_id)
 
     @tool(PUBLIC)
