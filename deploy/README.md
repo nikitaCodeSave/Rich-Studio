@@ -29,7 +29,9 @@ docker compose up -d
 docker compose pull && docker compose up -d
 ```
 
-`STUDIO_TAG` в `.env` закрепляет версию (`main` или sha коммита из GHCR). Новая версия Bot API приходит так же: `make spec-update` → PR → новый образ.
+Образ не собирается сам на каждый push в `main` (сборка arm64 через QEMU съедает минуты Actions). Перед обновлением соберите его: Actions → image → Run workflow на `main` (или `gh workflow run image.yml --ref main`) даёт `:main` и `:<sha>`, push тега `v*` даёт `:<версия>`.
+
+`STUDIO_TAG` в `.env` закрепляет версию (`main`, sha коммита или версия из GHCR). Новая версия Bot API приходит так же: `make spec-update` → PR → ручная сборка образа.
 
 ## Восстановление базы
 

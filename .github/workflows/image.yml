@@ -1,10 +1,11 @@
 name: image
-# The studio's image in GHCR for the server (deploy/docker-compose.yml): :main and :<sha> on every push to main,
-# :<version> on a v* tag, for amd64 and arm64 (QEMU), with build provenance and an SBOM from buildx.
+# The studio's image in GHCR for the server (deploy/docker-compose.yml), for amd64 and arm64 (QEMU), with build
+# provenance and an SBOM from buildx. Not on every push to main: QEMU arm64 builds burn Actions minutes and there is
+# no server yet. Run it by hand (Actions → image → Run workflow, or `gh workflow run image.yml`) for :main and :<sha>,
+# or push a v* tag for :<version> and :<sha>.
 # No actions/attest-build-provenance: artifact attestations in a private repo need GitHub Enterprise Cloud.
 on:
   push:
-    branches: [main]
     tags: ["v*"]
   workflow_dispatch:
 
