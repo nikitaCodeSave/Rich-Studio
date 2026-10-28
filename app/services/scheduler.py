@@ -26,7 +26,7 @@ def _missed(p: dict, now: float) -> bool:
 async def _send_claimed(queued: dict, now: float) -> None:
     p = store.get_post(queued["id"]) or queued  # the content as it is now, after any edit since the query
     try:
-        res = await publisher.send(publisher.resolve_chat(p["chat_id"]), p["payload"])
+        res = await publisher.send(publisher.resolve_chat(p["chat_id"]), p["payload"], p.get("kind"))
     except StudioError as e:  # bad settings: nothing was sent
         store.update_post(p["id"], status="failed", error=str(e))
         return
@@ -51,7 +51,7 @@ async def _send_claimed(queued: dict, now: float) -> None:
         p["id"], status="sent", message_id=res["message_id"], sent_at=int(time.time()), error=None, retry_at=None
     )
     try:
-        warnings = await publisher.after_send(p["id"], p["payload"], res, p.get("actor") or "api")
+        warnings = await publisher.after_send(p["id"], p["payload"], res, p.get("actor") or "api", p.get("kind"))
     except Exception as e:
         log.exception("after-send steps failed for %s", p["id"])
         warnings = [f"{type(e).__name__}: {e}"]

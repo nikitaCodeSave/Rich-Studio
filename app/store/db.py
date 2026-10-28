@@ -21,7 +21,7 @@ create table if not exists posts(
 # columns added after the first release; created on start for existing databases. Closed: a new column is a
 # migration file (alter table) below
 EXTRA_COLUMNS = {
-    "kind": "text default 'rich'",  # rich | poll
+    "kind": "text default 'rich'",  # services/kinds.py: rich | poll | live_photo | paid_media
     "chat_num": "integer",  # numeric chat id from Telegram (chat_id may be @username)
     "pinned": "integer default 0",
     "comment_status": "text",  # waiting | sent | failed
