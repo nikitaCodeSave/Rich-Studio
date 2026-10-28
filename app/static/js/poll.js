@@ -1,7 +1,7 @@
 // Poll dialog (sendPoll).
 import { api } from './api.js';
 import { closeDialog, openDialog } from './dialogs.js';
-import { act, h, store, toast } from './dom.js';
+import { act, h, sentReport, store, toast } from './dom.js';
 import { changed, renderAfter } from './editor.js';
 import { loadPosts } from './posts.js';
 import { S, target, targetLabel } from './state.js';
@@ -48,7 +48,7 @@ export function showPoll() {
     const body = { poll, pin: P.pin, ...target() };
     if (scheduled) { const at = pick.value(); if (!at || at * 1000 < Date.now()) { toast('Выберите время в будущем', 'err'); return; } body.at = at; }
     if (!scheduled && !confirm('Отправить опрос в ' + targetLabel() + '?')) return;
-    const r = await act(() => api('POST', '/api/poll', body), scheduled ? 'Опрос запланирован' : (x) => 'Опрос отправлен' + (x.warnings.length ? '\n' + x.warnings.join('; ') : ''));
+    const r = await act(() => api('POST', '/api/poll', body), scheduled ? 'Опрос запланирован' : (x) => sentReport('Опрос отправлен', x));
     if (r) { closeDialog(d); loadPosts(); }
   };
   // the same poll as an attachment of the draft: it goes out right after the post

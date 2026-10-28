@@ -27,6 +27,14 @@ export function toast(msg, kind) {
   setTimeout(() => t.remove(), kind === 'err' ? 9000 : 4500);
 }
 
+/** What a send to one or several channels did: «<done> в N из M», where it did not go and the warnings. */
+export function sentReport(done, r) {
+  const bad = r.results.filter((x) => !x.ok);
+  return (r.results.length > 1 ? `${done} в ${r.results.length - bad.length} из ${r.results.length}` : done)
+    + (bad.length ? '\nНе ушло: ' + bad.map((x) => x.chat_id + ' (' + x.error + ')').join('; ') : '')
+    + (r.warnings.length ? '\nПредупреждения: ' + r.warnings.join('; ') : '');
+}
+
 export async function act(fn, okMsg) {
   try { const r = await fn(); if (okMsg) toast(typeof okMsg === 'function' ? okMsg(r) : okMsg, 'ok'); return r; } catch (e) { toast(e.message, 'err'); }
 }

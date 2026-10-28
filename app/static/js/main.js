@@ -11,7 +11,7 @@ import { api, migrateStoredKey } from './api.js';
 import { bindCode, snippetBar } from './code.js';
 import { bindTarget, loadChannels, showTarget } from './channels.js';
 import { closeDialog, openDialog } from './dialogs.js';
-import { $, $$, act, debounce, h, store, toast } from './dom.js';
+import { $, $$, act, debounce, h, sentReport, store, toast } from './dom.js';
 import { effect } from '../vendor/signals-core.js';
 import './components/rs-preview.js';
 import './components/rs-edit-bar.js';
@@ -113,12 +113,7 @@ function bindActions() {
     const e = editing.value;
     if (!confirm((e ? `Это опубликует НОВЫЙ пост. Чтобы изменить пост ${e.message_id ? '#' + e.message_id : ''} в ${e.chat_id}, нажмите «Обновить пост» над редактором.\n\n` : '') + 'Опубликовать пост в ' + where + '?')) return;
     await act(async () => { if (dirty.value || !S.draftId) await saveDraft(true); return api('POST', '/api/send', { post: buildPost(), ...target(), draft_id: S.draftId, as_new: true }); },
-      (r) => {
-        const bad = (r.results || []).filter((x) => !x.ok);
-        return (r.results && r.results.length > 1 ? `Опубликовано в ${r.results.length - bad.length} из ${r.results.length}` : 'Опубликовано, message_id ' + r.message.message_id)
-          + (bad.length ? '\nНе ушло: ' + bad.map((x) => x.chat_id + ' (' + x.error + ')').join('; ') : '')
-          + (r.warnings.length ? '\nПредупреждения: ' + r.warnings.join('; ') : '');
-      });
+      (r) => sentReport(r.results.length > 1 ? 'Опубликовано' : 'Опубликовано, message_id ' + r.message.message_id, r));
     loadPosts();
   };
   $('#btn-schedule').onclick = () => {

@@ -72,3 +72,20 @@ def test_media_post_through_mcp(client, tg):
     assert r and r["results"][0]["ok"], text
     call(client, "send_media_post", kind="live_photo", params={"live_photo": clip, "photo": still})
     assert len([c for c in tg.calls if c["method"] == "sendLivePhoto"]) == 1  # the same request is not sent twice
+
+
+def test_a_message_refused_by_every_chat_is_an_error_not_sent(client, tg):
+    """A poll or a media post that went nowhere answers like a rich post does, not 200 with every chat refused."""
+    still = _upload(client, "still.jpg")
+    tg.fail["sendPoll"] = tg.fail["sendLivePhoto"] = "Bad Request: chat not found"
+    poll = {"question": "Когда?", "options": ["Утром", "Вечером"]}
+    r = client.post("/api/poll", json={"poll": poll, "chat_ids": ["@a", "@b"]})
+    assert r.status_code == 502 and "ни в один канал" in r.text and "@a: Bad Request" in r.text
+    body = {"kind": "live_photo", "params": {"live_photo": still, "photo": still}, "chat_id": "@a"}
+    r = client.post("/api/media-post", json=body)
+    assert r.status_code == 422 and "chat not found" in r.text
+    # the refusals stay listed, as for a rich post
+    assert [p["status"] for p in client.get("/api/posts").json()] == ["failed"] * 3
+    tg.fail.clear()
+    r = client.post("/api/poll", json={"poll": poll, "chat_ids": ["@a", "@b"]})
+    assert r.status_code == 200 and [x["ok"] for x in r.json()["results"]] == [True, True]
