@@ -1,7 +1,7 @@
 """Request guard for a service that is meant to be reached only from this computer.
 
 - Host check against DNS rebinding;
-- CSRF: browsers mark cross-site requests, curl and scripts send neither header;
+- CSRF: browsers mark cross-site requests, curl and scripts send neither header; Origin must match Host with the port;
 - strict Content-Type for writes;
 - who is asking: a named token (Authorization: Bearer or X-API-Key), STUDIO_API_KEY, or the editor's session
   cookie; with neither a key nor tokens set up the studio is open, as a local tool on 127.0.0.1;
@@ -91,12 +91,19 @@ def host_ok(host: str) -> bool:
     return name in allowed or host in allowed
 
 
+def _same_origin(origin: str, host: str) -> bool:
+    """Origin names the Host the request came to, port included: a page on another port of localhost is another site."""
+    scheme, _, authority = origin.lower().partition("://")
+    default = {"http": ":80", "https": ":443"}.get(scheme, "")
+    return authority.removesuffix(default) == host.lower().removesuffix(default)
+
+
 def _cross_site(request: Request) -> bool:
     origin = request.headers.get("origin")
     site = request.headers.get("sec-fetch-site")
     if site in ("cross-site", "same-site") or origin == "null":
         return True
-    return origin is not None and origin != "" and not host_ok(origin.split("://", 1)[-1])
+    return origin is not None and origin != "" and not _same_origin(origin, request.headers.get("host", ""))
 
 
 async def guard(request: Request, call_next):
