@@ -13,7 +13,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-BASE = os.environ.get("STUDIO_URL", "http://localhost:8080").rstrip("/")
+BASE = os.environ.get("STUDIO_URL", "http://localhost:7424").rstrip("/")
 URL = BASE + "/api/health"
 TIMEOUT = 1.5  # s; the report walks the media folder, a busy studio may take a moment
 WORD = {"warn": "требует внимания", "fail": "есть сбой"}

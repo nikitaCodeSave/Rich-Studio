@@ -30,18 +30,18 @@ mkdir -p data               # данные студии; папка ваша, н
 docker compose up -d --build
 ```
 
-Откройте http://localhost:8080. Документация API: http://localhost:8080/docs.
+Откройте http://localhost:7424. Документация API: http://localhost:7424/docs.
 
 - **Бот:** токен от [@BotFather](https://t.me/BotFather). В канале сделайте бота админом с правом «Публикация сообщений», для правки ещё «Редактирование сообщений». Кнопка канала в шапке открывает окно «Каналы», где «Проверить» покажет, всё ли в порядке.
 - **«Мне в личку»:** в `TG_PREVIEW_CHAT` ваш числовой id ([@userinfobot](https://t.me/userinfobot)); один раз напишите своему боту `/start`.
-- Сервис слушает только `127.0.0.1`. Если откроете его в сеть, задайте `STUDIO_API_KEY` или выдайте именные токены (раздел «Доступ» ниже).
+- Сервис слушает только `127.0.0.1:7424` (в контейнере порт 8080). Другой порт: левое число в `ports` в `docker-compose.yml`, `url` в `.mcp.json` и `STUDIO_URL` в `.env` (хук здоровья в Claude Code берёт `STUDIO_URL` только из окружения shell). Если откроете его в сеть, задайте `STUDIO_API_KEY` или выдайте именные токены (раздел «Доступ» ниже).
 - Данные лежат в `./data` (черновики, посты, файлы, кэш спецификации). Обновление: `docker compose up -d --build`.
 - Студия в контейнере работает не от root, а от вашего пользователя (`STUDIO_UID`/`STUDIO_GID` в `.env`, по умолчанию 1000:1000; на Linux с другим uid впишите `id -u` и `id -g`). Если `./data` создал Docker или прежний образ от root, студия при запуске скажет об этом; исправить: `sudo chown -R $(id -u):$(id -g) data`. На Docker Desktop (Mac, Windows) это не нужно.
 - **На своём сервере** с HTTPS, копией базы в S3 и готовым образом из GHCR: [deploy/README.md](deploy/README.md).
 
-Без Docker: `pip install -r requirements.txt`, затем `cd app && DATA_DIR=../data uvicorn main:app --port 8080` (переменные из `.env` экспортируйте сами).
+Без Docker: `pip install -r requirements.txt`, затем `cd app && DATA_DIR=../data uvicorn main:app --port 7424` (переменные из `.env` экспортируйте сами).
 
-**Посмотреть студию без бота и токена:** `make mock` и `make dev` в двух терминалах. Студия откроется на http://localhost:8080 и будет «публиковать» в подставной Telegram; так сняты все скриншоты этого файла.
+**Посмотреть студию без бота и токена:** `make mock` и `make dev` в двух терминалах. Студия откроется на http://localhost:7424 и будет «публиковать» в подставной Telegram; так сняты все скриншоты этого файла.
 
 ## Как «всегда свежий» устроен
 
@@ -200,7 +200,7 @@ HTML и Markdown предпросмотр разбирает так же, как
 **Проверка поста.** `/api/validate` проверяет текст и кнопки под постом (ссылка кнопки без адреса вроде `https://` — ошибка: Telegram отклоняет из-за неё весь пост). Ошибка в названии поля таблицы находится до отправки:
 
 ```bash
-curl -s localhost:8080/api/validate -H 'content-type: application/json' \
+curl -s localhost:7424/api/validate -H 'content-type: application/json' \
   -d '{"rich_message": {"blocks": [{"type": "table", "rows": []}]}}'
 ```
 ```json
@@ -213,7 +213,7 @@ curl -s localhost:8080/api/validate -H 'content-type: application/json' \
 **Пробная отправка.** `"dry_run": true` показывает запросы, которые уйдут в Telegram, ничего не отправляя и не записывая:
 
 ```bash
-curl -s localhost:8080/api/send -H 'content-type: application/json' -d '{
+curl -s localhost:7424/api/send -H 'content-type: application/json' -d '{
   "post": {"rich_message": {"blocks": [
     {"type": "heading", "size": 1, "text": "Анонс эфира"},
     {"type": "paragraph", "text": ["Начало в ", {"type": "bold", "text": "19:00"}]}]}},
@@ -229,7 +229,7 @@ curl -s localhost:8080/api/send -H 'content-type: application/json' -d '{
 **Публикация без дублей.** Тот же запрос без `dry_run`, с ключом повтора и подписью отправителя. Повтор с тем же ключом (например, после таймаута) вернул тот же `message_id` 101, а подставной Telegram получил ровно один `sendRichMessage`:
 
 ```bash
-curl -s localhost:8080/api/send -H 'content-type: application/json' \
+curl -s localhost:7424/api/send -H 'content-type: application/json' \
   -H 'Idempotency-Key: anons-0910' -H 'X-Studio-Client: script:cron' -d '{"post": {…}, "chat_id": "@my_channel"}'
 ```
 ```json
@@ -246,7 +246,7 @@ curl -s localhost:8080/api/send -H 'content-type: application/json' \
 **Проверка канала:**
 
 ```bash
-curl -s 'localhost:8080/api/check?chat_id=@my_channel'
+curl -s 'localhost:7424/api/check?chat_id=@my_channel'
 ```
 ```json
 {"bot": {"id": 42, "username": "studio_test_bot"},
@@ -256,17 +256,17 @@ curl -s 'localhost:8080/api/check?chat_id=@my_channel'
 
 ## MCP для Claude и других агентов
 
-Студия сама работает как MCP-сервер по адресу `http://localhost:8080/mcp` (Streamable HTTP). Claude Code, открытый в папке студии, подключает его сам из `.mcp.json` (при первом запуске спросит разрешение; токен агента берётся из переменной `STUDIO_TOKEN`, ключ — из `STUDIO_API_KEY`, поэтому экспортируйте их в shell). Агент получает и публикующие инструменты; чтобы он только готовил черновики, задайте `MCP_PUBLISH=off` (ниже). Из других папок подключение вручную:
+Студия сама работает как MCP-сервер по адресу `http://localhost:7424/mcp` (Streamable HTTP). Claude Code, открытый в папке студии, подключает его сам из `.mcp.json` (при первом запуске спросит разрешение; токен агента берётся из переменной `STUDIO_TOKEN`, ключ — из `STUDIO_API_KEY`, поэтому экспортируйте их в shell). Агент получает и публикующие инструменты; чтобы он только готовил черновики, задайте `MCP_PUBLISH=off` (ниже). Из других папок подключение вручную:
 
 ```
-claude mcp add --transport http rich-studio http://localhost:8080/mcp
+claude mcp add --transport http rich-studio http://localhost:7424/mcp
 # если студия защищена: именной токен агента (make token NAME=… LEVEL=…) или STUDIO_API_KEY
-claude mcp add --transport http rich-studio http://localhost:8080/mcp --header "Authorization: Bearer <токен>"
+claude mcp add --transport http rich-studio http://localhost:7424/mcp --header "Authorization: Bearer <токен>"
 ```
 
 Инструменты с описаниями: [docs/reference/mcp-tools.md](docs/reference/mcp-tools.md) (собирается из кода командой `make docs`). Главные: `save_draft` (сразу возвращает проверку), `preview_post` (предпросмотр в чате), `publish_post` и `schedule_post` (с `idempotency_key` и `dry_run`), `edit_post` (с версией поста из `get_post`), `list_posts`, `studio_health`.
 
-Ответы `save_draft`, `preview_post` и `get_draft` содержат `editor_url` (черновик в редакторе, `/?draft=<id>`) и `preview_url`, `get_post` даёт `editor_url` вида `/?post=<id>`, который открывает пост на правку. Адрес берётся из `STUDIO_URL` (по умолчанию `http://localhost:8080`). Открытый в редакторе черновик, который поменял агент, обновляется сам через несколько секунд. Если в редакторе есть несохранённые правки, он спросит, чью версию оставить.
+Ответы `save_draft`, `preview_post` и `get_draft` содержат `editor_url` (черновик в редакторе, `/?draft=<id>`) и `preview_url`, `get_post` даёт `editor_url` вида `/?post=<id>`, который открывает пост на правку. Адрес берётся из `STUDIO_URL` (по умолчанию `http://localhost:7424`). Открытый в редакторе черновик, который поменял агент, обновляется сам через несколько секунд. Если в редакторе есть несохранённые правки, он спросит, чью версию оставить.
 
 Агент передаёт JSON поста один раз, в `save_draft`; дальше `preview_post`, `publish_post` и `schedule_post` берут пост по `draft_id`. Публикация по `draft_id` требует `version`, которую вернул `preview_post`, и откажет, если вы успели изменить черновик в редакторе после предпросмотра. Черновик-правка опубликованного поста уходит только через `edit_post` с `draft_id`, вторым постом в канал он не попадёт.
 
@@ -347,7 +347,7 @@ npm run test:shots              # примеры из examples/ в обеих т
 
 ```
 make mock    # подставной Telegram на :8081
-make dev     # студия на :8080
+make dev     # студия на :7424
 npm ci && npx playwright install chromium && make e2e
 ```
 

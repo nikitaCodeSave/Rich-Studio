@@ -2,7 +2,7 @@
 // and check(). The checks share the page and run in file order, like one long session.
 import { chromium } from 'playwright';
 
-export const BASE = process.env.BASE || 'http://localhost:8080';
+export const BASE = process.env.BASE || 'http://localhost:7424';
 export const MOCK = process.env.MOCK || 'http://localhost:8081';
 
 /** @typedef {Awaited<ReturnType<typeof start>>} Ctx */

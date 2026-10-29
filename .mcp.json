@@ -2,7 +2,7 @@
   "mcpServers": {
     "rich-studio": {
       "type": "http",
-      "url": "http://localhost:8080/mcp",
+      "url": "http://localhost:7424/mcp",
       "headers": { "Authorization": "Bearer ${STUDIO_TOKEN:-}", "X-API-Key": "${STUDIO_API_KEY:-}" }
     }
   }

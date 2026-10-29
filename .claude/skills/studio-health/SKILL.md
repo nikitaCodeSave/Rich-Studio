@@ -16,7 +16,7 @@ A session opened in the studio folder may start with a line like `Rich Studio т
 With the `rich-studio` MCP tools: `studio_health`, then `studio_logs` (default level WARNING). Otherwise HTTP (add `-H "Authorization: Bearer $STUDIO_TOKEN"` or `-H "X-API-Key: $STUDIO_API_KEY"` if the key is set):
 
 ```bash
-S=localhost:8080
+S=localhost:7424
 curl -sf $S/healthz || echo "studio is not running"                 # liveness, no key needed
 curl -s $S/readyz                                                      # readiness: 503 + names of failing checks
 curl -s $S/api/health | jq '{status, problems}'                        # the verdict: ok | warn | fail and why

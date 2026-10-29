@@ -15,16 +15,16 @@ Run one of these before relying on anything below:
 
 ```bash
 # Rich Studio running locally (preferred): version, date and recorded API changes
-curl -s localhost:8080/api/spec | jq '{version, release_date, source, changes: .changes[0]}'
+curl -s localhost:7424/api/spec | jq '{version, release_date, source, changes: .changes[0]}'
 
 # Without the studio: machine-readable spec regenerated from core.telegram.org on every release
 curl -s https://raw.githubusercontent.com/PaulSonOfLars/telegram-bot-api-spec/main/api.json | jq '{version, release_date}'
 ```
 
 - With the `rich-studio` MCP tools: `bot_api_status`, and `refresh_bot_api` to download the newest spec right now (the studio otherwise checks at startup and every 12 hours; a server studio answers `pinned`: its spec changes only with an image update, so say that instead of retrying). Both report `gaps`: blocks the editor has no Russian label or preview for yet. Such blocks still send fine; tell the user the preview may show them as a JSON stub.
-- If the version is newer than 10.3, read what changed before writing the post: `POST localhost:8080/api/spec/refresh` returns the diff (new types, fields, methods), and https://core.telegram.org/bots/api-changelog has the human description. Prefer the new features when they fit the user's goal and say which ones you used.
+- If the version is newer than 10.3, read what changed before writing the post: `POST localhost:7424/api/spec/refresh` returns the diff (new types, fields, methods), and https://core.telegram.org/bots/api-changelog has the human description. Prefer the new features when they fit the user's goal and say which ones you used.
 - Exact fields of any type or method, from the current spec:
-  `curl -s localhost:8080/api/spec/type/InputRichBlockTable | jq` (or `jq '.types.InputRichBlockTable' api.json`).
+  `curl -s localhost:7424/api/spec/type/InputRichBlockTable | jq` (or `jq '.types.InputRichBlockTable' api.json`).
 - The HTML/Markdown tag grammar is not in api.json. It lives in https://core.telegram.org/bots/api#rich-message-formatting-options. When a tag below is marked ⚠️ or the version is newer, check that section (WebFetch may truncate the page; per-type pages at https://docs.aiogram.dev mirror the spec).
 
 ## 2. Request shape
@@ -60,7 +60,7 @@ Channels: no ephemeral messages, no `message_effect_id`, no `thinking`/drafts, n
 
 Limits: 32 768 characters (client folds after ~8 000), 1-8 buttons per row, callback_data 1-64 bytes, map zoom 0-24. Unofficial: 50 media, 500 blocks, nesting 16.
 
-## 4. Workflow with Rich Studio (http://localhost:8080, API docs at /docs; every route and MCP tool: docs/reference/ in the studio repo)
+## 4. Workflow with Rich Studio (http://localhost:7424, API docs at /docs; every route and MCP tool: docs/reference/ in the studio repo)
 
 If the `rich-studio` MCP tools are available (`save_draft`, `preview_post`, `publish_post`…), use them instead of curl: same steps and rules. Call `list_channels` first and name the channel by its title when you ask the user to confirm; a channel not listed yet (or never checked) goes through `check_channel` before the first publication, which also says whether the bot may post there; pass `chat_ids` to `save_draft` so the draft (and the editor) knows where it goes, and `publish_post` without `chat_id` sends it there. `goes_to` in `save_draft`/`list_drafts`/`get_draft` names where it goes (`default: true` means the default channel); show it to the user by title and id. A forum topic is `options.message_thread_id` (topic ids in `list_channels`); it works only with one forum channel, so with several channels or a known non-forum one the send is refused. Pass the post JSON once: `save_draft` returns `id`, `version`, `chat_ids` and `validation` (fix every error and save again with `draft_id` and `version`). Then `preview_post(draft_id)` so the user sees the post rendered as in Telegram right in the chat; it returns the `version` it showed. After the user confirms, `publish_post(draft_id, version, idempotency_key)` (or `schedule_post`) with that version; `dry_run` shows the request first. A draft with `post_id` is a working copy of a published post: it goes out only as `edit_post(post_id, draft_id, version)`, never as a new post. If the draft changed after the preview (the user edited it in the editor), publishing by `draft_id` fails: show it again. `validate_post` checks without saving. Give the user `editor_url` from `save_draft`/`preview_post` (a clickable link to the draft in the editor; an open editor picks up your changes by itself). Files: `upload_media(url=…)` or `upload_media(data_base64=…, filename=…)` returns the `upload:<name>` ref. Polls: `send_poll` (a separate message, after the user confirms). `describe_type` gives the exact fields of a Bot API type, `list_media` the uploaded files, `cancel_scheduled_post` cancels a scheduled one. If `publish_post`, `schedule_post`, `send_poll`, `edit_post` and the other publishing tools are missing, the studio runs with `MCP_PUBLISH=off`: tell the user publishing from the chat is off and give them `editor_url` to publish from the editor; do not work around it through the HTTP API. Without the `rich-studio` MCP tools at all, use the HTTP API below.
 
@@ -75,7 +75,7 @@ When the user says "continue my draft" or "fix the post": `list_drafts` → `get
 `post` = `{"rich_message": {...}, "reply_markup": {...}?, "options": {...}?}`. Uploaded files are referenced as `upload:<name>`. If the studio is protected, add `-H "Authorization: Bearer $STUDIO_TOKEN"` (your named token) or `-H "X-API-Key: $STUDIO_API_KEY"`. A 403 like "нет права publish" means your token's level does not allow that action (levels: read < draft < publish < admin): tell the user and give them `editor_url` to do it in the editor; never look for another key or token.
 
 ```bash
-S=localhost:8080
+S=localhost:7424
 curl -s -F file=@cover.jpg $S/api/media                                   # -> {"ref":"upload:cover.jpg"}
 curl -s -X POST $S/api/media/fetch -H 'content-type: application/json' -d '{"url":"https://…/cover.jpg"}'  # by link
 curl -s -X POST $S/api/validate -H 'content-type: application/json' -d @post.json          # errors / warnings / stats

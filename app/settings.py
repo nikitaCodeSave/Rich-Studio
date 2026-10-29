@@ -69,7 +69,7 @@ class Settings:
     api_key: str = ""
     api_base: str = "https://api.telegram.org"
     # where the person opens the studio: agents get links to drafts and previews from it
-    public_url: str = "http://localhost:8080"
+    public_url: str = "http://localhost:7424"
     # upload_media / POST /api/media/fetch may download from local and private addresses (own servers, tests)
     media_fetch_private: bool = False
     # host names the service answers to (DNS rebinding guard)

@@ -272,15 +272,15 @@ def test_send_poll_through_mcp(client, tg):
 
 def test_links_to_the_editor(client, tg):
     _, d, _ = call(client, "save_draft", post=BLOCKS_POST, title="Ссылки")
-    assert d["editor_url"] == f"http://localhost:8080/?draft={d['id']}"
-    assert d["preview_url"] == f"http://localhost:8080/render/draft/{d['id']}"
+    assert d["editor_url"] == f"http://localhost:7424/?draft={d['id']}"
+    assert d["preview_url"] == f"http://localhost:7424/render/draft/{d['id']}"
     _, shown, _ = call(client, "preview_post", draft_id=d["id"])
     assert shown["editor_url"] == d["editor_url"]
     _, got, _ = call(client, "get_draft", draft_id=d["id"])
     assert got["editor_url"] == d["editor_url"]
     _, sent, _ = call(client, "publish_post", post=BLOCKS_POST)
     _, post, _ = call(client, "get_post", post_id=sent["post"]["id"])
-    assert post["editor_url"] == f"http://localhost:8080/?post={sent['post']['id']}"
+    assert post["editor_url"] == f"http://localhost:7424/?post={sent['post']['id']}"
 
 
 def test_draft_channel_from_save_draft_is_used_by_publish(client, tg):
