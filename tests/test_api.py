@@ -412,6 +412,9 @@ def test_foreign_host_is_rejected(client):
         {"origin": "https://evil.example"},
         {"origin": "null"},
         {"sec-fetch-site": "cross-site"},
+        # another project on another port of this computer, from a browser without Sec-Fetch-Site
+        {"origin": "http://testserver:8080"},
+        {"host": "localhost:7424", "origin": "http://localhost:8080"},
     ],
 )
 def test_cross_site_writes_are_rejected(client, tg, headers):
@@ -422,11 +425,19 @@ def test_cross_site_writes_are_rejected(client, tg, headers):
     assert not tg.calls
 
 
-def test_same_origin_writes_are_allowed(client, tg):
-    r = client.post(
-        "/api/raw/getMe", json={}, headers={"origin": "http://localhost:8080", "sec-fetch-site": "same-origin"}
-    )
-    assert r.status_code == 200
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {"origin": "http://testserver", "sec-fetch-site": "same-origin"},
+        {"host": "localhost:7424", "origin": "http://localhost:7424", "sec-fetch-site": "same-origin"},
+        {"host": "localhost:7424", "origin": "http://localhost:7424"},
+        {"host": "[::1]:7424", "origin": "http://[::1]:7424"},
+        # a proxy may spell out the default port in Host, the browser never does in Origin
+        {"host": "testserver:443", "origin": "https://testserver"},
+    ],
+)
+def test_same_origin_writes_are_allowed(client, tg, headers):
+    assert client.post("/api/raw/getMe", json={}, headers=headers).status_code == 200
 
 
 def test_empty_text_plain_body_is_rejected(client, tg):
