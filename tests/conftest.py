@@ -41,6 +41,9 @@ def _serve(app) -> int:
 
 
 FAKE_PORT = _serve(FAKE.app)
+# README tells to export the studio's address and keys for .mcp.json and the hook: the tests run without them
+for name in ("STUDIO_URL", "STUDIO_API_KEY", "STUDIO_API_KEY_FILE", "STUDIO_TOKEN", "STUDIO_MODE"):
+    os.environ.pop(name, None)
 os.environ.update(
     {
         "DATA_DIR": tempfile.mkdtemp(prefix="rich-studio-test-"),
