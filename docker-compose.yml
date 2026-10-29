@@ -7,7 +7,7 @@ services:
     # and STUDIO_GID=$(id -g) in .env. The image itself defaults to uid 10001 (the server, deploy/)
     user: "${STUDIO_UID:-1000}:${STUDIO_GID:-1000}"
     ports:
-      - "127.0.0.1:8080:8080"   # только с этого компьютера
+      - "127.0.0.1:7424:8080"   # только с этого компьютера; порт хоста 7424, а не 8080: тот часто занят
     volumes:
       - ./data:/data            # черновики, посты, файлы, кэш спецификации
     restart: unless-stopped
