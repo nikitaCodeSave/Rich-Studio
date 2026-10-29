@@ -415,6 +415,9 @@ def test_foreign_host_is_rejected(client):
         # another project on another port of this computer, from a browser without Sec-Fetch-Site
         {"origin": "http://testserver:8080"},
         {"host": "localhost:7424", "origin": "http://localhost:8080"},
+        # the default port depends on the scheme; a browser's same-origin mark does not override Origin
+        {"host": "testserver:443", "origin": "http://testserver"},
+        {"origin": "https://evil.example", "sec-fetch-site": "same-origin"},
     ],
 )
 def test_cross_site_writes_are_rejected(client, tg, headers):
