@@ -343,13 +343,13 @@ npm run test:parity             # предпросмотр HTML и Markdown пр
 npm run test:shots              # примеры из examples/ в обеих темах: вёрстка и скриншоты в test-results/preview/
 ```
 
-Проверки в браузере (`tests/e2e_ui.mjs`: публикация, закреп, опрос, отмена правок, сверка с Telegram, MCP App, шапка и другие) запускаются против работающей студии, направленной на подставной API из `tests/mock_telegram.py`:
+Проверки в браузере (`tests/e2e_ui.mjs`: публикация, закреп, опрос, отмена правок, сверка с Telegram, MCP App, шапка и другие) запускаются против студии, направленной на подставной API из `tests/mock_telegram.py`. `make e2e-local` поднимает такой стенд сам, на своих портах и с пустой папкой данных, и не мешает рабочей студии на 7424; на студию с настоящим ботом проверки не пойдут:
 
 ```
-make mock    # подставной Telegram на :8081
-make dev     # студия на :7424
-npm ci && npx playwright install chromium && make e2e
+npm ci && npx playwright install chromium && make e2e-local   # одна проверка: make e2e-local ONLY=poll
 ```
+
+Стенд в соседних терминалах, если студия на 7424 остановлена: `make mock`, `make dev`, затем `make e2e`.
 
 Подставной API пригодится и чтобы просто посмотреть студию без настоящего бота. Через `POST http://localhost:8081/push` в него можно подать события от «Telegram» (нажатия, реакции, голоса), как это сделано для скриншотов выше.
 

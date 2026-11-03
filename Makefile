@@ -5,7 +5,7 @@ PY ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 LINT_IMPORTS = $(if $(wildcard .venv/bin/lint-imports),.venv/bin/lint-imports,lint-imports)
 UV = $(if $(wildcard .venv/bin/uv),.venv/bin/uv,uv)
 
-.PHONY: check check-fast check-py check-js fmt test openapi docs e2e mock dev spec-update token tokens token-revoke lock
+.PHONY: check check-fast check-py check-js fmt test openapi docs e2e e2e-local mock dev spec-update token tokens token-revoke lock
 
 check: check-py check-js
 
@@ -72,6 +72,11 @@ dev:
 # Браузерные проверки: сначала `make mock` и `make dev` в соседних терминалах.
 e2e:
 	npm run --silent test:e2e
+
+# Браузерные проверки на своём стенде (свои порты, пустой DATA_DIR): рабочая студия на 7424 не мешает и не трогается.
+# Одна проверка: make e2e-local ONLY=poll
+e2e-local:
+	scripts/e2e_local.sh $(ONLY)
 
 # requirements.lock: every runtime package with hashes, for the image. After a change in requirements.txt
 # (by hand or Dependabot) run it and commit the lock; tests/test_lock.py checks they agree.

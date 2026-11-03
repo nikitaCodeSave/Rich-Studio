@@ -7,7 +7,19 @@ export const MOCK = process.env.MOCK || 'http://localhost:8081';
 
 /** @typedef {Awaited<ReturnType<typeof start>>} Ctx */
 
+// The checks publish posts. A working studio on the same port talks to the real Telegram and would post them to the
+// channel, so the run starts only on a stand whose Bot API is the mock at `mock` (make e2e-local makes one).
+/** @param {string} base @param {string} mock */
+export async function assertMockStand(base, mock) {
+  const cfg = await fetch(base + '/api/config').then((r) => (r.ok ? r.json() : null), () => null);
+  const api = cfg && cfg.api_base ? new URL(cfg.api_base) : null;
+  if (!api || !['127.0.0.1', 'localhost'].includes(api.hostname) || api.port !== new URL(mock).port) {
+    throw new Error(`${base} is not a test stand: its Bot API is ${(cfg && cfg.api_base) || 'unknown'}, not the mock at ${mock}. Run make e2e-local.`);
+  }
+}
+
 export async function start() {
+  await assertMockStand(BASE, MOCK);
   const results = [];
   const check = (name, ok, info = '') => { results.push({ name, ok }); console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${info ? '  ' + info : ''}`); };
   const mockLog = async () => (await fetch(MOCK + '/log')).json();
