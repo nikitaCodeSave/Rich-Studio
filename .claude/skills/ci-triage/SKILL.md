@@ -51,11 +51,21 @@ Once you pushed, Dependabot stops rebasing the PR; `@dependabot recreate` would 
 await page.waitForFunction(() => /опрос/.test(document.querySelector('#posts li')?.textContent || ''), null, { timeout: 8000 }).catch(() => {});
 ```
 
+For the mock's log or the API, `until` from the harness, counted from before the action (the log keeps the whole session):
+
+```js
+const before = (await mockLog()).filter((c) => c.method === 'sendPoll').length;
+await page.click('#send');
+const poll = await until(async () => (await mockLog()).filter((c) => c.method === 'sendPoll').slice(before).pop());
+```
+
+Two actions that each reload the same list (a tab, then a filter) go one after the other: wait for the first one's result, or the older reload may land last.
+
 The same pause-then-read in other checks is a later PR: list those files in this PR's description.
 
-**Browser checks locally**: `make e2e-local`, one check `make e2e-local ONLY=poll` (three runs in a row for a flake fix, then the whole set). It brings up its own stand on free ports with an empty DATA_DIR. The working studio on 7424 is a container that talks to the real Telegram; the harness refuses to run against it, and the stand stops its own processes by PID.
+**Browser checks locally**: `make e2e-local`, one check `make e2e-local ONLY=poll`. It brings up its own stand on free ports with an empty DATA_DIR. The working studio on 7424 is a container that talks to the real Telegram; the harness refuses to run against it, and the stand stops its own processes by PID. The proof of a flake fix is `E2E_SLOW=500 make e2e-local ONLY=<check>` (every request of the page is delayed, as on a slow runner): the old check goes red, the new one green.
 
-Done when `make check` (and `make e2e-local` for a browser fix) is green locally and `gh pr checks <n> --watch` is green for every PR.
+Done when `make check` is green locally (a browser fix: also the red-then-green proof and the whole `make e2e-local` set) and `gh pr checks <n> --watch` is green for every PR.
 
 ## 4. Hand off
 
