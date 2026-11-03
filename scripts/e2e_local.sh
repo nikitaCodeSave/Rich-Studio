@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Browser checks on a stand of their own: the fake Telegram and a studio with an empty DATA_DIR on ports of their own,
 # so a working studio on 7424 keeps running and never sees the test posts. Both stop on exit; on a failure the
-# stand's logs stay in the printed folder. Usage: make e2e-local [ONLY=<part of a check file name>]
+# stand's logs stay in the printed folder and their tails go to stderr. CI runs the same (ci.yml, job e2e).
+# Usage: make e2e-local [ONLY=<part of a check file name>]
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"   # screenshots go to test-results/ui/ here
@@ -21,7 +22,10 @@ pids=()
 status=1
 stop() {
   if [ ${#pids[@]} -gt 0 ]; then kill "${pids[@]}" 2>/dev/null || true; wait "${pids[@]}" 2>/dev/null || true; fi
-  if [ "$status" -eq 0 ]; then rm -rf "$WORK"; else echo "stand logs: $WORK/mock.log, $WORK/studio.log" >&2; fi
+  if [ "$status" -eq 0 ]; then rm -rf "$WORK"; return; fi
+  for f in "$WORK"/mock.log "$WORK"/studio.log; do
+    if [ -f "$f" ]; then echo "--- $f, last 60 lines" >&2; tail -n 60 "$f" >&2; fi
+  done
 }
 trap stop EXIT
 
