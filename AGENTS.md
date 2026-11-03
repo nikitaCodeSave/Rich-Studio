@@ -12,7 +12,7 @@ make check                                      # всё: ruff, format, mypy, с
 make fmt                                        # автоисправление формата и линтеров
 ```
 
-Изменение готово, только когда `make check` зелёный. Изменил маршруты, модели API или инструменты MCP намеренно — `make docs` и закоммить `docs/openapi.json` и `docs/reference/` (тесты `test_openapi_contract.py` и `test_reference_docs.py` сверяют их). Браузерные проверки: `make mock`, `make dev`, затем `make e2e` (нужен Chromium для Playwright).
+Изменение готово, только когда `make check` зелёный. Изменил маршруты, модели API или инструменты MCP намеренно — `make docs` и закоммить `docs/openapi.json` и `docs/reference/` (тесты `test_openapi_contract.py` и `test_reference_docs.py` сверяют их). Браузерные проверки: `make e2e-local` (свой стенд на свободных портах рядом с рабочей студией; нужен Chromium для Playwright).
 
 ## Главные правила
 
@@ -50,7 +50,7 @@ make fmt                                        # автоисправление
 - Новая возможность или изменённое поведение: в том же PR поправь README (описание возможности, «Что обновляется вручную») и `.claude/skills/telegram-rich-posts/SKILL.md`, если это касается агентов. Описание маршрута — его `summary=` и docstring, инструмента — его docstring: оттуда `make docs` собирает `docs/reference/`, руками эти списки не правятся.
 - Изменил слои, политику ошибок или «куда добавлять новое»: поправь `docs/ARCHITECTURE.md`.
 - Принял решение, которое не видно из кода (выбор библиотеки, отказ от подхода): запись в [docs/decisions/](docs/decisions/README.md). Перед тем как предлагать сборщик, фреймворк или другой источник спецификации, прочитай, почему от них уже отказались.
-- Изменил вид редактора: `make e2e` сохраняет скриншоты в `test-results/ui/` (1400 и 390 px). Посмотри их и покажи человеку вместе с PR. В CI они лежат в артефакте `editor-screenshots`, скриншоты предпросмотра — в `preview-screenshots`.
+- Изменил вид редактора: `make e2e-local` сохраняет скриншоты в `test-results/ui/` (1400 и 390 px). Посмотри их и покажи человеку вместе с PR. В CI они лежат в артефакте `editor-screenshots`, скриншоты предпросмотра — в `preview-screenshots`.
 
 ## Не делать
 
@@ -76,5 +76,6 @@ make fmt                                        # автоисправление
 | тесты | `tests/` (см. AGENTS.md там) |
 | skill для пользователя | `.claude/skills/telegram-rich-posts/SKILL.md` |
 | здоровье работающей студии (skill и субагент) | `.claude/skills/studio-health/SKILL.md`, `.claude/agents/studio-monitor.md` |
+| красный CI, PR Dependabot | `.claude/skills/ci-triage/SKILL.md` |
 
 Сообщения коммитов и описания PR пиши по-русски или по-английски, коротко: что видно снаружи и зачем.
