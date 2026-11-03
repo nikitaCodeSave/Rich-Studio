@@ -69,15 +69,8 @@ jobs:
           node-version: "22"
       - run: pip install -r requirements.txt
       - run: npm ci && npx playwright install --with-deps chromium
-      - name: start mock Telegram and studio
-        run: |
-          (cd tests && uvicorn mock_telegram:app --port 8081 &)
-          mkdir -p /tmp/rs-data
-          (cd app && DATA_DIR=/tmp/rs-data TG_BOT_TOKEN=1:x TG_API_BASE=http://127.0.0.1:8081 \
-             TG_DEFAULT_CHAT=@test TG_PREVIEW_CHAT=777 SPEC_URL=http://127.0.0.1:9/off \
-             uvicorn main:app --port 7424 &)
-          for i in $(seq 30); do curl -sf localhost:7424/api/config && break; sleep 1; done
-      - run: node tests/e2e_ui.mjs
+      # the stand of make e2e-local: mock Telegram and a studio with an empty DATA_DIR; their log tails on a failure
+      - run: scripts/e2e_local.sh
       - uses: actions/upload-artifact@v7
         if: always()
         with:

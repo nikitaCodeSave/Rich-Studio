@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Browser checks on a stand of their own: the fake Telegram and a studio with an empty DATA_DIR on ports of their own,
 # so a working studio on 7424 keeps running and never sees the test posts. Both stop on exit; on a failure the
-# stand's logs stay in the printed folder. Usage: make e2e-local [ONLY=<part of a check file name>]
+# stand's logs stay in the printed folder and their tails go to stderr. CI runs the same (ci.yml, job e2e).
+# Usage: make e2e-local [ONLY=<part of a check file name>]
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"   # screenshots go to test-results/ui/ here
@@ -9,8 +10,9 @@ PY=$(if [ -x "$ROOT/.venv/bin/python" ]; then echo "$ROOT/.venv/bin/python"; els
 STUDIO_PORT=${STUDIO_PORT:-7499}
 MOCK_PORT=${MOCK_PORT:-8099}
 
+# a listener on the port is refused; SO_REUSEADDR, as uvicorn binds, lets the last run's TIME_WAIT pass
 for port in "$STUDIO_PORT" "$MOCK_PORT"; do
-  if ! "$PY" -c "import socket,sys; socket.socket().bind(('127.0.0.1', int(sys.argv[1])))" "$port" 2>/dev/null; then
+  if ! "$PY" -c "import socket as k,sys; s=k.socket(); s.setsockopt(k.SOL_SOCKET, k.SO_REUSEADDR, 1); s.bind(('127.0.0.1', int(sys.argv[1])))" "$port" 2>/dev/null; then
     echo "port $port is busy: free it or set STUDIO_PORT / MOCK_PORT" >&2
     exit 2
   fi
@@ -21,7 +23,10 @@ pids=()
 status=1
 stop() {
   if [ ${#pids[@]} -gt 0 ]; then kill "${pids[@]}" 2>/dev/null || true; wait "${pids[@]}" 2>/dev/null || true; fi
-  if [ "$status" -eq 0 ]; then rm -rf "$WORK"; else echo "stand logs: $WORK/mock.log, $WORK/studio.log" >&2; fi
+  if [ "$status" -eq 0 ]; then rm -rf "$WORK"; return; fi
+  for f in "$WORK"/mock.log "$WORK"/studio.log; do
+    if [ -f "$f" ]; then echo "--- $f, last 60 lines" >&2; tail -n 60 "$f" >&2; fi
+  done
 }
 trap stop EXIT
 
