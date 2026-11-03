@@ -1,12 +1,14 @@
 // Live Photo and paid media: the «Опубликовать ▾» dialog sends sendLivePhoto and sendPaidMedia with uploaded files
 /** @param {import('./harness.mjs').Ctx} ctx */
-export default async function ({ page, check, mockLog, setChat }) {
+export default async function ({ page, check, mockLog, until, setChat }) {
+  const calls = async (method) => (await mockLog()).filter((c) => c.method === method);
   await page.click('#side-tabs [data-tab=uploads]');
   await page.setInputFiles('#upload', [
     { name: 'clip.mp4', mimeType: 'video/mp4', buffer: Buffer.from('fake mp4') },
     { name: 'still.jpg', mimeType: 'image/jpeg', buffer: Buffer.from('fake jpg') },
   ]);
-  await page.waitForTimeout(800);
+  // the dialog lists the uploads it knows when it opens: wait until both are in
+  await page.waitForFunction(() => { const names = [...document.querySelectorAll('#uploads .name')].map((n) => n.textContent); return names.includes('clip.mp4') && names.includes('still.jpg'); }, null, { timeout: 8000 }).catch(() => {});
   await setChat('@media_chan');
   await page.click('#btn-more');
   await page.click('#btn-media-post');
@@ -14,9 +16,9 @@ export default async function ({ page, check, mockLog, setChat }) {
   await page.selectOption('dialog[open] select[aria-label="Кадр"]', 'upload:still.jpg');
   await page.fill('dialog[open] textarea[aria-label="Подпись"]', 'Закат над морем');
   await page.screenshot({ path: 'test-results/ui/live-photo-1400.png' }).catch(() => {});
+  const livesBefore = (await calls('sendLivePhoto')).length;
   await page.locator('dialog[open] button', { hasText: 'Отправить' }).click();
-  await page.waitForTimeout(800);
-  const live = (await mockLog()).filter((c) => c.method === 'sendLivePhoto').pop();
+  const live = await until(async () => (await calls('sendLivePhoto')).slice(livesBefore).pop());
   await page.click('#btn-more');
   await page.click('#btn-media-post');
   await page.selectOption('dialog[open] select[aria-label="Что отправить"]', 'paid_media');
@@ -30,9 +32,11 @@ export default async function ({ page, check, mockLog, setChat }) {
   await page.waitForTimeout(200);
   await page.screenshot({ path: 'test-results/ui/paid-media-390.png' }).catch(() => {});
   await page.setViewportSize({ width: 1400, height: 900 });
+  const paidBefore = (await calls('sendPaidMedia')).length;
   await page.locator('dialog[open] button', { hasText: 'Отправить' }).click();
-  await page.waitForTimeout(800);
-  const paid = (await mockLog()).filter((c) => c.method === 'sendPaidMedia').pop();
+  const paid = await until(async () => (await calls('sendPaidMedia')).slice(paidBefore).pop());
+  // each send closes its dialog and reloads «Посты»
+  await page.waitForFunction(() => [...document.querySelectorAll('#posts li')].some((li) => (li.textContent || '').includes('Закат над морем')), null, { timeout: 8000 }).catch(() => {});
   const listed = await page.locator('#posts li', { hasText: 'Закат над морем' }).count().catch(() => 0);
   await setChat('@test');
   const media = paid && JSON.parse(typeof paid.body.media === 'string' ? paid.body.media : JSON.stringify(paid.body.media));
