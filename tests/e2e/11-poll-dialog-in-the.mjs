@@ -11,7 +11,8 @@ export default async function ({ page, check, mockLog }) {
   await dlg.locator('label:has-text("старше 24 часов") input').check();
   await dlg.locator('input[placeholder="пусто = все"]').fill('ru, kz');
   await dlg.locator('button:has-text("Отправить")').click();
-  await page.waitForTimeout(800);
+  // after the send the dialog closes and «Посты» reloads on its own: wait for the poll row, not a fixed pause
+  await page.waitForFunction(() => !document.querySelector('dialog[open]') && /опрос/.test(document.querySelector('#posts li')?.textContent || ''), null, { timeout: 8000 }).catch(() => {});
   const pollCall = (await mockLog()).filter((c) => c.method === 'sendPoll').pop();
   const pb = pollCall && pollCall.body;
   const pollRow = await page.locator('#posts li').first().textContent();
