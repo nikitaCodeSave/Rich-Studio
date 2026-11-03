@@ -10,8 +10,9 @@ PY=$(if [ -x "$ROOT/.venv/bin/python" ]; then echo "$ROOT/.venv/bin/python"; els
 STUDIO_PORT=${STUDIO_PORT:-7499}
 MOCK_PORT=${MOCK_PORT:-8099}
 
+# a listener on the port is refused; SO_REUSEADDR, as uvicorn binds, lets the last run's TIME_WAIT pass
 for port in "$STUDIO_PORT" "$MOCK_PORT"; do
-  if ! "$PY" -c "import socket,sys; socket.socket().bind(('127.0.0.1', int(sys.argv[1])))" "$port" 2>/dev/null; then
+  if ! "$PY" -c "import socket as k,sys; s=k.socket(); s.setsockopt(k.SOL_SOCKET, k.SO_REUSEADDR, 1); s.bind(('127.0.0.1', int(sys.argv[1])))" "$port" 2>/dev/null; then
     echo "port $port is busy: free it or set STUDIO_PORT / MOCK_PORT" >&2
     exit 2
   fi
