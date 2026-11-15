@@ -32,13 +32,13 @@ const SOURCE = { json: jsonSource(syntaxTree, () => spec), html: htmlSource(() =
 const results = [];
 const check = (name, ok, info = '') => { results.push(ok); console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${ok || !info ? '' : '  ' + info}`); };
 
-/** The doc with | at the cursor: what the source offers there. */
-async function at(lang, marked, explicit = false) {
+/** The doc with | at the cursor: what the source offers there (`source`: another one than the tab's). */
+async function at(lang, marked, explicit = false, source = SOURCE[lang]) {
   const pos = marked.indexOf('|');
   const doc = marked.replace('|', '');
   const base = EditorState.create({ doc, selection: { anchor: pos }, extensions: [LANG[lang]] });
   ensureSyntaxTree(base, doc.length, 5000);
-  const result = await SOURCE[lang](new CompletionContext(base, pos, explicit));
+  const result = await source(new CompletionContext(base, pos, explicit));
   const typed = result ? base.sliceDoc(result.from, pos) : null;
   const labels = result ? result.options.map((o) => o.label) : [];
   // what picking an option writes, through a stand-in view that applies the transaction to the state
@@ -120,6 +120,28 @@ r = await at('json', '{"callbacks": {"|"}}');
 check('callbacks (not a Bot API type) open nothing', r.result === null);
 r = await at('json', '["a|');
 check('JSON that is not an object opens nothing', r.result === null);
+
+// a new block, field and parameter in the spec reach the suggestions with no code: the same answer, changed in memory
+const next = structuredClone(spec);
+const field = (name, types, enumValues = null) => ({ name, types, required: false, description: 'новое', enum: enumValues });
+next.types.InputRichBlockFuture = {
+  description: 'Блок из будущей версии', subtypes: [], const_field: 'type', const: 'future', href: null,
+  fields: [field('type', ['String']), field('mode', ['String'], ['fast', 'slow'])],
+};
+next.types.InputRichBlock.subtypes.push('InputRichBlockFuture');
+next.types.InputRichBlockParagraph.fields.push(field('new_field', ['Boolean']));
+next.post.types.PostOptions.fields.push(field('new_parameter', ['Boolean']));
+const later = jsonSource(syntaxTree, () => next);
+r = await at('json', '{"rich_message": {"blocks": [{"type": "fu|"}]}}', false, later);
+const block = r.option('future');
+r = await at('json', '{"rich_message": {"blocks": [{"type": "future", "mode": "|"}]}}', false, later);
+const modes = r.labels;
+r = await at('json', '{"rich_message": {"blocks": [{"type": "paragraph", "|"}]}}', false, later);
+const newField = r.labels.includes('new_field');
+r = await at('json', '{"options": {"new|"}}', false, later);
+check('a new block, its enum, a new field and a new parameter in the spec are suggested with no change in the code',
+  block?.detail === 'InputRichBlockFuture' && modes.join() === 'fast,slow' && newField && r.labels.includes('new_parameter'),
+  JSON.stringify({ block, modes, newField, options: r.labels }));
 
 // HTML from snippets.js, the same inside Markdown
 r = await at('html', '<p>Это <tg-sp|');
