@@ -14,5 +14,5 @@ data/
 node_modules/
 **/AGENTS.md
 .venv/
-*.pem
-*.key
+**/*.pem
+**/*.key
