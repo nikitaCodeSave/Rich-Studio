@@ -46,7 +46,7 @@ services:
     logging: *logging
 
   litestream:
-    image: litestream/litestream:0.5.17@sha256:4b02b9859a6b6b4087d8b8944e15f7e984bd7957cba322bbeee38b0e27b9656a
+    image: litestream/litestream:0.5.18@sha256:513bff62a88fc0c86c73d27333c41c54c89fe890a7c32a551600adff9309b11b
     command: replicate
     user: "10001:10001"                           # the studio's user: Litestream writes next to studio.db
     env_file: litestream.env                      # LITESTREAM_REPLICA_URL and the S3 keys: only here, not in the studio
