@@ -643,3 +643,12 @@ def test_edit_post_with_a_stale_post_version_is_a_tool_error(client, tg):
         client, "edit_post", post_id=pid, post={"rich_message": {"markdown": "# Чужое"}}, post_version=p["version"]
     )
     assert res["isError"] and "get_post" in text
+
+
+def test_get_draft_hides_the_editors_json_buffer(client):
+    d = {"rich_message": {"markdown": "x"}}
+    studio = {"json": {"text": "{}", "base": "{}"}, "buffers": {"html": "<p>x</p>"}, "source": {"link": "t.me/c/1"}}
+    saved = store.save_draft(None, "T", {**d, "_studio": studio})
+    _, got, _ = call(client, "get_draft", draft_id=saved["id"])
+    assert got["payload"]["_studio"] == {"source": {"link": "t.me/c/1"}}
+    assert store.get_draft(saved["id"])["payload"]["_studio"] == studio  # the stored draft is untouched

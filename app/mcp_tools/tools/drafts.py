@@ -73,10 +73,18 @@ def register(tool: ToolDecorator) -> None:
 
     @tool(READ)
     async def get_draft(draft_id: Annotated[str, Field(description="id из list_drafts")]) -> dict:
-        """Черновик целиком: пост (payload), название, version для save_draft."""
+        """Черновик целиком: пост (payload), название, version для save_draft. В payload._studio только заметки
+        студии (source, warnings у пересланного поста; в Telegram не уходят); копии поста для редактора
+        (buffers, неприменённый json) не отдаются: пост это rich_message. save_draft кладёт пост как есть,
+        и редактор откроет его без прежних буферов."""
         d = store.get_draft(draft_id)
         if not d:
             raise NotFound(f"черновика {draft_id} нет")
+        studio = d["payload"].get("_studio") if isinstance(d.get("payload"), dict) else None
+        if isinstance(studio, dict):
+            notes = {k: v for k, v in studio.items() if k not in ("json", "buffers")}
+            payload = {k: v for k, v in d["payload"].items() if k != "_studio"}
+            d = {**d, "payload": {**payload, **({"_studio": notes} if notes else {})}}
         return {**d, **draft_links(d["id"]), "goes_to": channels.goes_to(d.get("chat_ids"))}
 
     @tool(TO_ME)
