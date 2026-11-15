@@ -494,6 +494,11 @@
     flush(null);
   }
 
+  // Telegram decodes only &lt; &gt; &amp; &quot; and numeric entities (&#x with a small x), as its HTML parse mode
+  // documents; any other «&…» stays as typed (measured: &QUOT;, &quot without «;», &#X22;), so the browser gets it as text
+  const TG_ENTITY = /&(?!(?:lt|gt|amp|quot|#[0-9]+|#x[0-9a-fA-F]+);)/g;
+  const tgEntities = (src) => src.replace(TG_ENTITY, '&amp;');
+
   function renderHtml(src, ctx) {
     // <template> content is inert: no scripts run and no images load until sanitized nodes are attached
     const tpl = document.createElement('template');
@@ -686,7 +691,7 @@
     const body = el('div', { class: 'tg-body', dir: rm.is_rtl ? 'rtl' : null });
     try {
       if (rm.blocks) body.append(renderBlocks(rm.blocks, ctx));
-      else if (rm.html) body.append(renderHtml(rm.html, ctx));
+      else if (rm.html) body.append(renderHtml(tgEntities(rm.html), ctx));
       else if (rm.markdown) body.append(renderMarkdown(rm.markdown, ctx));
       else body.append(el('p', { class: 'tg-empty', text: 'Пустой пост' }));
     } catch (e) {

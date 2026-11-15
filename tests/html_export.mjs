@@ -243,6 +243,9 @@ await refused('Names of Object\'s own properties are not types', [{ type: 'const
   const r = await toHtml([{ type: 'paragraph', text: ['Кошелёк ', { type: 'ton_address', text: ton, address: ton }] }]);
   check('A TON address is written as its text, Telegram finds it there', r.ok && r.html === `<p>Кошелёк ${ton}</p>`, JSON.stringify(r));
   await refused('A TON address shown as other text is refused: Telegram finds it only by the text', [{ type: 'paragraph', text: { type: 'ton_address', text: 'UQBv…ggGG', address: ton } }], [/«Адрес TON».*не совпадает/]);
+  // measured: Telegram finds only the 48-character EQ…/UQ… form; a raw address stays text, so it is not lost quietly
+  const raw = '0:83dfd552e63729b472fcbcc8c45ebcc6691702558b68ec7527e1ba403a0f31a8';
+  await refused('A raw TON address is refused: Telegram does not find it in text', [{ type: 'paragraph', text: { type: 'ton_address', text: raw, address: raw } }], [/«Адрес TON».*EQ… и UQ… из 48 символов/]);
 }
 check('Every type HTML cannot say is refused by name in this file (none now)', noHtml.length === 0, 'add a refusal check for: ' + noHtml.join(', '));
 {

@@ -77,7 +77,7 @@ def test_characters_count_captions_cells_summaries_and_button_text(current):
 def test_characters_are_unicode_characters_not_utf16_units(current):
     """ "UTF-8 characters": an emoji outside the BMP is one character (two UTF-16 code units, four bytes)."""
     r = check(current, [para("😀" * 100)])
-    assert r["stats"]["chars"] == 100 and r["stats"]["bytes"] == 400, r["stats"]
+    assert r["stats"]["chars"] == 100 and r["stats"]["max_string_bytes"] == 400, r["stats"]
 
 
 # ---------- the silent cut by bytes ----------
@@ -93,7 +93,7 @@ def test_the_cut_is_a_few_bytes_under_what_telegram_kept():
 def test_one_string_over_the_cut_is_an_error_in_blocks(current):
     """Measured: a paragraph of 20 000 «ж» went out as 17 498 of them (34 996 bytes), without an error."""
     r = check(current, [para(ROOM)])
-    assert r["ok"] and r["stats"]["bytes"] == MAX_BYTES and r["stats"]["chars"] == len(ROOM), r["errors"]
+    assert r["ok"] and r["stats"]["max_string_bytes"] == MAX_BYTES and r["stats"]["chars"] == len(ROOM), r["errors"]
     r = check(current, [para(), para(ROOM + "a")])
     assert not r["ok"] and has(r["errors"], f"rich_message.blocks[1]: строка текста 34991 байт в UTF-8: Telegram {CUT}")
 
@@ -105,6 +105,17 @@ def test_in_blocks_the_cut_is_for_each_string_not_the_post(current):
         assert r["ok"] and not has(r["warnings"], "байт"), r
 
 
+@pytest.mark.parametrize(
+    "text",
+    [["ж" * 10000, "ж" * 10000], ["ж" * 10000, {"type": "bold", "text": "ж" * 10000}], ["ж" * 5000] * 4 + ["КОНЕЦ"]],
+    ids=["two strings of 10 000 «ж»", "a string and bold", "four strings and КОНЕЦ"],
+)
+def test_strings_of_one_paragraph_are_cut_each_by_itself(current, text):
+    """Measured: 40 000 bytes of text in one paragraph, as an array of strings, went out whole."""
+    r = check(current, [para(text)])
+    assert r["ok"] and not has(r["warnings"], "байт"), r
+
+
 def test_in_blocks_the_characters_of_the_whole_post_still_count(current):
     """Measured: 300 paragraphs of 110 «ж» (33 000 characters) are RICH_MESSAGE_TEXT_TOO_LONG."""
     r = check(current, [para("ж" * 110)] * 300)
@@ -113,7 +124,7 @@ def test_in_blocks_the_characters_of_the_whole_post_still_count(current):
 
 def test_emoji_and_formula_source_are_strings_of_their_own(current):
     r = check(current, [para("😀" * 8747 + "aa")])
-    assert r["ok"] and r["stats"]["bytes"] == MAX_BYTES, r["errors"]
+    assert r["ok"] and r["stats"]["max_string_bytes"] == MAX_BYTES, r["errors"]
     assert not check(current, [para("😀" * 8747 + "aaa")])["ok"]
     formula = {"type": "mathematical_expression", "expression": "ж" * 17496}
     r = check(current, [para(), formula])
@@ -149,7 +160,8 @@ def test_html_and_markdown_are_cut_as_their_source_at_the_edge(current):
     ids=["500 paragraphs of 40 «ж»", "a 16 KB link address", "2000 <b>x</b>", "markdown with 2600 **x**"],
 )
 def test_markup_takes_its_share_of_the_cut(current, rm):
-    """Measured: 500 paragraphs of 40 «ж» (20 000 bytes of text, 43 500 of source) went out as 403; the link address
+    """Measured: 500 paragraphs of 40 «ж» (20 000 characters, 40 000 bytes of text, 43 500 of source) went out as
+    403; the link address
     was cut and «КОНЕЦ» lost; the <b> tags were cut in the middle, a literal «<b» left in the text."""
     r = check(current, **rm)
     assert not r["ok"] and has(r["errors"], "байт в UTF-8 вместе с разметкой"), r
@@ -274,6 +286,23 @@ def test_nesting_in_blocks_as_measured(current, blocks, passes):
     assert r["stats"]["depth"] == (16 if passes else 17)
 
 
+@pytest.mark.parametrize(
+    "blocks",
+    [
+        [{"type": "heading", "size": 2, "text": fmt(16)}],
+        [para({"type": "url", "text": fmt(15), "url": "https://t.me"})],
+        [para({"type": "spoiler", "text": fmt(15)})],
+        [{"type": "pullquote", "text": fmt(16)}],
+    ],
+    ids=["heading+fmt16", "paragraph>url+fmt15", "paragraph>spoiler+fmt15", "pullquote+fmt16"],
+)
+def test_nesting_by_blocks_and_text_without_a_measurement_only_warns(current, blocks):
+    """Only paragraph, blockquote, list, details, table and b/i/u/s were measured; the rest counts for a warning."""
+    r = check(current, blocks)
+    assert r["ok"] and r["stats"]["depth"] == 16, r
+    assert has(r["warnings"], "около 17 уровней вложенности, лимит 16"), r["warnings"]
+
+
 def test_the_nesting_error_names_the_deepest_block(current):
     r = check(current, [para(), quotes(16)])
     (err,) = [e for e in r["errors"] if "вложенности" in e]
@@ -310,7 +339,7 @@ def li(levels, inner):
     return "<ul><li>" * levels + inner + "</li></ul>" * levels
 
 
-HTML_DEPTH = {  # every html measurement of issue #170: name -> (source, Telegram took it)
+HTML_DEPTH = {  # every html measurement of issue #170 and PR #173: name -> (source, Telegram took it)
     "p+fmt15": ("<p>" + bius(15) + "</p>", True),
     "fmt15": (bius(15), True),
     "bq1+fmt15": (bq(1, bius(15)), True),
@@ -330,6 +359,9 @@ HTML_DEPTH = {  # every html measurement of issue #170: name -> (source, Telegra
     "details>bq+fmt14": (det(1, bq(1, bius(14))), True),
     "bq>details+fmt13": (bq(1, det(1, bius(13))), True),
     "details x9": (det(9, "a"), True),
+    "bq>p+fmt15": (bq(1, "<p>" + bius(15) + "</p>"), True),
+    "ul>li>p+fmt15": (li(1, "<p>" + bius(15) + "</p>"), True),
+    "ul>li>p+fmt14": (li(1, "<p>" + bius(14) + "</p>"), True),
     "p+fmt16": ("<p>" + bius(16) + "</p>", False),
     "fmt16": (bius(16), False),
     "bq1+fmt16": (bq(1, bius(16)), False),
@@ -354,12 +386,14 @@ HTML_DEPTH = {  # every html measurement of issue #170: name -> (source, Telegra
 @pytest.mark.parametrize("name", HTML_DEPTH)
 def test_nesting_in_html_as_measured(current, name):
     """Measured: elements on the way to the text, at most 16; a list and a table are one level each; text at the top
-    or right in <details> gets a paragraph of its own, text in blockquote, aside, li, td and summary does not."""
+    or right in <details> gets a paragraph of its own, text in blockquote, aside, li, td and summary does not; a <p>
+    is a level only where it stands for that paragraph."""
     source, passes = HTML_DEPTH[name]
     r = check(current, html=source)
     errors = [e for e in r["errors"] if "вложенности" in e]
     assert (not errors) == passes and not has(r["warnings"], "вложенности"), r
-    assert r["stats"]["depth"] == (10 if name == "details x9" else 16 if passes else 17)
+    depth = {"details x9": 10, "ul>li>p+fmt14": 15}.get(name, 16 if passes else 17)
+    assert r["stats"]["depth"] == depth, r["stats"]
 
 
 def test_the_html_nesting_error_shows_where(current):
@@ -378,8 +412,9 @@ def test_unclosed_paragraphs_list_items_and_cells_are_siblings(current):
 
 
 def test_tags_without_a_measurement_only_warn(current):
-    """<h1>, <a>, <code>… were not measured: by the same reading over the limit is only a warning."""
-    for html in ("<h1>" + bius(16) + "</h1>", "<p>" + bius(15, '<a href="https://t.me">a</a>') + "</p>"):
+    """<h1>, <a>, <code>…, and a <p> in td, aside, summary were not measured: over the limit by them is a warning."""
+    cell = "<table><tr><td><p>" + bius(15) + "</p></td></tr></table>"
+    for html in ("<h1>" + bius(16) + "</h1>", "<p>" + bius(15, '<a href="https://t.me">a</a>') + "</p>", cell):
         r = check(current, html=html)
         assert r["ok"] and has(r["warnings"], "около 17 уровней вложенности, лимит 16"), (html, r)
 
@@ -400,7 +435,12 @@ def test_markdown_nesting_is_left_to_telegram(current):
 # ---------- a quote in an address ----------
 @pytest.mark.parametrize(
     "href",
-    ["https://example.com/?q=&quot;x&quot;", "https://example.com/?q=&#34;x", "https://example.com/?q=&#x22;x"],
+    [
+        "https://example.com/?q=&quot;x&quot;",
+        "https://example.com/?q=&#34;x",
+        "https://example.com/?q=&#034;x",
+        "https://example.com/?q=&#x22;x",
+    ],
 )
 def test_a_quote_in_a_link_address_is_an_error(current, href):
     """Measured: with &quot; in href Telegram drops the link and keeps its text (html-href-quot in captured.json)."""
@@ -414,9 +454,19 @@ def test_a_quote_in_a_single_quoted_address_is_the_same_quote(current):
     assert not check(current, html="<a href='https://example.com/?q=\"x\"'>ссылка</a>")["ok"]
 
 
-@pytest.mark.parametrize("href", ["https://example.com/?q=&#x27;x&#x27;", "https://example.com/?q=%22x%22"])
-def test_an_apostrophe_or_percent_22_in_a_link_address_is_fine(current, href):
-    """Measured: with &#x27; or %22 in href the link stays (html-href-apos, html-href-pct22)."""
+@pytest.mark.parametrize(
+    "href",
+    [
+        "https://example.com/?q=&#x27;x&#x27;",
+        "https://example.com/?q=%22x%22",
+        "https://example.com/?q=&quotx",
+        "https://example.com/?q=&QUOT;x&QUOT;",
+        "https://example.com/?q=&#X22;x",
+    ],
+)
+def test_an_apostrophe_percent_22_or_an_entity_telegram_does_not_know_is_fine(current, href):
+    """Measured: with &#x27; or %22 the link stays (html-href-apos, html-href-pct22); &quot without «;», &QUOT; and
+    &#X22; Telegram does not decode, they stay in the address as typed."""
     r = check(current, html=f'<p><a href="{href}">ссылка</a></p>')
     assert r["ok"] and not r["warnings"], r
 
@@ -441,6 +491,24 @@ def test_a_quote_in_a_button_address_in_html_is_an_error(current):
         and has(r["errors"], "BUTTON_URL_INVALID")
     ), r
     assert check(current, html=row.format("%22", "%22"))["ok"]
+
+
+def test_text_decodes_only_the_entities_telegram_knows(current):
+    """Measured: «a &quot b &QUOT; c &#34; d» went out as «a &quot b &QUOT; c " d»."""
+    r = check(current, html="<p>a &quot b &QUOT; c &#34; d</p>")
+    assert r["stats"]["chars"] == len('a &quot b &QUOT; c " d'), r["stats"]
+
+
+def test_a_quote_in_a_button_address_in_blocks_is_an_error(current):
+    """Measured: a button of a buttons block with a " in url is BUTTON_URL_INVALID, as <tg-button> in html."""
+    buttons = {"type": "buttons", "buttons": [{"text": "Кнопка", "url": 'https://example.com/?q="x"'}]}
+    r = check(current, [para(), buttons])
+    assert not r["ok"], r
+    (err,) = r["errors"]
+    assert err.startswith('rich_message.blocks[1]: кнопка «Кнопка»: в адресе https://example.com/?q="x"'), err
+    assert "BUTTON_URL_INVALID" in err
+    buttons["buttons"][0]["url"] = "https://example.com/?q=%22x%22"
+    assert check(current, [para(), buttons])["ok"]
 
 
 def test_captured_parses_agree_with_the_link_check(current):
@@ -472,6 +540,12 @@ def test_colspan_counts_columns(current):
 def test_huge_colspan_is_an_error_not_a_hang(current):
     r = check(current, [{"type": "table", "cells": [[{**CELL, "colspan": 10**9, "rowspan": 2}], [CELL]]}])
     assert has(r["errors"], f"колонок в таблице {10**9}")
+
+
+def test_a_cell_without_align_and_valign_is_not_an_error(current):
+    """Required in the spec, but measured: Telegram takes such cells and sets left and middle (NOT_REQUIRED)."""
+    r = check(current, [{"type": "table", "cells": [[{"text": "a"}, {"text": "b"}]]}])
+    assert r["ok"] and not r["warnings"], r
 
 
 def test_rowspan_takes_no_column_in_the_rows_below(current):

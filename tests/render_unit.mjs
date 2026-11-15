@@ -84,6 +84,13 @@ for (const [name, url] of Object.entries(URLS)) {
   check('a link with a " in its address is its text only, as Telegram makes it', ok, r.html);
 }
 {
+  // Telegram decodes only &lt; &gt; &amp; &quot; and numeric entities with a small x: &quot without «;», &QUOT; and
+  // &#X22; stay as typed, in text and in an address, so such a link is not dropped (measured, PR #173)
+  const r = await render({ html: '<p>a &quot b &QUOT; c &#34; d &#x41; <a href="https://example.com/?q=&QUOT;x">раз</a> <a href="https://example.com/?q=&#X22;x">два</a></p>' });
+  const ok = has(r.html, /^<p>a &amp;quot b &amp;QUOT; c " d A <a href="https:\/\/example\.com\/\?q=&amp;QUOT;x"[^>]*>раз<\/a> <a href="https:\/\/example\.com\/\?q=&amp;#X22;x"[^>]*>два<\/a><\/p>$/);
+  check('only the entities Telegram knows are decoded in HTML', ok, r.html);
+}
+{
   const r = await render({ blocks: [{ type: 'paragraph', text: { type: 'url', text: 'клик', url: 'javascript:window.__xss=1' } }] });
   check('blocks: javascript: URL in a url entity has no href', !has(r.html, /href=/), r.html);
 }

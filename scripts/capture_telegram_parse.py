@@ -13,7 +13,9 @@ live for a second. Run after a Bot API update or when adding a case. Two ways to
 - straight to the Bot API: TG_BOT_TOKEN (and TG_API_BASE for a local Bot API server).
     TG_BOT_TOKEN=… PARSE_CHAT=<chat> python scripts/capture_telegram_parse.py [case-name ...]
 
-STUDIO_URL wins when both are set. Without case names every case is sent.
+STUDIO_URL wins when both are set. Without case names every case is sent. Only Telegram's Bad Request
+(400) is recorded as its verdict on a case; any other failure (the studio did not reach Telegram, 401/403,
+a proxy page, flood wait that does not end) stops the run and leaves captured.json as it was.
 """
 
 import json
@@ -32,10 +34,15 @@ CASES = DIR / "cases.json"
 CAPTURED = DIR / "captured.json"
 
 Call = Callable[[str, dict], dict]
+_sleep = time.sleep  # tests replace this one, never time.sleep itself
 
 
-class StudioFailed(Exception):
-    """The studio did not pass the call to Telegram (no token, no right, /api/raw off, Telegram unreachable)."""
+class CaptureFailed(Exception):
+    """An answer that is not Telegram's verdict on the source: the run stops and captured.json stays as it was."""
+
+
+class StudioFailed(CaptureFailed):
+    """The studio did not get Telegram's verdict (no token, no right, /api/raw off, Telegram unreachable)."""
 
 
 def bot_api(client: httpx.Client, token: str) -> Call:
@@ -51,8 +58,9 @@ def bot_api(client: httpx.Client, token: str) -> Call:
 
 def through_studio(client: httpx.Client, studio_url: str, studio_token: str = "") -> Call:
     """Bot API calls through POST /api/raw of a running studio, answered in Telegram's shape: {"ok", "result"} or
-    {"ok": false, "description"}. Only Telegram's own refusal (the studio's answer carries error_code) is such an
-    answer; anything else the studio says raises StudioFailed, so captured.json never records it as a parse."""
+    {"ok": false, "error_code", "description"}. Only Telegram's own answer is such a refusal: a 400 (Bad Request, the
+    source refused) or a 429 to wait out. Anything else (502 with no error_code when Telegram was not reached, 401 or
+    403 of the studio or a proxy in front of it) raises StudioFailed, so captured.json never records it as a parse."""
     auth = {"Authorization": f"Bearer {studio_token}"} if studio_token else {}
 
     def call(method: str, params: dict) -> dict:
@@ -68,7 +76,7 @@ def through_studio(client: httpx.Client, studio_url: str, studio_token: str = ""
         if r.status_code == 200 and "result" in body:
             return {"ok": True, "result": body["result"]}
         detail = str(body.get("detail") or f"HTTP {r.status_code}")
-        if "error_code" not in body:
+        if body.get("error_code") not in (400, 429):
             raise StudioFailed(f"{method}: студия ответила {r.status_code}: {detail}")
         answer = {"ok": False, "error_code": body["error_code"], "description": detail.removeprefix("Telegram: ")}
         if body.get("retry_after"):
@@ -86,27 +94,34 @@ def with_flood_wait(call: Call) -> Call:
             if r.get("ok") or not wait:
                 return r
             print(f"  Telegram просит подождать {wait} с")
-            time.sleep(wait + 1)
+            _sleep(wait + 1)
         return r
 
     return wrapped
 
 
 def capture(call: Call, chat: str, cases: list, captured: dict, spec_version: str | None) -> int:
-    """Sends the cases, writes what Telegram made of them into captured; returns how many Telegram refused."""
+    """Sends the cases, writes what Telegram made of them into captured; returns how many Telegram refused.
+    Only a 400 is Telegram refusing the source; any other failure raises CaptureFailed."""
     failed = 0
     for c in cases:
         r = call(
             "sendRichMessage",
             {"chat_id": chat, "rich_message": {c["format"]: c["source"]}, "disable_notification": True},
         )
+        if not r.get("ok") and r.get("error_code") != 400:
+            raise CaptureFailed(f"{c['name']}: Telegram ответил {r.get('error_code')}: {r.get('description')}")
         if not r.get("ok"):
             failed += 1
             print(f"{c['name']}: Telegram отклонил: {r.get('description')}")
             captured[c["name"]] = {"source": c["source"], "format": c["format"], "error": r.get("description")}
             continue
         msg = r["result"]
-        if not call("deleteMessage", {"chat_id": chat, "message_id": msg["message_id"]}).get("ok"):
+        try:
+            deleted = call("deleteMessage", {"chat_id": chat, "message_id": msg["message_id"]}).get("ok")
+        except CaptureFailed:
+            deleted = False
+        if not deleted:
             print(f"  не удалось удалить сообщение {msg['message_id']}: удалите его вручную")
         captured[c["name"]] = {
             "format": c["format"],
@@ -117,7 +132,7 @@ def capture(call: Call, chat: str, cases: list, captured: dict, spec_version: st
         }
         print(f"{c['name']}: {len(msg['rich_message']['blocks'])} блоков")
         if c is not cases[-1]:
-            time.sleep(3)  # groups allow about 20 messages a minute
+            _sleep(3)  # groups allow about 20 messages a minute
     return failed
 
 
@@ -140,9 +155,9 @@ def main() -> int:
         call = through_studio(client, studio, studio_token) if studio else bot_api(client, token)
         try:
             failed = capture(with_flood_wait(call), chat, cases, captured, spec_version)
-        except StudioFailed as e:
-            print(f"{e}; снятое до этого записано")
-            failed = 1
+        except CaptureFailed as e:
+            print(f"{e}; съёмка остановлена, {CAPTURED.name} не изменён")
+            return 1
     CAPTURED.write_text(json.dumps(captured, ensure_ascii=False, indent=1, sort_keys=True) + "\n", "utf-8")
     return 1 if failed else 0
 

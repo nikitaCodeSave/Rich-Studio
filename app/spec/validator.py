@@ -16,6 +16,10 @@ PRIMITIVES = {"String", "Integer", "Float", "Boolean", "True", "InputFile"}
 # an anchor or reference name); every other such type (email, phone, card, TON address, mention...) repeats its text.
 # Mirrored in app/static/js/spec.js (NOT_TEXT_MIRROR); tests/test_spec_coverage.py keeps both in step.
 NOT_TEXT_MIRROR = frozenset({"url", "anchor_link", "reference", "reference_link"})
+# Fields the spec marks required that Telegram does not need, measured on the real Bot API 10.4 (2026-11-16, PR #173):
+# a table cell without align and valign is taken and comes back as left and middle. Not an error, so a post written
+# by hand or by an agent is not held back for them.
+NOT_REQUIRED = {"RichBlockTableCell": frozenset({"align", "valign"})}
 
 
 def text_mirror_field(spec_t: dict, const) -> str | None:
@@ -135,7 +139,7 @@ class Validator:
             return
         fields = {f["name"]: f for f in spec_t.get("fields", [])}
         for name, f in fields.items():
-            if f["required"] and name not in value:
+            if f["required"] and name not in value and name not in NOT_REQUIRED.get(t, ()):
                 self.errors.append(f"{path}: нет обязательного поля {name} ({t})")
         for k, v in value.items():
             f = fields.get(k)
@@ -277,27 +281,37 @@ def table_columns(rows: list) -> int:
     return max((sum(_colspan(c) for c in row) for row in rows), default=0)
 
 
+# Measured in blocks (issue #170 and the probes on its PR): these blocks and these RichText types are levels of
+# nesting, so the depth they make is an error. Every other block or RichText object (a heading, a link, a spoiler…)
+# is counted the same way only for a warning: no measurement had it.
+MEASURED_BLOCKS = frozenset({"paragraph", "blockquote", "list", "details", "table"})
+MEASURED_FORMATTING = frozenset({"bold", "italic", "underline", "strikethrough"})
+
+
 class _Count:
     """What the rich message limits count in blocks, walked by the spec types of the fields, so a block newer than
     this code is counted too. A block is an element of an Array of InputRichBlock, a list item (an object holding
-    blocks) or a table row. `depth` is the levels of nesting as Telegram counts them in blocks (measured, issue #170):
-    the blocks on the way to a piece of text, the one holding it included, plus every RichText object around it
-    (formatting, a link…); a list item and a table row are blocks for the count, but not levels (a list > item >
-    paragraph is 2 levels, a table cell 1). `chars` is the whole text; the cut at MAX_BYTES is for each string of it."""
+    blocks) or a table row. Levels of nesting as Telegram counts them in blocks (measured, issue #170): the blocks on
+    the way to a piece of text, the one holding it included, plus every RichText object around it; a list item and a
+    table row are blocks for the count, but not levels (list > item > paragraph is 2 levels, a table cell 1). `sure`
+    counts only the measured blocks and formatting, `about` every one. `chars` is the whole text; the cut at MAX_BYTES
+    is for each string of it."""
 
     def __init__(self, spec: Spec):
         self.spec = spec
-        self.blocks = self.chars = self.longest = self.media = self.depth = 0
-        self.deepest = "rich_message.blocks"
+        self.blocks = self.chars = self.longest = self.media = self.sure = self.about = 0
+        self.sure_at = self.about_at = "rich_message.blocks"
         self.tables: list[tuple[str, int]] = []  # (path of the table, its columns)
         self.cut: list[tuple[str, int]] = []  # (path of the block, UTF-8 bytes) of strings over MAX_BYTES
-        self.quoted: list[tuple[str, str, str]] = []  # (path, address, text) of links with a " in the address
+        self.quoted: list[str] = []  # errors for a " in the address of a link or a button
         self._tags: dict[str, dict] = {}
         self._holders: dict[str, bool] = {}
 
-    def _reach(self, level: int, where: str):
-        if level > self.depth:
-            self.depth, self.deepest = level, where
+    def _reach(self, about: int, sure: int, where: str):
+        if sure > self.sure:
+            self.sure, self.sure_at = sure, where
+        if about > self.about:
+            self.about, self.about_at = about, where
 
     def _tagged(self, union: str, value: dict) -> str | None:
         """The subtype of a union (InputRichBlock, RichText) that the value's constant field names."""
@@ -316,31 +330,39 @@ class _Count:
             self._holders[t] = any(BLOCKS in f["types"] for f in self.spec.types.get(t, {}).get("fields", []))
         return self._holders[t]
 
-    def blocks_of(self, value, level: int, path: str):
+    def blocks_of(self, value, about: int, sure: int, path: str):
+        """The blocks of an Array of InputRichBlock; about and sure are the levels of what holds them."""
         for i, b in enumerate(value if isinstance(value, list) else []):
             if not isinstance(b, dict):
                 continue
             where = f"{path}[{i}]"
             self.blocks += 1
-            self._reach(level, where)
-            self.fields(b, self._tagged("InputRichBlock", b), level, where, where)
+            level, measured = about + 1, sure + (b.get("type") in MEASURED_BLOCKS)
+            self._reach(level, measured, where)
+            self.fields(b, self._tagged("InputRichBlock", b), level, measured, where, where)
 
-    def fields(self, obj: dict, t: str | None, level: int, path: str, where: str):
+    def fields(self, obj: dict, t: str | None, about: int, sure: int, path: str, where: str):
+        url = obj.get("url")
+        if isinstance(url, str) and '"' in url and "text" in obj:
+            if obj.get("type") == "url":  # RichTextUrl: measured, the link goes and its text stays
+                self.quoted.append(f"{where}: {_quoted_link(_plain(obj.get('text')), url)}")
+            elif "type" not in obj:  # RichMessageButton: measured, BUTTON_URL_INVALID for the whole post
+                self.quoted.append(f"{where}: {_quoted_button(_plain(obj.get('text')), url)}")
         spec_t = self.spec.types.get(t) if t else None
         if spec_t is None:  # a type newer than the spec: at least its text and nested blocks
-            self.text(obj.get("text"), level, where)
-            self.field(obj.get("blocks"), "blocks", [BLOCKS], level, f"{path}.blocks", where)
+            self.text(obj.get("text"), about, sure, where)
+            self.field(obj.get("blocks"), "blocks", [BLOCKS], about, sure, f"{path}.blocks", where)
             return
         for f in spec_t.get("fields", []):
             if f["name"] in obj:
-                self.field(obj[f["name"]], f["name"], f["types"], level, f"{path}.{f['name']}", where)
+                self.field(obj[f["name"]], f["name"], f["types"], about, sure, f"{path}.{f['name']}", where)
 
-    def field(self, v, name: str, types: list, level: int, path: str, where: str):
+    def field(self, v, name: str, types: list, about: int, sure: int, path: str, where: str):
         one = types[0] if len(types) == 1 else ""
         if "RichText" in types:
-            self.text(v, level, where)
+            self.text(v, about, sure, where)
         elif BLOCKS in types:
-            self.blocks_of(v, level + 1, path)
+            self.blocks_of(v, about, sure, path)
         elif any(t.startswith("InputMedia") for t in types):
             self.media += 1
         elif name in COUNTED_STRINGS:
@@ -351,21 +373,21 @@ class _Count:
                 self.blocks += 1
                 for ci, c in enumerate(row):
                     if isinstance(c, dict):
-                        self.obj(c, one[len(TABLE) :], level, f"{path}[{ri}][{ci}]", where)
+                        self.obj(c, one[len(TABLE) :], about, sure, f"{path}[{ri}][{ci}]", where)
             self.tables.append((where, table_columns(rows)))
         elif one.startswith("Array of ") and isinstance(v, list):
             for i, x in enumerate(v):
                 if isinstance(x, dict):
-                    self.obj(x, one[len("Array of ") :], level, f"{path}[{i}]", where)
+                    self.obj(x, one[len("Array of ") :], about, sure, f"{path}[{i}]", where)
         elif one and isinstance(v, dict):
-            self.obj(v, one, level, path, where)
+            self.obj(v, one, about, sure, path, where)
 
-    def obj(self, x: dict, t: str, level: int, path: str, where: str):
+    def obj(self, x: dict, t: str, about: int, sure: int, path: str, where: str):
         """An object inside a block: a list item holds blocks and is a block itself, a caption or a button is not."""
         if self._holds_blocks(t):
             self.blocks += 1
             where = path
-        self.fields(x, t, level, path, where)
+        self.fields(x, t, about, sure, path, where)
 
     def string(self, s, where: str):
         if isinstance(s, str):
@@ -375,17 +397,16 @@ class _Count:
             if size > MAX_BYTES:
                 self.cut.append((where, size))
 
-    def text(self, rt, level: int, where: str):
+    def text(self, rt, about: int, sure: int, where: str):
         if isinstance(rt, str):
             self.string(rt, where)
         elif isinstance(rt, list):
             for x in rt:
-                self.text(x, level, where)
+                self.text(x, about, sure, where)
         elif isinstance(rt, dict):
-            if rt.get("type") == "url" and isinstance(url := rt.get("url"), str) and '"' in url:
-                self.quoted.append((where, url, _plain(rt.get("text"))))
-            self._reach(level + 1, where)
-            self.fields(rt, self._tagged("RichText", rt), level + 1, where, where)
+            level, measured = about + 1, sure + (rt.get("type") in MEASURED_FORMATTING)
+            self._reach(level, measured, where)
+            self.fields(rt, self._tagged("RichText", rt), level, measured, where, where)
 
 
 def _plain(rt) -> str:
@@ -403,11 +424,19 @@ def _quoted_link(text: str, href: str) -> str:
     )
 
 
+def _quoted_button(text: str, url: str) -> str:
+    return (
+        f'кнопка «{_short(" ".join(text.split()), 30)}»: в адресе {_short(url, 60)} есть кавычка ", а с ней Telegram '
+        "отклоняет весь пост (BUTTON_URL_INVALID); запишите кавычку как %22"
+    )
+
+
 def _block_limits(v: Validator, blocks: list) -> dict:
     """Limits of a message in blocks: everything the documentation counts is in them, so the counts are exact and
-    going over is an error. stats["bytes"] is the longest string: the cut is for each one by itself."""
+    going over is an error, except nesting made by blocks and RichText no measurement had (a warning).
+    stats["max_string_bytes"] is the longest string: the cut is for each one by itself."""
     n = _Count(v.spec)
-    n.blocks_of(blocks, 1, "rich_message.blocks")
+    n.blocks_of(blocks, 0, 0, "rich_message.blocks")
     if n.chars > MAX_CHARS:
         v.errors.append(f"текст {n.chars} символов с alternative_text эмодзи и исходником формул, лимит {MAX_CHARS}")
     elif n.cut:
@@ -415,32 +444,41 @@ def _block_limits(v: Validator, blocks: list) -> dict:
             v.errors.append(f"{where}: строка текста {size} байт в UTF-8: {CUT}")
     elif n.chars > FOLD_CHARS:
         v.warnings.append(FOLDED)
-    for where, url, text in n.quoted:
-        v.errors.append(f"{where}: {_quoted_link(text, url)}")
+    v.errors += n.quoted
     if n.blocks > MAX_BLOCKS:
         v.errors.append(f"блоков вместе с пунктами списков и строками таблиц: {n.blocks}, лимит {MAX_BLOCKS}")
     if n.media > MAX_MEDIA:
         v.errors.append(f"медиа: {n.media}, лимит {MAX_MEDIA}")
-    if n.depth > MAX_DEPTH:
+    if n.sure > MAX_DEPTH:
         v.errors.append(
-            f"{n.deepest}: {n.depth} уровней вложенности, лимит {MAX_DEPTH} (уровень — каждый блок на пути к тексту, "
+            f"{n.sure_at}: {n.sure} уровней вложенности, лимит {MAX_DEPTH} (уровень — каждый блок на пути к тексту, "
             "вместе с блоком, где текст, и каждое форматирование вокруг текста)"
+        )
+    elif n.about > MAX_DEPTH:
+        v.warnings.append(
+            f"{n.about_at}: около {n.about} уровней вложенности, лимит {MAX_DEPTH} — если блоки и элементы текста, для "
+            "которых замера нет (заголовок, ссылка, спойлер…), считаются уровнями так же, как абзац, цитата и <b>"
         )
     for where, columns in n.tables:
         if columns > MAX_COLUMNS:
             v.errors.append(f"{where}: колонок в таблице {columns}, лимит {MAX_COLUMNS}")
-    return {"blocks": n.blocks, "depth": n.depth, "chars": n.chars, "bytes": n.longest, "media": n.media}
+    return {"blocks": n.blocks, "depth": n.sure, "chars": n.chars, "max_string_bytes": n.longest, "media": n.media}
 
 
 # Levels of nesting in html, measured on the real Telegram (issue #170): the elements on the way to a piece of text,
 # at most MAX_DEPTH. A list (ul or ol with its li) and a table (table, tr, td) are one level each; text at the top of
 # the post or right in <details> gets a paragraph of its own (one level more), text in blockquote, aside, li, td and
-# summary does not. Only these tags were measured (strong, em… are the same formatting under other names), so only
-# the depth they make is an error; the other tags, counted by the same reading, give a warning.
+# summary does not. So a <p> is a level only where it stands for that paragraph: at the top and in <details>; in
+# blockquote and li it is not (measured: <blockquote><p> and <ul><li><p> take 15 levels of formatting), in td, aside,
+# summary… it was not measured. Telegram checks the HTML as it parses it: what it answers is normalised (15 levels of
+# b/i/u/s under <blockquote><p> come back as 4). Only these tags were measured (strong, em… are the same formatting
+# under other names), so only the depth they make is an error; the other tags, by the same reading, give a warning.
 HTML_LEVELS = frozenset(
-    {"p", "blockquote", "aside", "details", "ul", "ol", "table"}
+    {"blockquote", "aside", "details", "ul", "ol", "table"}
     | {"b", "strong", "i", "em", "u", "ins", "s", "strike", "del"}
 )
+# <p> in these is not a level (measured); in other holders of text it may be (a warning)
+HTML_P_FLAT = frozenset({"blockquote", "li"})
 HTML_TEXT_HOLDERS = frozenset({"p", "blockquote", "aside", "li", "td", "th", "summary"})
 HTML_MAYBE_LEVELS = frozenset(
     {"h1", "h2", "h3", "h4", "h5", "h6", "pre", "footer", "figure", "tg-collage", "tg-slideshow", "tg-thinking"}
@@ -467,6 +505,35 @@ HTML_ENDS_P = frozenset(
 )
 
 
+# Telegram's HTML decodes only these entities: &lt; &gt; &amp; &quot; and numeric ones, &#x with a small x (measured:
+# &QUOT;, &quot without «;» and &#X22; stay as typed, in text and in href alike), as its HTML parse mode documents
+TG_ENTITY_RE = re.compile(r"&(?:(lt|gt|amp|quot)|#([0-9]+)|#x([0-9a-fA-F]+));")
+TG_NAMED = {"lt": "<", "gt": ">", "amp": "&", "quot": '"'}
+ATTR_RE = re.compile(r"""[\s"'/]([^\s"'=/>]+)(?:\s*=\s*("[^"]*"|'[^']*'|[^\s>]*))?""")
+
+
+def tg_unescape(s: str) -> str:
+    """HTML entities as Telegram decodes them."""
+
+    def one(m: re.Match) -> str:
+        if m[1]:
+            return TG_NAMED[m[1]]
+        n = int(m[2]) if m[2] else int(m[3], 16)
+        return chr(n) if 0 < n <= 0x10FFFF and not 0xD800 <= n <= 0xDFFF else m[0]
+
+    return TG_ENTITY_RE.sub(one, s)
+
+
+def _attribute(start_tag: str, name: str) -> str | None:
+    """An attribute of a start tag as written («<a href='…'>»), entities decoded as Telegram does."""
+    inner = start_tag[1:].split(None, 1)
+    for m in ATTR_RE.finditer(" " + inner[1] if len(inner) > 1 else ""):
+        if m[1].lower() == name:
+            value = m[2] or ""
+            return tg_unescape(value[1:-1] if value[:1] in ("'", '"') else value)
+    return None
+
+
 @dataclass(slots=True)
 class _Open:
     """An open element: the levels down to it and whether text right in it gets a paragraph of its own."""
@@ -475,6 +542,7 @@ class _Open:
     sure: int  # levels of measured tags only
     about: int  # levels of every tag that reads as one
     bare: bool
+    holder: str  # the nearest element that holds text right in it ("" at the top of the post)
     p: int = -1  # stack index of the open <p>, <li>, cell and row that a new one of the same kind ends
     li: int = -1
     cell: int = -1
@@ -487,7 +555,7 @@ class _HtmlWalk(HTMLParser):
 
     def __init__(self):
         super().__init__(convert_charrefs=True)
-        self.stack = [_Open("", 0, 0, True)]
+        self.stack = [_Open("", 0, 0, True, "")]
         self.open: Counter[str] = Counter()
         self.links: list[tuple[str, str, list]] = []
         self.quoted: list[tuple[str, str, str]] = []  # (tag, address, text) of links and buttons with a " in it
@@ -541,19 +609,31 @@ class _HtmlWalk(HTMLParser):
         if tag in HTML_VOID:
             return
         i = len(self.stack)
-        maybe = tag in HTML_MAYBE_LEVELS and not (tag == "code" and top.tag == "pre")
+        holds = tag == "details" or tag in HTML_TEXT_HOLDERS or tag in HTML_MAYBE_TEXT_HOLDERS
+        if tag == "p":  # the paragraph text gets anyway at the top and in <details>, or none in blockquote and li
+            sure = about = top.bare
+            about = about or top.holder not in HTML_P_FLAT
+        else:
+            sure = tag in HTML_LEVELS
+            about = sure or (tag in HTML_MAYBE_LEVELS and not (tag == "code" and top.tag == "pre"))
         e = _Open(
             tag,
-            top.sure + (tag in HTML_LEVELS),
-            top.about + (tag in HTML_LEVELS or maybe),
-            tag == "details" or (top.bare and tag not in HTML_TEXT_HOLDERS and tag not in HTML_MAYBE_TEXT_HOLDERS),
+            top.sure + sure,
+            top.about + about,
+            tag == "details" or (top.bare and not holds),
+            tag if holds else top.holder,
             i if tag == "p" else top.p,
             i if tag == "li" else -1 if tag in ("ul", "ol") else top.li,
             i if tag in ("td", "th") else -1 if tag in ("tr", "table") else top.cell,
             i if tag == "tr" else -1 if tag == "table" else top.row,
         )
-        # an address with a " (&quot;): Telegram drops such a link and refuses such a button
-        address = dict(attrs).get("href" if tag == "a" else "url") if tag in ("a", "tg-button") else None
+        # an address with a " (&quot;): Telegram drops such a link and refuses such a button. html.parser decodes
+        # every HTML5 entity in attributes, Telegram only a few: the value is read from the tag as written
+        address = (
+            _attribute(self.get_starttag_text() or "", "href" if tag == "a" else "url")
+            if tag in ("a", "tg-button")
+            else None
+        )
         if address and '"' in address:
             e.link = (tag, address, [])
             self.links.append(e.link)
@@ -594,10 +674,7 @@ def _html_shape(v: Validator, src: str) -> int:
         if tag == "a":
             v.errors.append(_quoted_link(text, address))
         else:
-            v.errors.append(
-                f'кнопка «{_short(" ".join(text.split()), 30)}»: в адресе {_short(address, 60)} есть кавычка ", а с '
-                "ней Telegram отклоняет весь пост (BUTTON_URL_INVALID); запишите кавычку как %22"
-            )
+            v.errors.append(_quoted_button(text, address))
     if walk.sure > MAX_DEPTH:
         v.errors.append(
             f"{walk.sure} уровней вложенности, лимит {MAX_DEPTH}: {walk.sure_path} (уровень — каждый элемент на пути "
@@ -628,9 +705,8 @@ def source_chars(src: str, markdown: bool) -> tuple[int, int]:
     (without tags and link addresses), and at least how many (also without spaces and, in Markdown, markup and table
     lines). tests/test_rich_limits.py keeps the second one under Telegram's own count for every captured parse."""
     text = TAG_RE.sub("", src)
-    if markdown:
-        text = MD_TARGET_RE.sub("]", text)
-    text = html.unescape(text)
+    # html: as Telegram decodes it; markdown entities were not measured, html.unescape decodes the most of them
+    text = html.unescape(MD_TARGET_RE.sub("]", text)) if markdown else tg_unescape(text)
     if not markdown:
         return len(text), sum(not ch.isspace() for ch in text)
     sure = MD_MARKUP_RE.sub("", text)
