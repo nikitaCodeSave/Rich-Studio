@@ -28,6 +28,7 @@ import telegram as tg
 from api import backup as backup_api
 from api import (
     channels,
+    docs,
     drafts,
     health,
     invite_links,
@@ -202,6 +203,8 @@ def create_app(cfg: settings.Settings | None = None) -> FastAPI:
         title="Rich Studio API",
         version=settings.VERSION,
         lifespan=lifespan,
+        docs_url=None,  # our own /docs (api/docs.py): Swagger UI from vendor/, not from a CDN
+        redoc_url=None,
         description=(
             "Локальный сервис для rich-постов Telegram (sendRichMessage). Поле `post` везде имеет вид "
             "`{rich_message: InputRichMessage, reply_markup?: InlineKeyboardMarkup, options?: {...}}` и уходит в "
@@ -228,8 +231,10 @@ def create_app(cfg: settings.Settings | None = None) -> FastAPI:
         media,
         backup_api,
         session,
+        docs,
     ):
         app.include_router(module.router)
+    docs.describe_auth(app)
 
     @app.get("/", include_in_schema=False)
     def index():

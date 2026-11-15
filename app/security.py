@@ -7,7 +7,7 @@
   cookie; with neither a key nor tokens set up the studio is open, as a local tool on 127.0.0.1;
 - the level a request needs: GET reads, other methods write drafts; routes that post to a channel and /api/raw
   ask for more themselves (api.deps.need), MCP tools check it per tool;
-- CSP and other headers on the editor and preview pages.
+- CSP and other headers on the editor, preview and API docs pages.
 """
 
 import contextvars
@@ -137,7 +137,7 @@ async def guard(request: Request, call_next):
         response = await call_next(request)
     finally:
         _current.reset(reset)
-    if path == "/" or path.startswith("/render/") or path == "/api/render":
+    if path in ("/", "/docs", "/api/render") or path.startswith("/render/"):
         response.headers["Content-Security-Policy"] = CSP
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "no-referrer"

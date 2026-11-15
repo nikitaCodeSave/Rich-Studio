@@ -21,3 +21,4 @@
 | [0011](0011-dead-mans-switch.md) | Внешний сигнал «жива»: dead man's switch и `/readyz` снаружи |
 | [0012](0012-media-fetch-proxy.md) | Скачивание по ссылке через системный прокси, как запросы к Telegram |
 | [0013](0013-message-kinds-registry.md) | Типы сообщений (пост, опрос, Live Photo, платный контент) в одном реестре `services/kinds.py` |
+| [0014](0014-vendored-api-docs.md) | Swagger UI для `/docs` вендорен в `app/static/vendor/`, без CDN и ReDoc |

@@ -961,6 +961,19 @@
     "title": "ValidationError",
     "type": "object"
    }
+  },
+  "securitySchemes": {
+   "api_key": {
+    "description": "Именной токен или STUDIO_API_KEY в заголовке X-API-Key. Браузер после входа в редактор шлёт cookie сессии сам: ключ здесь нужен, чтобы попробовать запрос от имени другого токена.",
+    "in": "header",
+    "name": "X-API-Key",
+    "type": "apiKey"
+   },
+   "token": {
+    "description": "Именной токен (`make token`) или STUDIO_API_KEY в заголовке `Authorization: Bearer <токен>`.",
+    "scheme": "bearer",
+    "type": "http"
+   }
   }
  },
  "info": {
@@ -3451,5 +3464,14 @@
     ]
    }
   }
- }
+ },
+ "security": [
+  {
+   "token": []
+  },
+  {
+   "api_key": []
+  },
+  {}
+ ]
 }
