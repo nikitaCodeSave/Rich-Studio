@@ -270,7 +270,9 @@ def reschedule(pid: str, at) -> dict | None:
 async def delete(pid: str) -> dict | None:
     """Cancel a scheduled post, delete a published one from the channel, or drop a failed send from the list."""
     p = _get(pid)
-    if p["status"] == "failed":  # nothing is in the channel: only the row goes
+    # only the row goes, the studio has no message to delete; a send whose outcome is unknown may still be in the
+    # channel all the same: the person removes the row after looking there, and what is there stays
+    if p["status"] == "failed":
         store.delete_post(pid)
         return {**p, "status": "removed"}
     if p["status"] == "sent" and p["message_id"]:
