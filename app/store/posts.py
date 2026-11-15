@@ -125,8 +125,8 @@ def list_posts(limit: int = 100, status: str | None = None, chat: str | None = N
     with conn() as c:
         rows = c.execute(
             f"""select id, draft_id, chat_id, message_id, status, scheduled_at, sent_at, error, created_at,
-                                   kind, actor, version, pinned, comment_status, reactions, clicks, poll_results, payload,
-                                   outcome_unknown,
+                                   kind, actor, version, pinned, comment_status, reactions, clicks, reply_errors, poll_results,
+                                   payload, outcome_unknown,
                                    json_extract(payload, '$.poll.question') as poll_question
                             from posts {cond} order by coalesce(scheduled_at, sent_at, created_at) desc, rowid desc limit ?""",  # noqa: S608 - fixed fragments
             (*args, limit),
@@ -191,6 +191,19 @@ def bump_click(pid: str, data: str) -> None:
             """update posts set clicks=json_set(coalesce(clicks,'{}'), '$.' || json_quote(?),
                      coalesce(json_extract(coalesce(clicks,'{}'), '$.' || json_quote(?)), 0) + 1) where id=?""",
             (data, data, pid),
+        )
+
+
+def note_reply_error(pid: str, data: str, error: str) -> None:
+    """A rich reply to the button `data` of the post did not go: one more for that button, with the last reason
+    (without secrets, redact.py). One statement, so two failed presses at once are both counted."""
+    with conn() as c:  # the key as bump_click writes it in clicks
+        c.execute(
+            """update posts set reply_errors = json_set(coalesce(reply_errors, '{}'), '$.' || json_quote(?),
+                     json_object('n', coalesce(json_extract(coalesce(reply_errors, '{}'),
+                                                            '$.' || json_quote(?) || '.n'), 0) + 1,
+                                 'error', ?, 'at', ?)) where id=?""",
+            (data, data, _error(error), int(time.time()), pid),
         )
 
 

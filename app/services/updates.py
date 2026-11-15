@@ -15,7 +15,7 @@ import store
 import telegram as tg
 from errors import StudioError
 
-from . import channels, forward_import, invite_links, publisher, suggested_posts
+from . import callbacks, channels, forward_import, invite_links, publisher, suggested_posts
 
 log = logging.getLogger("rich-studio.updates")
 # tests replace this one name; patching asyncio.sleep itself would also stop the fake Telegram server
@@ -82,30 +82,18 @@ def poll_results(poll: dict) -> dict:
     }
 
 
-async def handle_update(u: dict) -> str | None:
-    """React to one Telegram update. Unknown updates are ignored. Returns what was handled."""
+async def handle_update(u: dict, received: float | None = None) -> str | None:
+    """React to one Telegram update. Unknown updates are ignored. Returns what was handled.
+    `received`: time.monotonic() when getUpdates brought it (a rich reply to a button has 15 seconds)."""
     if cq := u.get("callback_query"):
         msg = cq.get("message") or {}
         p = store.find_post((msg.get("chat") or {}).get("id"), msg.get("message_id")) if msg else None
-        params = {"callback_query_id": cq["id"]}
-        data = cq.get("data") or ""
         if p:
-            store.bump_click(p["id"], data)
-            callbacks = (p["payload"] or {}).get("callbacks") or {}
+            store.bump_click(p["id"], cq.get("data") or "")
+            answers = (p["payload"] or {}).get("callbacks") or {}
         else:
-            callbacks = _preview_callbacks((msg.get("chat") or {}).get("id"), msg.get("message_id")) if msg else {}
-        ans = callbacks.get(data)
-        if isinstance(ans, str):
-            ans = {"text": ans}
-        if isinstance(ans, dict):
-            params.update({k: v for k, v in ans.items() if k in ("text", "show_alert", "url", "cache_time")})
-        try:
-            await tg.call("answerCallbackQuery", params)  # always, or the button keeps spinning
-        except tg.TelegramError as e:
-            # the click came while the studio was off: Telegram no longer takes an answer, the click still counts
-            if "query is too old" not in e.description:
-                raise
-            log.warning("button click came too late to answer: %s", e.description)
+            answers = _preview_callbacks((msg.get("chat") or {}).get("id"), msg.get("message_id")) if msg else {}
+        await callbacks.answer(cq, answers, p["id"] if p else None, received)
         return "callback"
     if (m := u.get("message") or u.get("edited_message")) and suggested_posts.on_message(m):
         return "suggested_post"
@@ -215,12 +203,13 @@ async def loop() -> None:
             store.expire_comments(
                 int(time.time()) - COMMENT_WAIT, "первый комментарий: пересылка в обсуждение не пришла за сутки"
             )
+            received = time.monotonic()  # a press in this batch was made no later than now
             for u in ups:
                 offset = u["update_id"] + 1
                 store.set_meta(OFFSET_KEY, str(offset))
                 with logs.bind(f"update-{u['update_id']}"):  # Telegram's own id: easy to find again
                     try:
-                        if await handle_update(u):
+                        if await handle_update(u, received):
                             STATUS.handled += 1
                             STATUS.last_at = int(time.time())
                     except Exception:

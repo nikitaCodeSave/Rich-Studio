@@ -60,7 +60,8 @@ def register(tool: ToolDecorator) -> None:
 
     @tool(READ)
     async def get_post(post_id: PostIdArg) -> dict:
-        """Пост целиком: содержимое (payload), статус, канал, message_id, реакции, нажатия, итоги опроса."""
+        """Пост целиком: содержимое (payload), статус, канал, message_id, реакции, нажатия, итоги опроса;
+        reply_errors — rich-ответы на кнопки, которые не дошли: {callback_data: {n, error, at}}."""
         p = store.get_post(post_id)
         if not p:
             raise NotFound(f"поста {post_id} нет")
@@ -86,5 +87,6 @@ def register(tool: ToolDecorator) -> None:
     ) -> list:
         """Посты студии, новые сверху: первая строка текста (title), ссылка t.me (link), статус и ошибка
         (failed — пост не вышел; с outcome_unknown: true исход неизвестен, пост мог уйти: проверьте канал вместе с
-        пользователем, прежде чем отправлять снова), реакции, нажатия кнопок, итоги опросов, кто отправил."""
+        пользователем, прежде чем отправлять снова), реакции, нажатия кнопок и сколько rich-ответов на них не дошло
+        (reply_errors), итоги опросов, кто отправил."""
         return listing.list_posts(limit, status=status, chat=chat_id)

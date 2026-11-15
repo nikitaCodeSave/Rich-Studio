@@ -159,7 +159,7 @@ def test_each_incoming_update_is_logged_under_its_update_id(client, tg, log_file
         except StopIteration:
             raise asyncio.CancelledError from None  # stop the loop after one round
 
-    async def boom(u):
+    async def boom(u, received=None):
         raise RuntimeError("bad update")
 
     monkeypatch.setattr(updates.tg, "call", get_updates)

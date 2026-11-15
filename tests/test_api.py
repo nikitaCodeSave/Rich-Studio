@@ -1030,7 +1030,7 @@ def test_updates_loop_handles_updates_and_conflicts(monkeypatch):
             ]
         raise tgmod.TelegramError("Conflict: terminated by other getUpdates request", 409)
 
-    async def fake_handle(u):
+    async def fake_handle(u, received=None):
         seen.append(u["update_id"])
         if u["update_id"] == 10:
             raise RuntimeError("boom")  # one bad update must not stop the loop

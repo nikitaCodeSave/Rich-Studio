@@ -27,14 +27,15 @@ PostArg = Annotated[
     dict[str, Any],
     Field(
         description="Пост: {rich_message: {html|markdown|blocks, media?}, reply_markup?, options?, pin?, comment?, "
-        "poll_after? (опрос сразу после поста)}"
+        "callbacks? ({callback_data: текст | {text?, show_alert?, reply?: {rich_message, "
+        "ephemeral_message_parameters?: {replace_callback_query_message?}}}}), poll_after? (опрос сразу после поста)}"
     ),
 ]
 OptPostArg = Annotated[
     dict[str, Any] | None,
     Field(
         description="Пост: {rich_message: {html|markdown|blocks, media?}, reply_markup?, options?, pin?, comment?, "
-        "poll_after?}; или вместо него draft_id"
+        "callbacks?, poll_after?}; или вместо него draft_id"
     ),
 ]
 DraftArg = Annotated[

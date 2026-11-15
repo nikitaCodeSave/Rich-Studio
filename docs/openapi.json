@@ -48,6 +48,7 @@
         "type": "null"
        }
       ],
+      "description": "Ответы на кнопки, как callbacks поста (с rich-ответом reply); null — прежние",
       "title": "Callbacks"
      },
      "reply_markup": {
@@ -567,7 +568,7 @@
       "bot_api": [
        "Object"
       ],
-      "description": "Ответы на callback-кнопки: {callback_data: текст или {text, show_alert}}",
+      "description": "Ответы на callback-кнопки: {callback_data: текст или объект}. Объект — параметры answerCallbackQuery (text, show_alert, url, cache_time) и по желанию reply: параметры sendRichMessage для rich-ответа, который видит только нажавший (Bot API 10.4): {rich_message: InputRichMessage, ephemeral_message_parameters?: {replace_callback_query_message: true — вместо поста}}. Студия добавит callback_query_id и всё равно ответит answerCallbackQuery; ответ проверяется как пост и не повторяется. Под постом канала не проверено, что он доходит",
       "title": "Callbacks",
       "type": "object"
      },
@@ -2234,7 +2235,7 @@
   },
   "/api/posts": {
    "get": {
-    "description": "Для каждого поста: `title`, `thumb`, `link`, нажатия (`clicks`) и текст кнопки каждого `callback_data`\n(`buttons`). Отправка, которой Telegram отказал, — статус `failed` с ошибкой. `outcome_unknown: true` у `failed`:\nисход неизвестен (Telegram не ответил, студия остановилась или упала посреди отправки), пост мог уйти. Такая\nзапись не уходит после успешной отправки того же черновика и видна в `/api/health`, пока её не уберут `DELETE`.",
+    "description": "Для каждого поста: `title`, `thumb`, `link`, нажатия (`clicks`) и текст кнопки каждого `callback_data`\n(`buttons`), rich-ответы на нажатия, которые не дошли (`reply_errors`: `{callback_data: {n, error, at}}`). Отправка, которой Telegram отказал, — статус `failed` с ошибкой. `outcome_unknown: true` у `failed`:\nисход неизвестен (Telegram не ответил, студия остановилась или упала посреди отправки), пост мог уйти. Такая\nзапись не уходит после успешной отправки того же черновика и видна в `/api/health`, пока её не уберут `DELETE`.",
     "operationId": "list_posts_api_posts_get",
     "parameters": [
      {
@@ -2389,7 +2390,7 @@
   },
   "/api/posts/{pid}/buttons": {
    "post": {
-    "description": "Прежние кнопки попадают в историю поста (`/versions`), `version` поста растёт.",
+    "description": "Прежние кнопки попадают в историю поста (`/versions`), `version` поста растёт. Ответы на кнопки\n(`callbacks`, с rich-ответом `reply`) проверяются, как при публикации: с ошибкой 422 и в Telegram ничего.",
     "operationId": "set_buttons_api_posts__pid__buttons_post",
     "parameters": [
      {
