@@ -46,7 +46,7 @@ export default [
     rules,
   },
   {
-    files: ['tests/**/*.mjs', 'eslint.config.js'],
+    files: ['tests/**/*.mjs', 'scripts/**/*.mjs', 'eslint.config.js'],
     // page.evaluate() callbacks in the browser checks run in the page
     languageOptions: { sourceType: 'module', globals: { ...globals.node, ...globals.browser } },
     rules,

@@ -1,0 +1,286 @@
+{
+  "generator": "scripts/vendor_codemirror.mjs",
+  "roots": [
+    "@codemirror/state",
+    "@codemirror/view",
+    "@codemirror/commands",
+    "@codemirror/language",
+    "@codemirror/autocomplete",
+    "@codemirror/search",
+    "@codemirror/lang-html",
+    "@codemirror/lang-markdown",
+    "@codemirror/lang-json",
+    "@lezer/common",
+    "@lezer/highlight"
+  ],
+  "packages": {
+    "@codemirror/autocomplete": {
+      "version": "6.20.4",
+      "license": "MIT",
+      "file": "autocomplete.js",
+      "from": "dist/index.js",
+      "sha256": "b9aaead9bc028fb18df4d480d7658f39689f2c7c6f8ae6ced52fc44e62cdecc4",
+      "imports": [
+        "@codemirror/state",
+        "@codemirror/view",
+        "@codemirror/language"
+      ]
+    },
+    "@codemirror/commands": {
+      "version": "6.11.1",
+      "license": "MIT",
+      "file": "commands.js",
+      "from": "dist/index.js",
+      "sha256": "412e9cc7098b0cd48325046ee392d591d0ab98b19b2f595ad8d548791679f435",
+      "imports": [
+        "@codemirror/state",
+        "@codemirror/view",
+        "@codemirror/language",
+        "@lezer/common"
+      ]
+    },
+    "@codemirror/lang-css": {
+      "version": "6.3.1",
+      "license": "MIT",
+      "file": "lang-css.js",
+      "from": "dist/index.js",
+      "sha256": "440ff7b5b8fc3b7328403a15321d7671270901e1218c80cdee903e6ff33bb609",
+      "imports": [
+        "@lezer/css",
+        "@codemirror/language",
+        "@lezer/common"
+      ]
+    },
+    "@codemirror/lang-html": {
+      "version": "6.4.12",
+      "license": "MIT",
+      "file": "lang-html.js",
+      "from": "dist/index.js",
+      "sha256": "cd6b6d364a57fbf71d347f8ed89bf70ef609cfa0fb9a35ec82491b4b26d8f0d5",
+      "imports": [
+        "@lezer/html",
+        "@codemirror/lang-css",
+        "@codemirror/lang-javascript",
+        "@codemirror/view",
+        "@codemirror/state",
+        "@codemirror/language"
+      ]
+    },
+    "@codemirror/lang-javascript": {
+      "version": "6.2.5",
+      "license": "MIT",
+      "file": "lang-javascript.js",
+      "from": "dist/index.js",
+      "sha256": "58b19f11362dea8c53ac5b9bb545ded969bb06ae9591dcb6e81839e9460ad4ea",
+      "imports": [
+        "@lezer/javascript",
+        "@codemirror/language",
+        "@codemirror/state",
+        "@codemirror/view",
+        "@codemirror/autocomplete",
+        "@lezer/common"
+      ]
+    },
+    "@codemirror/lang-json": {
+      "version": "6.0.2",
+      "license": "MIT",
+      "file": "lang-json.js",
+      "from": "dist/index.js",
+      "sha256": "bf8155bff88317b3e34c61d99b400fc61393d9ca7ec343f7833a868d1d5058d4",
+      "imports": [
+        "@lezer/json",
+        "@codemirror/language"
+      ]
+    },
+    "@codemirror/lang-markdown": {
+      "version": "6.5.2",
+      "license": "MIT",
+      "file": "lang-markdown.js",
+      "from": "dist/index.js",
+      "sha256": "200712ccdb1563d600911a24a14b34b9b8795905012faf2acc688b554486c393",
+      "imports": [
+        "@codemirror/state",
+        "@codemirror/view",
+        "@codemirror/language",
+        "@codemirror/autocomplete",
+        "@lezer/markdown",
+        "@codemirror/lang-html",
+        "@lezer/common"
+      ]
+    },
+    "@codemirror/language": {
+      "version": "6.13.1",
+      "license": "MIT",
+      "file": "language.js",
+      "from": "dist/index.js",
+      "sha256": "6746c845491b6dc1368ff9712472b86b0ec4318b06fe6d55f6a03e008be56634",
+      "imports": [
+        "@lezer/common",
+        "@codemirror/state",
+        "@codemirror/view",
+        "@lezer/highlight",
+        "style-mod",
+        "@codemirror/streamparser"
+      ]
+    },
+    "@codemirror/search": {
+      "version": "6.7.2",
+      "license": "MIT",
+      "file": "search.js",
+      "from": "dist/index.js",
+      "sha256": "4f7446ffbdc9b71097b93a3fdb56ec2d130dcdf4b22cf11f05c12dffe23ed944",
+      "imports": [
+        "@codemirror/view",
+        "@codemirror/state",
+        "crelt"
+      ]
+    },
+    "@codemirror/state": {
+      "version": "6.7.6",
+      "license": "MIT",
+      "file": "state.js",
+      "from": "dist/index.js",
+      "sha256": "3f96a89c7c71bf6c0d537d53382730462fce3b6f5b7286a995d600e6f2c90d05",
+      "imports": [
+        "@marijn/find-cluster-break"
+      ]
+    },
+    "@codemirror/streamparser": {
+      "version": "6.0.0",
+      "license": "MIT",
+      "file": "streamparser.js",
+      "from": "dist/index.js",
+      "sha256": "29802e3f5c46b3644ca6e6b736ac99a363cb75cb7b59f05ea3471e7256ac3c9e",
+      "imports": []
+    },
+    "@codemirror/view": {
+      "version": "6.43.15",
+      "license": "MIT",
+      "file": "view.js",
+      "from": "dist/index.js",
+      "sha256": "f63f83e3e9c5968fe1bf3d90b6c02284f28552b17a8d18bd2d93913b401f88de",
+      "imports": [
+        "@codemirror/state",
+        "style-mod",
+        "w3c-keyname",
+        "crelt"
+      ]
+    },
+    "@lezer/common": {
+      "version": "1.5.5",
+      "license": "MIT",
+      "file": "lezer-common.js",
+      "from": "dist/index.js",
+      "sha256": "806ba44063a8c69673ca1ea4c9b19290e1e53db80e7d470785b68fb19f72864e",
+      "imports": []
+    },
+    "@lezer/css": {
+      "version": "1.3.9",
+      "license": "MIT",
+      "file": "lezer-css.js",
+      "from": "dist/index.js",
+      "sha256": "08c3ef7042fc9e577b0037cb6ffba094c0803d001d45b8fae1590f4da76b2633",
+      "imports": [
+        "@lezer/lr",
+        "@lezer/highlight"
+      ]
+    },
+    "@lezer/highlight": {
+      "version": "1.2.5",
+      "license": "MIT",
+      "file": "lezer-highlight.js",
+      "from": "dist/index.js",
+      "sha256": "3b99973f7f6f817102344a4be2f0c3244c785ea820016f20a32b1441f8bf892c",
+      "imports": [
+        "@lezer/common"
+      ]
+    },
+    "@lezer/html": {
+      "version": "1.3.13",
+      "license": "MIT",
+      "file": "lezer-html.js",
+      "from": "dist/index.js",
+      "sha256": "b89a2fef6e0058900d7471a5d78b08e4cb6e67e7de7398991e0045080f5d5fd3",
+      "imports": [
+        "@lezer/lr",
+        "@lezer/highlight",
+        "@lezer/common"
+      ]
+    },
+    "@lezer/javascript": {
+      "version": "1.5.6",
+      "license": "MIT",
+      "file": "lezer-javascript.js",
+      "from": "dist/index.js",
+      "sha256": "f96aa374b127720f2be5dce032b3e5f8e49009e0d25976ab6affb1df8a2bd870",
+      "imports": [
+        "@lezer/lr",
+        "@lezer/highlight"
+      ]
+    },
+    "@lezer/json": {
+      "version": "1.0.3",
+      "license": "MIT",
+      "file": "lezer-json.js",
+      "from": "dist/index.js",
+      "sha256": "86b6fa37daf0e39724a34e0dd8784df90d43976749c0ecc4ae48c095fae24fcb",
+      "imports": [
+        "@lezer/lr",
+        "@lezer/highlight"
+      ]
+    },
+    "@lezer/lr": {
+      "version": "1.4.12",
+      "license": "MIT",
+      "file": "lezer-lr.js",
+      "from": "dist/index.js",
+      "sha256": "ca2efd4dca5a04835f3b28569fdc9f03c2653717ccdcff6619679d297a39506d",
+      "imports": [
+        "@lezer/common"
+      ]
+    },
+    "@lezer/markdown": {
+      "version": "1.8.1",
+      "license": "MIT",
+      "file": "lezer-markdown.js",
+      "from": "dist/index.js",
+      "sha256": "060a4f191de8058a7360ff8d0a5cef8056d28dceb5621ebafaafe8600283de99",
+      "imports": [
+        "@lezer/common",
+        "@lezer/highlight"
+      ]
+    },
+    "@marijn/find-cluster-break": {
+      "version": "1.0.4",
+      "license": "MIT",
+      "file": "find-cluster-break.js",
+      "from": "src/index.js",
+      "sha256": "d6b3533054a0d9dfceb5c00337ac1653de1dd56d27f9bfa4875a2b519e9a1dc7",
+      "imports": []
+    },
+    "crelt": {
+      "version": "1.0.7",
+      "license": "MIT",
+      "file": "crelt.js",
+      "from": "index.js",
+      "sha256": "1229553e950dd8780ce1c6f1fd7d43b9e7ee56e427abfead10d6c77351e61b81",
+      "imports": []
+    },
+    "style-mod": {
+      "version": "4.1.4",
+      "license": "MIT",
+      "file": "style-mod.js",
+      "from": "src/style-mod.js",
+      "sha256": "e67ba3cb5fe3e970fa2cf798e088e0587e275376682414c6404fa10e3672fe12",
+      "imports": []
+    },
+    "w3c-keyname": {
+      "version": "2.2.8",
+      "license": "MIT",
+      "file": "w3c-keyname.js",
+      "from": "index.js",
+      "sha256": "75ed4fa1316bc01594cd8c9c1db26063cfd6442889e6014ce6762e77fa1ddc26",
+      "imports": []
+    }
+  }
+}
