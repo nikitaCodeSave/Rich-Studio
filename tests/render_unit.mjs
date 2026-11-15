@@ -77,6 +77,13 @@ for (const [name, url] of Object.entries(URLS)) {
   check('keeps http(s), mailto, tg and #anchor links; external ones open in a new tab', ok, r.html);
 }
 {
+  // Telegram drops a link whose address has a " in it (&quot; in HTML) and keeps its text; with &#x27; or %22 the
+  // link stays (tests/telegram_parse/captured.json: html-href-quot, html-href-apos, html-href-pct22)
+  const r = await render({ html: '<p>a <a href="https://example.com/?q=&quot;x&quot;">ссылка <b>ж</b></a> <a href=\'https://example.com/?q="x"\'>ещё</a> <a href="https://example.com/?q=&#x27;x&#x27;">два</a> <a href="https://example.com/?q=%22x%22">три</a></p>' });
+  const ok = has(r.html, /^<p>a ссылка <b>ж<\/b> ещё <a href="https:\/\/example\.com\/\?q='x'"[^>]*>два<\/a> <a href="https:\/\/example\.com\/\?q=%22x%22"[^>]*>три<\/a><\/p>$/);
+  check('a link with a " in its address is its text only, as Telegram makes it', ok, r.html);
+}
+{
   const r = await render({ blocks: [{ type: 'paragraph', text: { type: 'url', text: 'клик', url: 'javascript:window.__xss=1' } }] });
   check('blocks: javascript: URL in a url entity has no href', !has(r.html, /href=/), r.html);
 }

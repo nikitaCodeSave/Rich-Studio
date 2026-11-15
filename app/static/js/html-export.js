@@ -57,7 +57,7 @@ export const INLINE_FIELDS = {
   cashtag: ['text', 'cashtag'],
   bot_command: ['text', 'bot_command'],
   bank_card_number: ['text', 'bank_card_number'],
-  ton_address: null,
+  ton_address: ['text', 'address'],
   date_time: ['text', 'unix_time', 'date_time_format'],
   custom_emoji: ['custom_emoji_id', 'alternative_text'],
   mathematical_expression: ['expression'],
@@ -84,12 +84,13 @@ const ACTION_FIELDS = {
   copy_text: ['text'],
   disabled: [],
 };
-// in the table without fields: HTML has no way to say them, so a post with them is refused, with the reason
-export const NO_HTML = {
-  ton_address: 'в Rich HTML нет тега для адреса TON, а находит ли Telegram его в тексте сам, не описано (Bot API 10.4)',
-};
-// found in the text by Telegram itself: in HTML they exist only as this text
-const DETECTED = { mention: ['@', 'username'], hashtag: ['#', 'hashtag'], cashtag: ['$', 'cashtag'], bot_command: ['/', 'bot_command'], bank_card_number: ['', 'bank_card_number'] };
+// in the table without fields (null): HTML has no way to say them, so a post with them is refused with the reason
+// written here; there are none now
+/** @type {Record<string, string>} */
+export const NO_HTML = {};
+// found in the text by Telegram itself: in HTML they exist only as this text. A TON address has no tag, but Telegram
+// finds one in HTML text (Bot API 10.4, tests/telegram_parse/captured.json: html-detected-card-ton)
+const DETECTED = { mention: ['@', 'username'], hashtag: ['#', 'hashtag'], cashtag: ['$', 'cashtag'], bot_command: ['/', 'bot_command'], bank_card_number: ['', 'bank_card_number'], ton_address: ['', 'address'] };
 // <a href> Telegram reads as an e-mail, a phone, a mention or a link inside the post, not as a plain link
 /** @type {[RegExp, string][]} */
 const SPECIAL_HREF = [[/^#/, 'ссылку на якорь или сноску'], [/^mailto:/i, 'e-mail'], [/^tel:/i, 'телефон'], [/^tg:\/\/user\?/i, 'упоминание']];
@@ -204,7 +205,8 @@ function write(blocks, opts, pretty) {
       case 'url': {
         const special = SPECIAL_HREF.find(([re]) => re.test(String(v.url || '')));
         if (special) say(here, `адрес «${v.url}» Telegram прочитает в HTML как ${special[1]}, а не как ссылку`);
-        return tag('a', [['href', v.url]]);
+        // with a " in the address (&quot; in HTML) Telegram drops the link and keeps its text; %22 is the same address
+        return tag('a', [['href', typeof v.url === 'string' ? v.url.replace(/"/g, '%22') : v.url]]);
       }
       case 'text_mention': {
         const id = isObj(v.user) ? v.user.id : undefined;
@@ -213,7 +215,7 @@ function write(blocks, opts, pretty) {
       }
       case 'email_address': return tag('a', [['href', 'mailto:' + v.email_address]]);
       case 'phone_number': return tag('a', [['href', 'tel:' + v.phone_number]]);
-      case 'mention': case 'hashtag': case 'cashtag': case 'bot_command': case 'bank_card_number': {
+      case 'mention': case 'hashtag': case 'cashtag': case 'bot_command': case 'bank_card_number': case 'ton_address': {
         const [prefix, key] = DETECTED[t];
         const shown = plain(v.text);
         const same = t === 'bank_card_number' ? shown.replace(/\D/g, '') === String(v[key] ?? '').replace(/\D/g, '') : shown === prefix + v[key];

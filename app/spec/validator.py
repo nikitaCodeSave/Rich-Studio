@@ -3,6 +3,10 @@
 import html
 import re
 import string
+from collections import Counter
+from dataclasses import dataclass
+from html.parser import HTMLParser
+from typing import NamedTuple
 from urllib.parse import urlsplit
 
 from .parse import enum_values
@@ -225,63 +229,73 @@ MEDIA_REF_RE = re.compile(r"tg://(photo|video|audio|document|animation|voice(?:_
 #   Up to 500 blocks, including nested blocks, list items, ordered list items, table rows, quotation blocks, and
 #   details blocks. Up to 16 levels of nested formatting and blocks. Up to 50 media attachments in total.
 #   Up to 20 columns in a table.
-# Characters are Unicode characters (Python len): the documentation says "bytes" or "UTF-16 code units" when it means
-# them (callback_data, entity offsets).
+# How Telegram reads them was measured on the real Bot API 10.4 (2026-11-15, issue #170: sendRichMessage to a test
+# group, each message deleted right away): characters are Unicode characters (32 768 latin letters pass, 32 769 are
+# refused); a list is a block besides its items; a table is as wide as its widest row by colspan, a cell with rowspan
+# takes no column in the rows below; levels of nesting are counted as _Count (blocks) and _HtmlWalk (html) say.
 MAX_CHARS = 32768
 MAX_BLOCKS = 500
 MAX_DEPTH = 16
 MAX_MEDIA = 50
 MAX_COLUMNS = 20
+# Not in the documentation, measured as above: a longer text is not refused but cut, without a word, by its size in
+# UTF-8 (a Cyrillic letter takes 2 bytes, an emoji 4), in html, markdown and blocks alike and for the post as a whole;
+# only what is left is then held to MAX_CHARS. One paragraph kept 34 993-34 996 bytes, two and three paragraphs kept
+# 34 986. The limit is the least of them: over it the end of the post surely does not reach the reader.
+MAX_TEXT_BYTES = 34986
+# Two paragraphs already lost a few bytes more than one, and posts of many paragraphs were not measured: from here on
+# a warning that the cut may come before MAX_TEXT_BYTES
+NEAR_CUT_BYTES = 32768
 # String fields (not RichText) that the character limit counts: custom emoji alternative text and formula source
 COUNTED_STRINGS = frozenset({"alternative_text", "expression"})
 FOLD_CHARS = 8000  # not a limit: clients fold a longer post under «Показать ещё»
 FOLDED = f"больше ~{FOLD_CHARS} символов: клиент свернёт пост под «Показать ещё»"
+CUT = (
+    f"Telegram без ошибки обрежет всё, что дальше ~{MAX_TEXT_BYTES} байт, и конец поста не дойдёт до читателя "
+    "(буква кириллицы — 2 байта, эмодзи — 4)"
+)
+EXACT_LATER = "точно его посчитает Telegram, когда разберёт разметку"
 
 BLOCKS = "Array of InputRichBlock"
 TABLE = "Array of Array of "
 
 
-def _span(cell, key: str) -> int:
-    n = cell.get(key) if isinstance(cell, dict) else None
+def utf8_size(s: str) -> int:
+    return len(s.encode("utf-8", "surrogatepass"))  # a lone surrogate from JSON is not a reason for a 500
+
+
+def _colspan(cell) -> int:
+    n = cell.get("colspan") if isinstance(cell, dict) else None
     return n if isinstance(n, int) and not isinstance(n, bool) and n > 1 else 1
 
 
-def table_columns(rows: list) -> tuple[int, int]:
-    """Columns of a table: the widest row by colspan, and the width when a cell with rowspan also takes its columns in
-    the rows below, as in HTML (the documentation does not say whether Telegram counts them so). The second one is
-    followed only up to MAX_COLUMNS + 1: wider is over the limit anyway, and the count stays linear in the cells."""
-    edge = MAX_COLUMNS + 1
-    widest = grid = 0
-    below: dict[int, int] = {}  # column (< edge) -> rows below that a cell with rowspan still covers
-    for row in rows:
-        here, below = below, {k: n - 1 for k, n in below.items() if n > 1}
-        col = 0
-        for c in row:
-            while col in here:
-                col += 1
-            if col >= edge:
-                break
-            span, down = _span(c, "colspan"), _span(c, "rowspan")
-            if down > 1:
-                below.update(dict.fromkeys(range(col, min(col + span, edge)), down - 1))
-            col += span
-        widest = max(widest, sum(_span(c, "colspan") for c in row))
-        grid = max(grid, min(col, edge), *(k + 1 for k in here))
-    return widest, grid
+def table_columns(rows: list) -> int:
+    """Columns of a table: its widest row by colspan. A cell with rowspan takes no column in the rows below
+    (measured: a row of 20 cells under a cell with rowspan passes, though in HTML the table is 21 columns wide)."""
+    return max((sum(_colspan(c) for c in row) for row in rows), default=0)
+
+
+class TextSize(NamedTuple):
+    """The text of a post: about how many characters and UTF-8 bytes, and at least how many (in blocks the same)."""
+
+    chars: int
+    utf8: int
+    sure_chars: int
+    sure_utf8: int
 
 
 class _Count:
     """What the rich message limits count in blocks, walked by the spec types of the fields, so a block newer than
     this code is counted too. A block is an element of an Array of InputRichBlock, a list item (an object holding
-    blocks) or a table row. `depth` is the strict reading of "levels of nested formatting and blocks": a block,
-    a list item, a table row and a piece of formatted text (any RichText object) each add a level. `nest` counts
-    blocks inside blocks only; every reading counts at least `nest` - 1 levels (the top block may not be one)."""
+    blocks) or a table row. `depth` is the levels of nesting as Telegram counts them in blocks (measured, issue #170):
+    the blocks on the way to a piece of text, the one holding it included, plus every RichText object around it
+    (formatting, a link…). A list item and a table row are blocks for the count, but not levels."""
 
     def __init__(self, spec: Spec):
         self.spec = spec
-        self.blocks = self.chars = self.media = self.depth = self.nest = 0
-        self.deepest = self.deepest_nest = "rich_message.blocks"
-        self.tables: list[tuple[str, int, int]] = []  # (path of the table, widest row, width with rowspan)
+        self.blocks = self.chars = self.utf8 = self.media = self.depth = 0
+        self.deepest = "rich_message.blocks"
+        self.tables: list[tuple[str, int]] = []  # (path of the table, its columns)
         self._tags: dict[str, dict] = {}
         self._holders: dict[str, bool] = {}
 
@@ -306,104 +320,293 @@ class _Count:
             self._holders[t] = any(BLOCKS in f["types"] for f in self.spec.types.get(t, {}).get("fields", []))
         return self._holders[t]
 
-    def blocks_of(self, value, level: int, nest: int, path: str):
+    def blocks_of(self, value, level: int, path: str):
         for i, b in enumerate(value if isinstance(value, list) else []):
             if not isinstance(b, dict):
                 continue
             where = f"{path}[{i}]"
             self.blocks += 1
             self._reach(level, where)
-            if nest > self.nest:
-                self.nest, self.deepest_nest = nest, where
-            self.fields(b, self._tagged("InputRichBlock", b), level, nest, where, where)
+            self.fields(b, self._tagged("InputRichBlock", b), level, where, where)
 
-    def fields(self, obj: dict, t: str | None, level: int, nest: int, path: str, where: str):
+    def fields(self, obj: dict, t: str | None, level: int, path: str, where: str):
         spec_t = self.spec.types.get(t) if t else None
         if spec_t is None:  # a type newer than the spec: at least its text and nested blocks
-            self.text(obj.get("text"), level, nest, where)
-            self.field(obj.get("blocks"), "blocks", [BLOCKS], level, nest, f"{path}.blocks", where)
+            self.text(obj.get("text"), level, where)
+            self.field(obj.get("blocks"), "blocks", [BLOCKS], level, f"{path}.blocks", where)
             return
         for f in spec_t.get("fields", []):
             if f["name"] in obj:
-                self.field(obj[f["name"]], f["name"], f["types"], level, nest, f"{path}.{f['name']}", where)
+                self.field(obj[f["name"]], f["name"], f["types"], level, f"{path}.{f['name']}", where)
 
-    def field(self, v, name: str, types: list, level: int, nest: int, path: str, where: str):
+    def field(self, v, name: str, types: list, level: int, path: str, where: str):
         one = types[0] if len(types) == 1 else ""
         if "RichText" in types:
-            self.text(v, level, nest, where)
+            self.text(v, level, where)
         elif BLOCKS in types:
-            self.blocks_of(v, level + 1, nest + 1, path)
+            self.blocks_of(v, level + 1, path)
         elif any(t.startswith("InputMedia") for t in types):
             self.media += 1
         elif name in COUNTED_STRINGS:
-            self.chars += len(v) if isinstance(v, str) else 0
+            self.string(v)
         elif one.startswith(TABLE) and isinstance(v, list):
             rows = [r for r in v if isinstance(r, list)]
             for ri, row in enumerate(rows):
                 self.blocks += 1
-                self._reach(level + 1, where)
                 for ci, c in enumerate(row):
                     if isinstance(c, dict):
-                        self.obj(c, one[len(TABLE) :], level + 1, nest, f"{path}[{ri}][{ci}]", where)
-            self.tables.append((where, *table_columns(rows)))
+                        self.obj(c, one[len(TABLE) :], level, f"{path}[{ri}][{ci}]", where)
+            self.tables.append((where, table_columns(rows)))
         elif one.startswith("Array of ") and isinstance(v, list):
             for i, x in enumerate(v):
                 if isinstance(x, dict):
-                    self.obj(x, one[len("Array of ") :], level, nest, f"{path}[{i}]", where)
+                    self.obj(x, one[len("Array of ") :], level, f"{path}[{i}]", where)
         elif one and isinstance(v, dict):
-            self.obj(v, one, level, nest, path, where)
+            self.obj(v, one, level, path, where)
 
-    def obj(self, x: dict, t: str, level: int, nest: int, path: str, where: str):
+    def obj(self, x: dict, t: str, level: int, path: str, where: str):
         """An object inside a block: a list item holds blocks and is a block itself, a caption or a button is not."""
         if self._holds_blocks(t):
             self.blocks += 1
-            level, where = level + 1, path
-            self._reach(level, where)
-        self.fields(x, t, level, nest, path, where)
+            where = path
+        self.fields(x, t, level, path, where)
 
-    def text(self, rt, level: int, nest: int, where: str):
+    def string(self, s):
+        if isinstance(s, str):
+            self.chars += len(s)
+            self.utf8 += utf8_size(s)
+
+    def text(self, rt, level: int, where: str):
         if isinstance(rt, str):
-            self.chars += len(rt)
+            self.string(rt)
         elif isinstance(rt, list):
             for x in rt:
-                self.text(x, level, nest, where)
+                self.text(x, level, where)
         elif isinstance(rt, dict):
             self._reach(level + 1, where)
-            self.fields(rt, self._tagged("RichText", rt), level + 1, nest, where, where)
+            self.fields(rt, self._tagged("RichText", rt), level + 1, where, where)
+
+
+def _text_limits(v: Validator, size: TextSize, exact: bool, what: str = "") -> None:
+    """The text against MAX_CHARS and the silent cut at MAX_TEXT_BYTES. `exact`: the count is Telegram's own
+    (blocks); otherwise only the sure part is an error, the rest a warning."""
+    sure = "" if exact else "не меньше "
+    about = "" if exact else "около "
+    if size.sure_chars > MAX_CHARS:
+        v.errors.append(f"текст {sure}{size.sure_chars} символов{what}, лимит {MAX_CHARS}")
+    elif size.sure_utf8 > MAX_TEXT_BYTES:
+        v.errors.append(f"текст {sure}{size.sure_utf8} байт в UTF-8{what}: {CUT}")
+    elif size.chars > MAX_CHARS:
+        v.warnings.append(f"текст около {size.chars} символов, лимит {MAX_CHARS}: {EXACT_LATER}")
+    elif size.utf8 > MAX_TEXT_BYTES:
+        v.warnings.append(
+            f"текст около {size.utf8} байт в UTF-8: если их больше ~{MAX_TEXT_BYTES}, Telegram без ошибки обрежет "
+            f"конец поста; {EXACT_LATER}"
+        )
+    elif size.utf8 > NEAR_CUT_BYTES:
+        v.warnings.append(
+            f"текст {about}{size.utf8} байт в UTF-8, а после ~{MAX_TEXT_BYTES} Telegram без ошибки обрезает пост; "
+            "с несколькими абзацами в замерах обрезка начиналась чуть раньше, а для постов из многих абзацев не "
+            "замерена: отправьте предпросмотр себе и проверьте конец поста"
+        )
+    elif size.chars > FOLD_CHARS:
+        v.warnings.append(FOLDED)
 
 
 def _block_limits(v: Validator, blocks: list) -> dict:
     """Limits of a message in blocks: everything the documentation counts is in them, so the counts are exact and
-    going over is an error; only the readings the documentation leaves open are warnings."""
+    going over is an error."""
     n = _Count(v.spec)
-    n.blocks_of(blocks, 1, 1, "rich_message.blocks")
-    if n.chars > MAX_CHARS:
-        v.errors.append(f"текст {n.chars} символов с alternative_text эмодзи и исходником формул, лимит {MAX_CHARS}")
-    elif n.chars > FOLD_CHARS:
-        v.warnings.append(FOLDED)
+    n.blocks_of(blocks, 1, "rich_message.blocks")
+    _text_limits(v, TextSize(n.chars, n.utf8, n.chars, n.utf8), True, " с alternative_text эмодзи и исходником формул")
     if n.blocks > MAX_BLOCKS:
         v.errors.append(f"блоков вместе с пунктами списков и строками таблиц: {n.blocks}, лимит {MAX_BLOCKS}")
     if n.media > MAX_MEDIA:
         v.errors.append(f"медиа: {n.media}, лимит {MAX_MEDIA}")
-    if n.nest - 1 > MAX_DEPTH:  # over the limit even if the top block is not a level of nesting
+    if n.depth > MAX_DEPTH:
         v.errors.append(
-            f"{n.deepest_nest}: {n.nest} блоков друг в друге, больше {MAX_DEPTH} уровней вложенности при любом счёте"
+            f"{n.deepest}: {n.depth} уровней вложенности, лимит {MAX_DEPTH} (уровень — каждый блок на пути к тексту, "
+            "вместе с блоком, где текст, и каждое форматирование вокруг текста)"
         )
-    elif n.depth > MAX_DEPTH:
+    for where, columns in n.tables:
+        if columns > MAX_COLUMNS:
+            v.errors.append(f"{where}: колонок в таблице {columns}, лимит {MAX_COLUMNS}")
+    return {"blocks": n.blocks, "depth": n.depth, "chars": n.chars, "bytes": n.utf8, "media": n.media}
+
+
+# Levels of nesting in html, measured on the real Telegram (issue #170): the elements on the way to a piece of text,
+# at most MAX_DEPTH. A list (ul or ol with its li) and a table (table, tr, td) are one level each; text at the top of
+# the post or right in <details> gets a paragraph of its own (one level more), text in blockquote, aside, li, td and
+# summary does not. Only these tags were measured (strong, em… are the same formatting under other names), so only
+# the depth they make is an error; the other tags, counted by the same reading, give a warning.
+HTML_LEVELS = frozenset(
+    {"p", "blockquote", "aside", "details", "ul", "ol", "table"}
+    | {"b", "strong", "i", "em", "u", "ins", "s", "strike", "del"}
+)
+HTML_TEXT_HOLDERS = frozenset({"p", "blockquote", "aside", "li", "td", "th", "summary"})
+HTML_MAYBE_LEVELS = frozenset(
+    {"h1", "h2", "h3", "h4", "h5", "h6", "pre", "footer", "figure", "tg-collage", "tg-slideshow", "tg-thinking"}
+    | {"tg-button-row", "tg-math-block", "video", "audio", "tg-document", "tg-map"}
+    | {"a", "code", "sub", "sup", "mark", "tg-spoiler", "tg-emoji", "tg-math", "tg-time", "tg-reference"}
+)
+HTML_MAYBE_TEXT_HOLDERS = frozenset(
+    {"h1", "h2", "h3", "h4", "h5", "h6", "pre", "footer", "figcaption", "caption", "cite", "tg-thinking"}
+    | {"tg-button", "tg-math-block"}
+)
+HTML_MEDIA = frozenset({"hr", "img", "video", "audio", "tg-document", "tg-map", "tg-math-block"})  # blocks w/o text
+# for the place named in a message: formatting goes as one run, the parts of a list or a table are not named
+HTML_INLINE = frozenset(
+    {"b", "strong", "i", "em", "u", "ins", "s", "strike", "del", "a", "code", "sub", "sup", "mark", "tg-spoiler"}
+    | {"tg-emoji", "tg-math", "tg-time", "tg-reference", "span"}
+)
+HTML_PARTS = frozenset({"li", "tr", "td", "th", "thead", "tbody", "tfoot"})
+HTML_VOID = frozenset({"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "wbr"})
+# a start tag that ends an open <p>, as in HTML (sloppy <p>a<p>b are siblings, not a paragraph in a paragraph)
+HTML_ENDS_P = frozenset(
+    {"p", "h1", "h2", "h3", "h4", "h5", "h6", "pre", "footer", "blockquote", "aside", "details", "summary", "ul"}
+    | {"ol", "li", "table", "tr", "td", "th", "figure", "figcaption", "hr", "tg-collage", "tg-slideshow"}
+    | {"tg-thinking", "tg-button-row", "tg-math-block", "tg-map"}
+)
+
+
+@dataclass(slots=True)
+class _Open:
+    """An open element: the levels down to it and whether text right in it gets a paragraph of its own."""
+
+    tag: str
+    sure: int  # levels of measured tags only
+    about: int  # levels of every tag that reads as one
+    bare: bool
+    p: int = -1  # stack index of the open <p>, <li>, cell and row that a new one of the same kind ends
+    li: int = -1
+    cell: int = -1
+    row: int = -1
+    link: tuple[str, list] | None = None  # (address, text) of an <a> whose address has a "
+
+
+class _HtmlWalk(HTMLParser):
+    """The element tree of rich HTML as far as nesting and links go, in one pass and linear in the source."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.stack = [_Open("", 0, 0, True)]
+        self.open: Counter[str] = Counter()
+        self.links: list[tuple[str, list]] = []
+        self.quoted: list[tuple[str, str]] = []  # (address, text) of links with a " in the address
+        self.sure = self.about = 0
+        self.sure_path = self.about_path = ""
+
+    def _close(self, i: int):
+        while len(self.stack) > i:
+            e = self.stack.pop()
+            self.open[e.tag] -= 1
+            if e.link is not None:
+                self.links.pop()
+                self.quoted.append((e.link[0], "".join(e.link[1]).strip()))
+
+    def _path(self, text: str = "") -> str:
+        """Where the text is, short: «<blockquote> ×15 › <ul> › форматирование ×2 › «текст»»."""
+        parts: list[list] = []
+        for e in self.stack[1:]:
+            if e.tag in HTML_PARTS:
+                continue
+            name = "форматирование" if e.tag in HTML_INLINE else f"<{e.tag}>"
+            if parts and parts[-1][0] == name:
+                parts[-1][1] += 1
+            else:
+                parts.append([name, 1])
+        shown = [t + (f" ×{n}" if n > 1 else "") for t, n in parts]
+        text = " ".join(text.split())
+        return " › ".join(shown + ([f"«{_short(text, 20)}»"] if text else []))
+
+    def _reach(self, sure: int, about: int, text: str = ""):
+        if sure > self.sure:
+            self.sure = sure
+            if sure > MAX_DEPTH and not self.sure_path:
+                self.sure_path = self._path(text)
+        if about > self.about:
+            self.about = about
+            if about > MAX_DEPTH and not self.about_path:
+                self.about_path = self._path(text)
+
+    def handle_starttag(self, tag, attrs):
+        top = self.stack[-1]
+        for opened, ends in ((top.p, tag in HTML_ENDS_P), (top.li, tag == "li"), (top.row, tag == "tr")):
+            if ends and opened >= 0:
+                self._close(opened)
+                top = self.stack[-1]
+        if tag in ("td", "th") and top.cell >= 0:
+            self._close(top.cell)
+            top = self.stack[-1]
+        if tag in HTML_MEDIA:
+            self._reach(0, top.about + 1)
+        if tag in HTML_VOID:
+            return
+        i = len(self.stack)
+        maybe = tag in HTML_MAYBE_LEVELS and not (tag == "code" and top.tag == "pre")
+        e = _Open(
+            tag,
+            top.sure + (tag in HTML_LEVELS),
+            top.about + (tag in HTML_LEVELS or maybe),
+            tag == "details" or (top.bare and tag not in HTML_TEXT_HOLDERS and tag not in HTML_MAYBE_TEXT_HOLDERS),
+            i if tag == "p" else top.p,
+            i if tag == "li" else -1 if tag in ("ul", "ol") else top.li,
+            i if tag in ("td", "th") else -1 if tag in ("tr", "table") else top.cell,
+            i if tag == "tr" else -1 if tag == "table" else top.row,
+        )
+        href = next((v for k, v in attrs if k == "href"), None) if tag == "a" else None
+        if href and '"' in href:
+            e.link = (href, [])
+            self.links.append(e.link)
+        self.stack.append(e)
+        self.open[tag] += 1
+
+    def handle_endtag(self, tag):
+        if self.open[tag] <= 0:
+            return
+        i = len(self.stack) - 1
+        while self.stack[i].tag != tag:
+            i -= 1
+        self._close(i)
+
+    def handle_data(self, data):
+        if self.links:
+            self.links[-1][1].append(data)
+        if data.strip():
+            top = self.stack[-1]
+            self._reach(top.sure + top.bare, top.about + top.bare, data)
+
+    def close(self):
+        super().close()
+        self._close(1)
+
+
+def _short(s: str, n: int) -> str:
+    return s if len(s) <= n else s[:n] + "…"
+
+
+def _html_shape(v: Validator, src: str) -> int:
+    """Nesting and links of html: an error where the measured reading is surely over the limit, a warning where only
+    tags without a measurement take it over. Returns the levels of the measured reading."""
+    walk = _HtmlWalk()
+    walk.feed(src)
+    walk.close()
+    for href, text in walk.quoted:
+        v.errors.append(
+            f'ссылка «{_short(text, 30)}»: в адресе {_short(href, 60)} есть кавычка " (в HTML — &quot;), а с ней '
+            "Telegram молча выбрасывает ссылку и оставляет только текст; запишите кавычку в адресе как %22"
+        )
+    if walk.sure > MAX_DEPTH:
+        v.errors.append(
+            f"{walk.sure} уровней вложенности, лимит {MAX_DEPTH}: {walk.sure_path} (уровень — каждый элемент на пути "
+            "к тексту, список и таблица — по одному; у текста вне блока и прямо в <details> ещё свой абзац)"
+        )
+    elif walk.about > MAX_DEPTH:
         v.warnings.append(
-            f"{n.deepest}: {n.depth} уровней вложенности, если уровень — каждый блок (и верхний), пункт списка, "
-            f"строка таблицы и форматирование текста; лимит {MAX_DEPTH} (как Telegram считает уровни, "
-            "документация не уточняет)"
+            f"около {walk.about} уровней вложенности, лимит {MAX_DEPTH}: {walk.about_path} — если теги, для которых "
+            "замера нет, считаются уровнями так же, как <b> и <blockquote>"
         )
-    for where, widest, grid in n.tables:
-        if widest > MAX_COLUMNS:
-            v.errors.append(f"{where}: колонок в таблице {widest}, лимит {MAX_COLUMNS}")
-        elif grid > MAX_COLUMNS:
-            v.warnings.append(
-                f"{where}: колонок в таблице больше {MAX_COLUMNS}, если ячейка с rowspan занимает свои колонки "
-                "и в строках ниже"
-            )
-    return {"blocks": n.blocks, "depth": n.depth, "chars": n.chars, "media": n.media}
+    return walk.sure
 
 
 TAG_RE = re.compile(r"<[^>]+>")
@@ -418,23 +621,25 @@ HTTP_MEDIA_RE = re.compile(
 )
 
 
-def source_chars(src: str, markdown: bool) -> tuple[int, int]:
-    """Text characters of html or markdown as far as the source tells without Telegram's parser: about how many
-    (without tags and link addresses), and at least how many (also without spaces and, in Markdown, markup and table
-    lines). tests/test_rich_limits.py keeps the second one under Telegram's own count for every captured parse."""
+def source_size(src: str, markdown: bool) -> TextSize:
+    """Text of html or markdown as far as the source tells without Telegram's parser: about how many characters and
+    bytes (without tags and link addresses), and at least how many (also without spaces and, in Markdown, markup and
+    table lines). tests/test_rich_limits.py keeps the second under Telegram's own count for every captured parse."""
     text = TAG_RE.sub("", src)
     if markdown:
         text = MD_TARGET_RE.sub("]", text)
     text = html.unescape(text)
-    if not markdown:
-        return len(text), sum(not ch.isspace() for ch in text)
-    sure = MD_MARKUP_RE.sub("", text)
-    return len(text), sum(not ch.isspace() and ch not in string.punctuation for ch in sure)
+    if markdown:
+        sure = [ch for ch in MD_MARKUP_RE.sub("", text) if not ch.isspace() and ch not in string.punctuation]
+    else:
+        sure = [ch for ch in text if not ch.isspace()]
+    return TextSize(len(text), utf8_size(text), len(sure), utf8_size("".join(sure)))
 
 
 def _source_limits(v: Validator, rm: dict) -> dict:
-    """Limits of a message in html or markdown: Telegram makes the blocks itself, so blocks, nesting and table columns
-    are not counted here, and characters only as far as the source tells: an error only when surely over."""
+    """Limits of a message in html or markdown: Telegram makes the blocks itself, so blocks and table columns are not
+    counted here, characters only as far as the source tells (an error only when surely over), nesting in html by the
+    measured reading and in markdown not at all (no measurement)."""
     src = rm.get("html") or rm.get("markdown") or ""
     src = src if isinstance(src, str) else ""
     media = [m for m in rm["media"] if isinstance(m, dict)] if isinstance(rm.get("media"), list) else []
@@ -445,19 +650,16 @@ def _source_limits(v: Validator, rm: dict) -> dict:
             v.errors.append(f"в тексте есть tg://{kind}?id={mid}, но в media нет элемента с id={mid!r}")
     for mid in sorted(x for x in media_ids - {mid for _, mid in refs} if x):
         v.warnings.append(f"media id={mid!r} нигде не используется в тексте")
-    chars, at_least = source_chars(src, markdown=not rm.get("html"))
-    if at_least > MAX_CHARS:
-        v.errors.append(f"текст не меньше {at_least} символов, лимит {MAX_CHARS}")
-    elif chars > MAX_CHARS:
-        v.warnings.append(
-            f"текст около {chars} символов, лимит {MAX_CHARS}: точно его посчитает Telegram, когда разберёт разметку"
-        )
-    elif chars > FOLD_CHARS:
-        v.warnings.append(FOLDED)
+    is_html = bool(rm.get("html"))
+    size = source_size(src, markdown=not is_html)
+    _text_limits(v, size, False)
     count = max(len(media), len(refs) + len(HTTP_MEDIA_RE.findall(src)))
     if count > MAX_MEDIA:
         v.warnings.append(f"медиа около {count}, лимит {MAX_MEDIA}")
-    return {"chars": chars, "media": count}
+    stats = {"chars": size.chars, "bytes": size.utf8, "media": count}
+    if is_html:
+        stats["depth"] = _html_shape(v, src)
+    return stats
 
 
 # Telegram allows 16 levels of nesting (MAX_DEPTH); far deeper JSON is a broken payload, and walking it

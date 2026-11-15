@@ -507,6 +507,75 @@
   "source": "<h3>H3</h3><footer>подвал</footer><hr/><details open><summary>Открыто</summary><p>внутри</p></details><pre><code class=\"language-js\">let a = 1;</code></pre><pre>без языка</pre>",
   "spec": "Bot API 10.3"
  },
+ "html-detected-card-ton": {
+  "blocks": [
+   {
+    "text": [
+     "Карта 4242 4242 4242 4242, адрес TON ",
+     {
+      "address": "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c",
+      "text": "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c",
+      "type": "ton_address"
+     },
+     " и ",
+     {
+      "address": "UQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAJKZ",
+      "text": "UQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAJKZ",
+      "type": "ton_address"
+     }
+    ],
+    "type": "paragraph"
+   }
+  ],
+  "captured_at": "2026-11-15",
+  "format": "html",
+  "source": "<p>Карта 4242 4242 4242 4242, адрес TON EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c и UQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAJKZ</p>",
+  "spec": "Bot API 10.4"
+ },
+ "html-href-apos": {
+  "blocks": [
+   {
+    "text": {
+     "text": "ссылка",
+     "type": "url",
+     "url": "https://example.com/?q='x'"
+    },
+    "type": "paragraph"
+   }
+  ],
+  "captured_at": "2026-11-15",
+  "format": "html",
+  "source": "<p><a href=\"https://example.com/?q=&#x27;x&#x27;\">ссылка</a></p>",
+  "spec": "Bot API 10.4"
+ },
+ "html-href-pct22": {
+  "blocks": [
+   {
+    "text": {
+     "text": "ссылка",
+     "type": "url",
+     "url": "https://example.com/?q=%22x%22"
+    },
+    "type": "paragraph"
+   }
+  ],
+  "captured_at": "2026-11-15",
+  "format": "html",
+  "source": "<p><a href=\"https://example.com/?q=%22x%22\">ссылка</a></p>",
+  "spec": "Bot API 10.4"
+ },
+ "html-href-quot": {
+  "blocks": [
+   {
+    "text": "ссылка",
+    "type": "paragraph"
+   }
+  ],
+  "captured_at": "2026-11-15",
+  "format": "html",
+  "source": "<p><a href=\"https://example.com/?q=&quot;x&quot;\">ссылка</a></p>",
+  "spec": "Bot API 10.4"
+ },
  "html-inline": {
   "blocks": [
    {

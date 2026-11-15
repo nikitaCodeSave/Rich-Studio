@@ -439,6 +439,9 @@
         node.classList.add('tg-task'); node.firstElementChild.disabled = true;
       } else if (tag === 'a' && attr('name') && !attr('href')) {
         rep = el('a', { name: attr('name'), id: 'anchor-' + attr('name'), class: 'tg-anchor' });
+      } else if (tag === 'a' && attr('href') && attr('href').includes('"')) {
+        // Telegram drops a link whose address has a " in it (&quot; in HTML) and keeps only its text
+        node.replaceWith(...kids()); return;
       } else if (tag === 'a' && attr('href')) {
         // #name links are resolved after the walk, when all anchors and references are known
         if (!attr('href').startsWith('#')) { node.setAttribute('target', '_blank'); node.setAttribute('rel', 'noopener'); }
