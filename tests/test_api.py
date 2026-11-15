@@ -37,13 +37,21 @@ def test_spec_summary_has_all_rich_blocks(client):
 
 def test_spec_describes_the_post_for_json_completion(client):
     import models
-    from api.specs import POST_TYPES
 
     s = client.get("/api/spec").json()
     post = s["post"]
     assert post["root"] == "Post"
-    assert set(POST_TYPES) == set(models.Post.model_fields)
+    # every field of the post says what it holds, and the OpenAPI schema shows it to agents
+    assert all(
+        isinstance(f.json_schema_extra, dict) and f.json_schema_extra["bot_api"]
+        for f in models.Post.model_fields.values()
+    )
     assert [f["name"] for f in post["types"]["Post"]["fields"]] == list(models.Post.model_fields)
+    assert next(f for f in post["types"]["Post"]["fields"] if f["name"] == "rich_message")["types"] == [
+        "InputRichMessage"
+    ]
+    schema = client.get("/openapi.json").json()["components"]["schemas"]["Post"]["properties"]
+    assert schema["poll_after"]["bot_api"] == ["PollAfter"]
     options = {f["name"] for f in post["types"]["PostOptions"]["fields"]}
     assert "disable_notification" in options and not options & {"chat_id", "rich_message", "reply_markup"}
     poll = {f["name"] for f in post["types"]["PollAfter"]["fields"]}

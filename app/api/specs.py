@@ -1,6 +1,7 @@
 """The Bot API spec the editor is built from."""
 
 from fastapi import APIRouter
+from pydantic.fields import FieldInfo
 
 import models
 import spec
@@ -10,33 +11,31 @@ from spec.source import field_summary
 
 router = APIRouter(tags=["spec"])
 
-# What each field of a post (models.Post, the studio's own envelope) holds in the Bot API terms, for the JSON tab's
-# completion. PostOptions and PollAfter are the parameters of sendRichMessage and sendPoll the studio lets you set.
-POST_TYPES = {
-    "rich_message": ["InputRichMessage"],
-    "reply_markup": ["InlineKeyboardMarkup"],
-    "options": ["PostOptions"],
-    "pin": ["Boolean"],
-    "comment": ["InputRichMessage"],
-    "callbacks": ["Object"],
-    "poll_after": ["PollAfter"],
-}
+# PostOptions and PollAfter in models.Post (`bot_api` of its fields): the parameters of sendRichMessage and sendPoll
+# the studio lets you set
 METHOD_TYPES = {
     "PostOptions": ("sendRichMessage", publisher.RESERVED_PARAMS),
     "PollAfter": ("sendPoll", {"chat_id"}),
 }
 
 
+def holds(field: FieldInfo) -> list[str]:
+    """`bot_api` of a field of models.Post; a field without it still shows, with nothing to suggest inside."""
+    extra = field.json_schema_extra
+    types = extra.get("bot_api") if isinstance(extra, dict) else None
+    return [str(t) for t in types] if isinstance(types, list) else []
+
+
 def post_envelope() -> dict:
-    """The post as the editor's JSON tab shows it: its own fields, then the method parameters behind two of them.
-    The types they lead to are in the summary's `types`."""
+    """The post as the editor's JSON tab shows it: its own fields (models.Post, with what each holds in `bot_api`),
+    then the method parameters behind options and poll_after. The types they lead to are in the summary's `types`."""
     types = {
         "Post": {
             "description": "Пост студии: rich_message и то, что студия делает с ним при отправке",
             "fields": [
                 {
                     "name": name,
-                    "types": POST_TYPES[name],
+                    "types": holds(f),
                     "required": f.is_required(),
                     "description": f.description or "",
                     "enum": None,
