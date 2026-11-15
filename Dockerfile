@@ -1,5 +1,5 @@
 # base image by digest: a moved tag cannot change what is built; Dependabot (docker) bumps tag and digest together
-FROM python:3.12-slim@sha256:aa943ce411423c7582288f18707ff66eddcbaeb510502d747a72aeb34f30d159
+FROM python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_DISABLE_PIP_VERSION_CHECK=1 DATA_DIR=/data
 WORKDIR /app
 # every package with its hash (make lock): a changed or swapped file on PyPI stops the build
