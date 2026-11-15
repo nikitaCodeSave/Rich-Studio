@@ -9,7 +9,7 @@ import settings
 import spec
 import store
 import telegram as tg
-from errors import Conflict, Invalid, MayHaveGone, NotFound, StudioError, Upstream
+from errors import Conflict, Invalid, MayHaveGone, NotFound, StudioError, Unrecorded, Upstream
 from telegram.uploads import MissingUpload, collect_uploads
 
 from . import channels, kinds, publisher
@@ -61,7 +61,7 @@ async def send(
     if dry_run:
         return dry_run_report(chats, post, report["warnings"])
     results, warnings = await publisher.publish(chats, post, draft_id, actor=actor)
-    first = _first_sent(results)
+    first = _first_sent(results, warnings)
     return {
         "post": first["post"],
         "message": first["message"],
@@ -70,18 +70,37 @@ async def send(
     }
 
 
-def _first_sent(results: list[dict]) -> dict:
-    """The first chat it went to; none at all is an error, not a 200 with every chat refused."""
-    for r in results:  # the agent and the editor name the channel, not only its id
-        r["chat_title"] = channels.title_of(r["chat_id"])
-    first = next((r for r in results if r["ok"]), None)
-    if not first:
-        errors = [f"{r['chat_id']}: {r['error']}" for r in results]
-        if any(publisher.MAY_HAVE_GONE in r["error"] for r in results):
-            # no answer from Telegram is not «not sent»: the headline says what is known, not more
-            raise MayHaveGone({"message": "ни один канал не подтвердил отправку, в часть могло уйти", "errors": errors})
-        raise Upstream({"message": "ни в один канал не отправлено", "errors": errors})
-    return first
+def _first_sent(results: list[dict], warnings: list[str]) -> dict:
+    """The first chat it went to and was recorded in; none at all is an error, not a 200 with every chat refused.
+    A post the studio could not write down is in the channel all the same: that error says where, never «not sent»."""
+    try:
+        for r in results:  # the agent and the editor name the channel, not only its id
+            r["chat_title"] = channels.title_of(r["chat_id"])
+    except Exception as e:  # the post is out: a name the studio cannot read must not fail the answer
+        log.exception("channel titles could not be read")
+        warnings.append(f"названия каналов не прочитаны: {type(e).__name__}: {e}")
+        for r in results:
+            r.setdefault("chat_title", None)
+    first = next((r for r in results if r["ok"] and not r.get("unrecorded")), None)
+    if first:
+        return first
+    errors = [f"{r['chat_id']}: {r['error']}" for r in results if not r["ok"]]
+    gone = [r for r in results if r.get("unrecorded")]
+    if gone:
+        entries = [{k: r[k] for k in ("chat_id", "message_id", "post_id", "error")} for r in gone]
+        raise Unrecorded(
+            {
+                "message": publisher.unrecorded_message(entries),
+                "chat_id": gone[0]["chat_id"],
+                "message_id": gone[0]["message_id"],
+                "unrecorded": entries,
+                **({"errors": errors} if errors else {}),
+            }
+        )
+    if any(publisher.MAY_HAVE_GONE in r["error"] for r in results):
+        # no answer from Telegram is not «not sent»: the headline says what is known, not more
+        raise MayHaveGone({"message": "ни один канал не подтвердил отправку, в часть могло уйти", "errors": errors})
+    raise Upstream({"message": "ни в один канал не отправлено", "errors": errors})
 
 
 def dry_run_report(chats: list, post: dict, warnings: list[str]) -> dict:
@@ -367,7 +386,7 @@ async def send_kind(
         recs = store.add_scheduled(publisher.targets(chat_id, chat_ids), post, when, kind=k.name, actor=actor)
         return {"scheduled": recs}
     results, warnings = await publisher.publish(publisher.targets(chat_id, chat_ids), post, kind=k.name, actor=actor)
-    _first_sent(results)
+    _first_sent(results, warnings)
     return {"results": results, "warnings": warnings}
 
 

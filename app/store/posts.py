@@ -250,6 +250,19 @@ def recover_stale_sending(keep: set[str] | frozenset[str] = frozenset()) -> int:
         return cur.rowcount
 
 
+def confirm_sent(pid: str, message_id: int, sent_at: int, chat_num=None, poll_id=None) -> bool:
+    """A send Telegram accepted whose "sent" the database refused at the time, written down late. Telegram's answer
+    settles it, even if the recovery of another process marked the row "may have gone" meanwhile. False: no such row."""
+    with conn() as c:
+        cur = c.execute(
+            """update posts set status='sent', message_id=?, sent_at=?, chat_num=coalesce(?, chat_num),
+                                poll_id=coalesce(?, poll_id), error=null, retry_at=null, outcome_unknown=0
+               where id=?""",
+            (message_id, sent_at, chat_num, poll_id, pid),
+        )
+        return cur.rowcount == 1
+
+
 def due_posts() -> list[dict]:
     """Scheduled posts whose time (or retry time) has come, earliest first."""
     with conn() as c:

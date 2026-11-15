@@ -37,3 +37,8 @@ class Upstream(StudioError):
 
 class MayHaveGone(Upstream):
     """A network error during a send: the post may be in the channel. Never retried automatically."""
+
+
+class Unrecorded(MayHaveGone):
+    """Telegram accepted the post, the studio could not write it down (a full or read-only disk): the post is in the
+    channel for sure. `detail` names the chat and the message_id; a retry would put a second post there."""
