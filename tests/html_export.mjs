@@ -156,8 +156,10 @@ const inline = (v) => {
   else if (v && typeof v === 'object') { usedTypes.inline.add(v.type); inline(v.text); }
 };
 walk(every);
-const missingBlocks = consts('InputRichBlock').filter((t) => !usedTypes.blocks.has(t));
-const missingInline = consts('RichText').filter((t) => !usedTypes.inline.has(t));
+// what HTML cannot say at all is refused below, by name
+const noHtml = await page.evaluate(() => Object.keys(/** @type {any} */ (window).HtmlExport.NO_HTML));
+const missingBlocks = consts('InputRichBlock').filter((t) => !usedTypes.blocks.has(t) && !noHtml.includes(t));
+const missingInline = consts('RichText').filter((t) => !usedTypes.inline.has(t) && !noHtml.includes(t));
 check('The all-types post covers every block and text element of the bundled spec', !missingBlocks.length && !missingInline.length,
   `add to «every» in tests/html_export.mjs: блоки ${missingBlocks.join(', ') || '—'}; элементы ${missingInline.join(', ') || '—'}`);
 const before = JSON.stringify(every);
@@ -222,6 +224,9 @@ const many = await refused('Unknown block, field and element: one refusal that l
 check('The refusal lists every problem, not only the first', (many.problems || []).length === 5, JSON.stringify(many.problems));
 await refused('Names of Object\'s own properties are not types', [{ type: 'constructor' }, { type: 'paragraph', text: { type: '__proto__', text: 'x' } }, { type: 'paragraph', text: { text: 'без type' } }],
   [/блок 1.*«constructor» не переносится/, /блок 2.*«__proto__» не переносится/, /блок 3.*без type/]);
+await refused('A TON address has no HTML (Bot API 10.4): refused with the reason', [{ type: 'paragraph', text: ['Кошелёк ', { type: 'ton_address', text: 'UQBvW8Z5huBkMJYdnfAEM5JqTNkuWX3diqYENkWsIL0XggGG', address: 'UQBvW8Z5huBkMJYdnfAEM5JqTNkuWX3diqYENkWsIL0XggGG' }] }],
+  [/блок 1.*«Адрес TON».*нет тега для адреса TON/]);
+check('Every type HTML cannot say is refused by name in this file', noHtml.every((t) => t === 'ton_address'), 'add a refusal check for: ' + noHtml.filter((t) => t !== 'ton_address').join(', '));
 await refused('A map size has no HTML: refused, not dropped', [{ type: 'map', location: { latitude: 1, longitude: 2, heading: 90 }, width: 300 }], [/поле width/, /поле heading/]);
 await refused('A login button with bot_username has no HTML attribute: refused', [{ type: 'buttons', buttons: [btn('вход', { login_url: { url: 'https://t.me', bot_username: 'other_bot' } })] }], [/кнопка 1.*поле bot_username/]);
 await refused('A button with two actions is refused', [{ type: 'buttons', buttons: [btn('две', { url: 'https://t.me', callback_data: 'x' })] }], [/кнопка 1.*несколько действий/]);

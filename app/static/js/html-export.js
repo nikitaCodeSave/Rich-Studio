@@ -57,6 +57,7 @@ export const INLINE_FIELDS = {
   cashtag: ['text', 'cashtag'],
   bot_command: ['text', 'bot_command'],
   bank_card_number: ['text', 'bank_card_number'],
+  ton_address: null,
   date_time: ['text', 'unix_time', 'date_time_format'],
   custom_emoji: ['custom_emoji_id', 'alternative_text'],
   mathematical_expression: ['expression'],
@@ -82,6 +83,10 @@ const ACTION_FIELDS = {
   switch_inline_query_chosen_chat: ['query', 'allow_user_chats', 'allow_bot_chats', 'allow_group_chats', 'allow_channel_chats'],
   copy_text: ['text'],
   disabled: [],
+};
+// in the table without fields: HTML has no way to say them, so a post with them is refused, with the reason
+export const NO_HTML = {
+  ton_address: 'в Rich HTML нет тега для адреса TON, а находит ли Telegram его в тексте сам, не описано (Bot API 10.4)',
 };
 // found in the text by Telegram itself: in HTML they exist only as this text
 const DETECTED = { mention: ['@', 'username'], hashtag: ['#', 'hashtag'], cashtag: ['$', 'cashtag'], bot_command: ['/', 'bot_command'], bank_card_number: ['', 'bank_card_number'] };
@@ -156,7 +161,7 @@ function write(blocks, opts, pretty) {
     if (typeof t !== 'string') { say(where, 'элемент текста без type: ' + JSON.stringify(v)); return ''; }
     const here = `${where} › «${own(RT_LABELS, t) || t}»`;
     const fields = own(INLINE_FIELDS, t);
-    if (!fields) { say(here, `элемент текста «${t}» не переносится в HTML`); return ''; }
+    if (!fields) { say(here, own(NO_HTML, t) || `элемент текста «${t}» не переносится в HTML`); return ''; }
     known(v, ['type', ...fields], here);
     const inner = () => rt(v.text, here, pre);
     const tag = (name, list = []) => `<${name}${attrs(list)}>${inner()}</${name}>`;
