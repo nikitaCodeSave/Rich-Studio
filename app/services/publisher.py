@@ -66,6 +66,11 @@ class InFlight:
 # whose first comment it is sending): their "sending" status is normal, not stuck; health reads it, a stop waits for
 # it to empty, and startup recovery only exists because a crash empties it
 in_flight = InFlight()
+# ids of posts whose first comment this process is sending right now, in in_flight as well (a stop waits for them
+# there). Their comment's "sending" is normal; the list of posts and health read this one, not in_flight: the
+# scheduler holds a post's id there for its pin and poll after the send, and a comment gone unconfirmed meanwhile
+# must not look under way
+comments_in_flight = InFlight()
 # sends Telegram accepted whose "sent" the database refused (a full or read-only disk): post id → what to write.
 # write_unrecorded tries again before each send, each pass of the scheduler and the recovery of "sending" rows, which
 # leaves these rows alone meanwhile. Health still shows them as stuck in "sending": the record is behind the channel
