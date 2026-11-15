@@ -23,7 +23,7 @@ from typing import Any
 
 import store
 
-from . import publisher
+from . import idempotency, publisher
 
 log = logging.getLogger("rich-studio.loops")
 LEASE_KEY = "loops"
@@ -88,6 +88,7 @@ class Loops:
         # nobody else runs the loops now: a "sending" row no process of ours is sending was cut off by a crash.
         # One Telegram accepted and the database refused is known to be out: written now, or left for later
         publisher.write_unrecorded()
+        idempotency.write_unwritten()
         stale = store.recover_stale_sending(keep={*publisher.in_flight, *publisher.unrecorded})
         if stale:
             log.warning("%d posts were being sent when the service stopped; marked failed", stale)
@@ -117,10 +118,13 @@ class Loops:
             await asyncio.sleep(0.2)
         if publisher.in_flight:
             log.warning("stopping with %d sends under way", len(publisher.in_flight))
-        if publisher.write_unrecorded():  # the last chance: the next start marks what is left "may have gone"
+        # the last chance: the next start marks a post left here "may have gone", a key left here stays "pending"
+        if publisher.write_unrecorded():
             log.error(
                 "stopping with %d sent posts the database did not take (send.unrecorded)", len(publisher.unrecorded)
             )
+        if idempotency.write_unwritten():
+            log.error("stopping with %d idempotency outcomes the database did not take", len(idempotency.unwritten))
         await _cancel([*self.tasks, *([self.keeper] if self.keeper else [])])
         if STATE.role == "leader":
             with contextlib.suppress(Exception):

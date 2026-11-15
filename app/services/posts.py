@@ -70,12 +70,6 @@ async def send(
     }
 
 
-UNRECORDED_HINT = (
-    "Пост в канале, скажите об этом пользователю. Запись студия допишет сама, когда база снова будет принимать "
-    "запись (место на диске, права на папку данных); message_id есть и в журнале студии (событие send.unrecorded)"
-)
-
-
 def _first_sent(results: list[dict], warnings: list[str]) -> dict:
     """The first chat it went to and was recorded in; none at all is an error, not a 200 with every chat refused.
     A post the studio could not write down is in the channel all the same: that error says where, never «not sent»."""
@@ -93,13 +87,13 @@ def _first_sent(results: list[dict], warnings: list[str]) -> dict:
     errors = [f"{r['chat_id']}: {r['error']}" for r in results if not r["ok"]]
     gone = [r for r in results if r.get("unrecorded")]
     if gone:
-        where = "; ".join(f"{r['chat_id']}, message_id {r['message_id']} ({r['error']})" for r in gone)
+        entries = [{k: r[k] for k in ("chat_id", "message_id", "post_id", "error")} for r in gone]
         raise Unrecorded(
             {
-                "message": f"Пост {publisher.UNRECORDED}: {where}. {UNRECORDED_HINT}",
+                "message": publisher.unrecorded_message(entries),
                 "chat_id": gone[0]["chat_id"],
                 "message_id": gone[0]["message_id"],
-                "unrecorded": [{k: r[k] for k in ("chat_id", "message_id", "post_id", "error")} for r in gone],
+                "unrecorded": entries,
                 **({"errors": errors} if errors else {}),
             }
         )

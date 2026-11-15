@@ -14,7 +14,7 @@ import pytest
 import logs
 import store
 import telegram
-from services import channels, idempotency, loops, publisher, scheduler
+from services import channels, health, idempotency, loops, publisher, scheduler
 from test_api import BLOCKS_POST, POLL
 from test_mcp import call
 
@@ -144,6 +144,23 @@ def test_recovery_of_sending_rows_leaves_a_remembered_send_alone(client, tg, mon
     assert p["status"] == "sent" and p["message_id"] == tg.next_id
 
 
+def test_a_retry_says_whether_the_record_is_still_to_come_done_or_lost(client, tg, monkeypatch):
+    h = {"Idempotency-Key": "texts-1"}
+    restore = _full_on_sent(monkeypatch)
+    first = client.post("/api/send", json={"post": BLOCKS_POST}, headers=h).json()["detail"]
+    assert "допишет сама" in first["message"]
+    restore()
+    assert publisher.write_unrecorded() == 0
+    written = client.post("/api/send", json={"post": BLOCKS_POST}, headers=h).json()["detail"]
+    assert "уже дописала" in written["message"] and written["message_id"] == first["message_id"]
+    # as after a restart before the database took the record: the row became "may have gone"
+    with store.conn() as c:
+        c.execute("update posts set status='failed', outcome_unknown=1")
+    lost = client.post("/api/send", json={"post": BLOCKS_POST}, headers=h)
+    assert lost.status_code == 502 and "Исход неизвестен" in lost.json()["detail"]["message"]
+    assert "допишет сама" not in lost.json()["detail"]["message"] and sends(tg) == 1
+
+
 def test_a_late_record_settles_a_row_another_process_marked_may_have_gone(client, tg, monkeypatch):
     restore = _full_on_sent(monkeypatch)
     assert client.post("/api/send", json={"post": BLOCKS_POST}).status_code == 502
@@ -212,10 +229,15 @@ def test_nothing_recorded_but_one_channel_has_the_post_is_unrecorded_not_not_sen
 
 
 def test_poll_and_media_kinds_answer_the_same(client, tg, monkeypatch):
+    refs = [client.post("/api/media", files={"file": (n, b"x")}).json()["ref"] for n in ("clip.mp4", "still.jpg")]
     _full_on_sent(monkeypatch)
     r = client.post("/api/poll", json={"poll": POLL})
     assert r.status_code == 502 and UNRECORDED in r.json()["detail"]["message"]
     assert r.json()["detail"]["message_id"] == tg.next_id
+    live = {"kind": "live_photo", "params": {"live_photo": refs[0], "photo": refs[1]}}
+    r = client.post("/api/media-post", json=live)
+    assert r.status_code == 502 and UNRECORDED in r.json()["detail"]["message"]
+    assert r.json()["detail"]["message_id"] == tg.next_id and tg.last("sendLivePhoto")
 
 
 def test_mcp_publish_says_the_same_and_a_retry_sends_nothing(client, tg, monkeypatch):
@@ -274,7 +296,8 @@ def test_after_send_steps_failing_is_a_warning(client, tg, monkeypatch):
         return real(pid, **fields)
 
     monkeypatch.setattr(store, "update_post", update)
-    _sent_with_warning(client.post("/api/send", json={"post": BLOCKS_POST}), FULL)
+    out = _sent_with_warning(client.post("/api/send", json={"post": {**BLOCKS_POST, "pin": True}}), FULL)
+    assert any("могли не выполниться: закреп" in w for w in out["warnings"]), out["warnings"]
 
 
 def test_reading_the_record_back_failing_is_a_warning(client, tg, monkeypatch):
@@ -313,7 +336,8 @@ def _due(*chats: str) -> list[str]:
 def test_scheduler_goes_on_after_a_send_it_could_not_record(client, tg, monkeypatch, log_file):
     a, b = _due("@a", "@b")
     restore = _full_on_sent(monkeypatch, chat="@a")
-    asyncio.run(scheduler.run_due_posts())
+    with pytest.raises(sqlite3.OperationalError):  # for the loop's heartbeat, after the whole pass
+        asyncio.run(scheduler.run_due_posts())
     assert store.get_post(a)["status"] == "sending" and store.get_post(b)["status"] == "sent"
     [event] = _unrecorded_events()
     assert event["chat_id"] == "@a" and event["post_id"] == a
@@ -363,3 +387,29 @@ def test_scheduler_warnings_that_cannot_be_written_do_not_break_the_pass(client,
     monkeypatch.setattr(store, "update_post", update)
     asyncio.run(scheduler.run_due_posts())
     assert store.get_post(a)["status"] == "sent"
+
+
+def test_a_pass_of_the_scheduler_also_writes_the_outcome_of_a_key(client, tg, monkeypatch):
+    """No request that posts may come before a restart: the scheduler's pass is a chance too."""
+    real = store.idempotency.finish
+    monkeypatch.setattr(store.idempotency, "finish", _broken)
+    client.post("/api/send", json={"post": BLOCKS_POST}, headers={"Idempotency-Key": "pass-1"})
+    assert "pass-1" in idempotency.unwritten
+    monkeypatch.setattr(store.idempotency, "finish", real)
+    asyncio.run(scheduler.run_due_posts())
+    assert idempotency.unwritten == {}
+    with store.conn() as c:
+        assert c.execute("select status from idempotency where key='pass-1'").fetchone()[0] == "done"
+
+
+# ---------- the health report ----------
+def test_health_names_the_post_that_is_out_but_not_written(client, tg, monkeypatch):
+    _full_on_sent(monkeypatch)
+    client.post("/api/send", json={"post": BLOCKS_POST}, headers={"Idempotency-Key": "health-1"})
+    checks = {c["name"]: c for c in health.report()["checks"]}
+    posts, keys = checks["posts"], checks["sends"]
+    [gone] = posts["details"]["unrecorded"]
+    assert (gone["chat_id"], gone["message_id"]) == ("@test_channel", tg.next_id)
+    assert "в канале" in posts["summary"] and "не отправляйте" in posts["action"]
+    assert "опубликован" in posts["details"]["posts"][0]["error"]
+    assert "не смогла их записать" in keys["summary"] and "новым" not in keys["action"]

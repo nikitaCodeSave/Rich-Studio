@@ -11,7 +11,7 @@ import store
 import telegram as tg
 from errors import StudioError
 
-from . import loops, publisher
+from . import idempotency, loops, publisher
 
 log = logging.getLogger("rich-studio.scheduler")
 INTERVAL = 10  # seconds between checks
@@ -50,9 +50,9 @@ async def _send_claimed(queued: dict, now: float) -> None:
         store.update_post(
             p["id"], status="sent", message_id=res["message_id"], sent_at=sent_at, error=None, retry_at=None
         )
-    except Exception as e:  # noqa: BLE001 - a full or read-only disk: the log keeps the message id, written later
+    except Exception as e:  # a full or read-only disk: the log keeps the message id, written later
         publisher.unrecorded_send(p["id"], p["chat_id"], p["payload"], res, sent_at, e)
-        return
+        raise  # the pass goes on with the other posts and hands this to the loop's heartbeat at its end
     try:
         warnings = await publisher.after_send(p["id"], p["payload"], res, p.get("actor") or "api", p.get("kind"))
     except Exception as e:
@@ -90,7 +90,9 @@ async def _one(queued: dict) -> None:
 async def run_due_posts() -> int:
     """Send every scheduled post whose time has come. Returns how many were processed. A post the database fails on
     does not hold up the ones after it; the first such error is raised at the end, for the loop's heartbeat."""
-    publisher.write_unrecorded()  # sends of earlier passes the database refused, first
+    # what the database refused before (sends, outcomes of idempotency keys), first: every pass is a chance
+    publisher.write_unrecorded()
+    idempotency.write_unwritten()
     due = store.due_posts()
     failure: Exception | None = None
     for queued in due:

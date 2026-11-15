@@ -25,6 +25,7 @@ import store
 import telegram as tg
 from errors import Conflict, MayHaveGone, StudioError, Unrecorded
 
+from . import publisher
 from .publisher import MAY_HAVE_GONE
 
 log = logging.getLogger("rich-studio.idempotency")
@@ -60,8 +61,9 @@ def publisher_may_have_gone() -> str:
 
 
 def _blocked(scope: str, detail: Any) -> MayHaveGone:
-    if isinstance(detail, dict) and detail.get("unrecorded"):  # known to be in the channel: the first answer again
-        return Unrecorded(detail)
+    if isinstance(detail, dict) and detail.get("unrecorded"):
+        # known to be in the channel: the first answer again, its headline as things are now (written, lost)
+        return Unrecorded({**detail, "message": publisher.unrecorded_message(detail["unrecorded"])})
     hint = f"Повтор с этим ключом больше ничего не отправит: {BLOCKED.get(scope, BLOCKED['send'])}"
     if isinstance(detail, dict):
         return MayHaveGone({**detail, "message": f"{detail.get('message', '')}. {hint}"})

@@ -262,14 +262,14 @@ def unrecorded_send(pid: str, chat, post: dict, res: dict, sent_at: int, e: Base
     chat: in the channel (`ok`), not written down (`unrecorded`), why (`error`)."""
     mid = res["message_id"]
     unrecorded[pid] = {
+        "chat_id": str(chat),
         "message_id": mid,
         "sent_at": sent_at,
         "chat_num": (res.get("chat") or {}).get("id"),
         "poll_id": (res.get("poll") or {}).get("id"),
     }
     _log_unrecorded(chat, mid, pid, e)
-    steps = (("закреп", "pin"), ("первый комментарий", "comment"), ("опрос после поста", "poll_after"))
-    skipped = [name for name, field in steps if post.get(field)]
+    skipped = _steps_asked(post)
     error = _reason(e) + (f"; не сделано: {', '.join(skipped)}" if skipped else "")
     return {
         "chat_id": chat,
@@ -286,7 +286,9 @@ def write_unrecorded() -> int:
     """Write down the sends the database refused at the time (`unrecorded`). Returns how many still wait."""
     for pid, fields in list(unrecorded.items()):
         try:
-            found = store.confirm_sent(pid, **fields)
+            found = store.confirm_sent(
+                pid, fields["message_id"], fields["sent_at"], fields["chat_num"], fields["poll_id"]
+            )
         except Exception:  # noqa: BLE001 - the database still refuses: the next chance
             break
         del unrecorded[pid]
@@ -298,6 +300,43 @@ def write_unrecorded() -> int:
                 "post %s is in the channel as message %s, its row is gone", pid, fields["message_id"], extra=extra
             )
     return len(unrecorded)
+
+
+UNRECORDED_TELL = (
+    "Пост в канале: скажите об этом пользователю и не публикуйте его заново; message_id есть и в журнале студии "
+    "(событие send.unrecorded)."
+)
+UNRECORDED_LATER = (
+    "Запись студия допишет сама, когда база снова будет принимать запись (место на диске, права на папку данных)."
+)
+UNRECORDED_DONE = "Студия уже дописала запись: в списке постов он отправлен."
+UNRECORDED_LOST = (
+    "Студию перезапустили раньше, чем база приняла запись: в списке постов он «Исход неизвестен» (или запись уже "
+    "убрали), хотя вышел точно; заменить, закрепить или удалить его из студии нельзя, только в Telegram."
+)
+
+
+def unrecorded_message(gone: list[dict]) -> str:
+    """The headline of an Unrecorded answer, as things are now: `gone` are its entries (chat_id, message_id, post_id,
+    error). The first answer and a retry with the same key say whether the record is still to come, done or lost."""
+    where = "; ".join(f"{r['chat_id']}, message_id {r['message_id']} ({r['error']})" for r in gone)
+    return f"Пост {UNRECORDED}: {where}. {UNRECORDED_TELL} {_record_state(gone)}".rstrip()
+
+
+def _record_state(gone: list[dict]) -> str:
+    if any(r.get("post_id") in unrecorded for r in gone):  # this process still holds the confirmation
+        return UNRECORDED_LATER
+    try:
+        rows = [store.get_post(r["post_id"]) for r in gone]
+    except Exception:  # noqa: BLE001 - the database cannot even be read: say only what is known for sure
+        return ""
+    return UNRECORDED_DONE if all(p and p["status"] == "sent" for p in rows) else UNRECORDED_LOST
+
+
+def _steps_asked(post: dict) -> list[str]:
+    """The steps after the send this post asks for, by name."""
+    steps = (("закреп", "pin"), ("первый комментарий", "comment"), ("опрос после поста", "poll_after"))
+    return [name for name, field in steps if post.get(field)]
 
 
 async def _after_recorded(
@@ -316,7 +355,9 @@ async def _after_recorded(
         warnings += await after_send(rec["id"], post, res, actor, kind)
     except Exception as e:
         log.exception("after-send steps failed for %s", rec["id"])
-        warnings.append(f"шаги после отправки прерваны: {_reason(e)}")
+        asked = _steps_asked(post)
+        maybe_not = f", могли не выполниться: {', '.join(asked)}" if asked else ""
+        warnings.append(f"шаги после отправки прерваны ({_reason(e)}){maybe_not}")
     try:
         row = store.get_post(rec["id"])
     except Exception as e:

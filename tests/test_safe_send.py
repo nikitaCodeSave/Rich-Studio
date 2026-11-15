@@ -90,7 +90,9 @@ def test_error_after_telegram_accepted_never_resends_with_same_key(client, tg, m
     monkeypatch.setattr(publisher, "unrecorded", {})
     assert store.recover_stale_sending() == 1
     again = client.post("/api/send", json={"post": BLOCKS_POST}, headers=h)
-    assert again.status_code == 502 and again.json()["detail"] == d
+    retry = again.json()["detail"]
+    assert again.status_code == 502 and (retry["chat_id"], retry["message_id"]) == (d["chat_id"], d["message_id"])
+    assert "Исход неизвестен" in retry["message"]  # the headline says the record is lost, not "will be written"
     assert sends(tg) == 1
 
 
