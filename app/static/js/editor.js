@@ -8,7 +8,7 @@ import { renderBlocksPane } from './forms.js';
 import { recordHistory } from './history.js';
 import { exportToHtml } from './html-export.js';
 import { readIssue, reveal } from './issues.js';
-import { renderKeyboard } from './keyboard.js';
+import { answers, renderKeyboard } from './keyboard.js';
 import { plural } from './labels.js';
 import { renderMedia } from './media.js';
 import { chats, dark, dirty, parsed, S, saveState, showParsed } from './state.js';
@@ -40,12 +40,12 @@ export function buildPost() {
   return post;
 }
 
-// answers only for callback buttons that are still on the keyboard
+// answers only for callback buttons that are still on the keyboard (a text, a rich reply or a link)
 export function callbacksFor(kb) {
   const out = {};
   for (const row of kb) for (const b of row) {
     const a = b.callback_data !== undefined && S.extra.callbacks[b.callback_data];
-    if (a && (typeof a === 'string' ? a : a.text)) out[b.callback_data] = a;
+    if (answers(a)) out[b.callback_data] = a;
   }
   return out;
 }

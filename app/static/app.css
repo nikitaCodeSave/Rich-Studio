@@ -265,6 +265,11 @@ dialog::backdrop { background: rgba(0,0,0,.4); }
 
 .cb-answer { margin-top: 4px; }
 .cb-answer input[type=text] { flex: 1; }
+/* the rich reply in a button card: one line, the dialog holds the rest */
+.cb-reply > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reply-preview { max-height: 46vh; overflow: auto; border-radius: 8px; }
+.reply-issues ul { margin: 4px 0; padding-left: 18px; font-size: 13px; }
+.reply-issues .e { color: var(--err); }
 #updates-state { margin: 0 4px 8px; }
 #updates-state .ok { color: var(--ok); } #updates-state .w { color: var(--warn); }
 .pf { margin: 6px 0; }

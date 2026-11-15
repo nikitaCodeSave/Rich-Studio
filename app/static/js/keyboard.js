@@ -1,8 +1,10 @@
 // Inline keyboard under the post and answers to callback buttons.
+import { api } from './api.js';
 import { $, h } from './dom.js';
-import { changed, updatesLabel } from './editor.js';
+import { buildPost, changed, updatesLabel } from './editor.js';
 import { objectFields } from './forms.js';
-import { S } from './state.js';
+import { openReplyDialog, replySummary } from './reply-dialog.js';
+import { editing, S } from './state.js';
 
 // ---------- keyboard under the post ----------
 // what a button does: one of these fields (InlineKeyboardButton); a channel post mostly needs the first three
@@ -71,6 +73,31 @@ export function renderKeyboard() {
   box.append(h('button', { class: 'ghost small-btn', text: '＋ ряд кнопок', onclick: () => { S.keyboard.push([{ text: 'Кнопка', url: '' }]); renderKeyboard(); changed(); } }));
 }
 
+/** An answer that does something when the button is pressed: a text, a rich reply or a link. */
+export const answers = (a) => (typeof a === 'string' ? !!a : !!(a && typeof a === 'object' && (a.text || a.reply || a.url)));
+
+/** Store a button's answer: a bare text stays a string, as before; every other field (a rich reply, url, cache_time)
+ * stays in the object; an answer with nothing in it goes. */
+function setAnswer(key, v) {
+  for (const k of Object.keys(v)) if (v[k] === undefined || v[k] === '') delete v[k];
+  if (!answers(v)) delete S.extra.callbacks[key];
+  else S.extra.callbacks[key] = Object.keys(v).length === 1 && v.text ? v.text : v;
+}
+
+/** The button the check names for this key: the first one with it, as the studio reads the keyboard. */
+const labelOf = (key) => {
+  const b = S.keyboard.flat().find((x) => x.callback_data === key && typeof x.text === 'string');
+  return (b && b.text) || key;
+};
+
+/** What the studio's check says about this button's answer, without the «ответ на кнопку «…»:» in front. */
+async function issuesFor(key) {
+  const r = await api('POST', '/api/validate', buildPost());
+  const at = `ответ на кнопку «${labelOf(key)}»: `;
+  const mine = (list) => list.filter((m) => m.startsWith(at)).map((m) => m.slice(at.length));
+  return { errors: mine(r.errors), warnings: mine(r.warnings) };
+}
+
 // what the bot answers when a callback button is pressed (handled by the studio's update loop)
 export function callbackAnswer(btn) {
   const box = h('div', { class: 'cb-answer' });
@@ -79,12 +106,26 @@ export function callbackAnswer(btn) {
     if (btn.callback_data === undefined) return;
     const key = btn.callback_data;
     const cur = S.extra.callbacks[key];
-    const a = typeof cur === 'string' ? { text: cur } : (cur || {});
-    const save = (patch) => { const v = { ...a, ...patch }; if (!v.text) delete S.extra.callbacks[key]; else S.extra.callbacks[key] = v.show_alert ? v : v.text; Object.assign(a, patch); changed(); };
-    box.append(h('label', { class: 'small muted', text: 'Ответ на нажатие (до 200 символов, видит только нажавший)' }),
+    /** @type {Json} */
+    const a = typeof cur === 'string' ? { text: cur } : { ...(cur || {}) };
+    const save = (patch) => { Object.assign(a, patch); setAnswer(key, { ...a }); changed(); };
+    const reply = a.reply && typeof a.reply === 'object' ? a.reply : null;
+    const instead = !!(reply && reply.ephemeral_message_parameters && reply.ephemeral_message_parameters.replace_callback_query_message);
+    const edit = () => openReplyDialog({ label: labelOf(key), answer: a, issues: () => issuesFor(key),
+      onChange: (next) => { setAnswer(key, { ...next }); changed(); draw(); } });
+    box.append(h('label', { class: 'small muted', text: 'Всплывающий ответ (до 200 символов, видит только нажавший)' }),
       h('div', { class: 'row', style: 'margin:2px 0' },
         h('input', { type: 'text', maxlength: '200', value: a.text || '', placeholder: 'Спасибо, голос учтён', oninput: (e) => save({ text: e.target.value }) }),
-        h('label', { class: 'row small', style: 'margin:0;white-space:nowrap' }, h('input', { type: 'checkbox', checked: !!a.show_alert, onchange: (e) => save({ show_alert: e.target.checked || undefined }) }), 'окном')));
+        h('label', { class: 'row small', style: 'margin:0;white-space:nowrap' }, h('input', { type: 'checkbox', checked: !!a.show_alert, onchange: (e) => save({ show_alert: e.target.checked || undefined }) }), 'окном')),
+      // Bot API 10.4: a whole rich message only the person who pressed sees (callbacks[key].reply)
+      h('div', { class: 'row cb-reply', style: 'margin:2px 0' },
+        h('span', { class: 'small grow' + (reply ? '' : ' muted'), text: reply ? `Rich-ответ${instead ? ' вместо поста' : ''}: ${replySummary(reply) || 'пустой'}` : 'Rich-ответ: нет' }),
+        h('button', { type: 'button', class: 'ghost small-btn', text: reply ? 'Изменить…' : 'Rich-ответ…', title: 'Сообщение, которое увидит только нажавший (Bot API 10.4)', onclick: edit })));
+    // a published post open for editing: how its presses went, next to the answer they got
+    const p = editing.value;
+    const clicks = p && p.clicks && p.clicks[key];
+    const failed = p && p.reply_errors && p.reply_errors[key];
+    if (clicks || failed) box.append(h('p', { class: 'small ' + (failed ? 'w' : 'muted'), text: `Нажатий: ${clicks || 0}` + (failed ? ` · rich-ответ не дошёл ${failed.n} раз, последний: ${failed.error}` : '') }));
     if (S.updates && S.updates.state !== 'ok') box.append(h('p', { class: 'w small', text: 'Приём событий сейчас не работает (' + updatesLabel() + '): кнопка будет «крутиться» без ответа.' }));
   };
   let lastKey = btn.callback_data;

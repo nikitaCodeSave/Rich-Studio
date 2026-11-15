@@ -27,3 +27,4 @@
 | [0017](0017-codemirror-vendored-modules.md) | CodeMirror 6 для вкладок исходника: файлы из npm с переписанными импортами (`make vendor`), без сборщика |
 | [0018](0018-html-export-on-request.md) | Визуальный пост в HTML по кнопке «В HTML», а не синхронизация вкладок |
 | [0019](0019-unrecorded-send.md) | Пост ушёл, а запись не удалась: 502 «не публикуйте повторно» с `message_id`, дозапись из памяти, шаги после записи — предупреждения |
+| [0021](0021-ephemeral-callback-reply.md) | Rich-ответ на callback-кнопку: поле `reply` с параметрами `sendRichMessage`, ответ до `answerCallbackQuery`, окно 15 секунд от получения, без повторов |
