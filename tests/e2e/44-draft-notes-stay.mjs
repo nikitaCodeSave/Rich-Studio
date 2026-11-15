@@ -1,8 +1,9 @@
 // The draft's own notes the editor does not write (`_studio.source` and `_studio.warnings` of a forwarded post, any
 // other key) survive opening, editing, «Применить JSON» and undo; the warnings show above the editor as text and
-// fold away; none of it goes to Telegram. Undo in the JSON tab stays in the JSON tab.
+// fold away; none of it goes to Telegram. Undo in the JSON tab stays in the JSON tab. A post forwarded to the bot
+// shows the warnings its import wrote.
 /** @param {import('./harness.mjs').Ctx} ctx */
-export default async function ({ page, check, mockLog, until, BASE }) {
+export default async function ({ page, check, mockLog, until, push, BASE }) {
   const api = (method, path, body) => page.evaluate(([m, p, b]) => fetch(p, { method: m, headers: { 'Content-Type': 'application/json' }, body: b ? JSON.stringify(b) : undefined }).then((r) => r.json()), [method, path, body]);
   const source = { forward_origin: { type: 'channel', chat: { id: -1001234, title: 'Чужой канал', type: 'channel' }, message_id: 42, date: 1 }, link: 'https://t.me/other_channel/42' };
   const warnings = ['кнопка «Голосовать» убрана: на неё отвечал бот исходного поста',
@@ -68,4 +69,20 @@ export default async function ({ page, check, mockLog, until, BASE }) {
     !!sent && sent.rich_message?.blocks?.[0]?.text === 'Пересланный мой' && !('_studio' in sent)
       && !JSON.stringify(sent).includes('Чужой канал') && !JSON.stringify(sent).includes('sparkle') && kept(after?.payload?._studio),
     JSON.stringify({ sent }));
+
+  // a real import: the owner (TG_PREVIEW_CHAT) forwards a post with a callback button to the bot
+  const owner = { id: 777, is_bot: false, first_name: 'Владелец' };
+  await push({ message: { message_id: 9041, date: 1763200000, from: owner, chat: { ...owner, type: 'private' }, text: 'Пост с голосованием',
+    forward_origin: { type: 'channel', date: 1763100000, message_id: 7, chat: { id: -1009, type: 'channel', title: 'Канал друга', username: 'friend' } },
+    reply_markup: { inline_keyboard: [[{ text: 'Голосовать', callback_data: 'vote' }]] } } });
+  const imported = await until(async () => {
+    const one = (await api('GET', '/api/drafts')).find((x) => /Пост с голосованием/.test(x.title || ''));
+    return one && api('GET', '/api/drafts/' + one.id);
+  });
+  const said = imported?.payload?._studio?.warnings || [];
+  if (imported) await page.goto(`${BASE}/?draft=${imported.id}`);
+  await page.waitForSelector('.block');
+  const importShown = said.length ? ((await box.textContent(quick).catch(() => '')) || '') : '';
+  check('A forwarded post\'s import warnings show in the editor',
+    said.length > 0 && said.every((w) => importShown.includes(w)), JSON.stringify({ said, importShown }));
 }

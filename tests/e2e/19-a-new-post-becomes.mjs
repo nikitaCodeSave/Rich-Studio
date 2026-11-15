@@ -8,9 +8,11 @@ export default async function ({ page, check, applyJson }) {
   const autoId = await page.evaluate(() => JSON.parse(localStorage.getItem('rs.lastDraft') || 'null'));
   const autoDraft = autoId ? await page.evaluate(async (id) => (await fetch('/api/drafts/' + id)).json(), autoId) : null;
   check('A new post is saved as a draft on its own', !!autoDraft && autoDraft.payload.rich_message.markdown === 'Сохранюсь сам', String(autoId));
-  // "another tab" saves the same draft, then this tab keeps typing
-  await page.evaluate(async (id) => fetch('/api/drafts/' + id, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title: 'из другой вкладки', post: { rich_message: { markdown: 'Чужая правка' } } }) }), autoId);
+  // this tab edits and "another tab" saves the same draft before the autosave (2.5 s): the editor asks, whether its
+  // autosave meets the newer version or its check of the open draft (every 4 s) sees it first; no click in between,
+  // so the dialog never lands on one
   await applyJson({ rich_message: { markdown: 'Моя правка' } });
+  await page.evaluate(async (id) => fetch('/api/drafts/' + id, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title: 'из другой вкладки', post: { rich_message: { markdown: 'Чужая правка' } } }) }), autoId);
   await page.waitForSelector('dialog[open] >> text=Черновик изменился', { timeout: 8000 }).catch(() => {});
   const conflictShown = await page.locator('dialog[open] >> text=Черновик изменился').count();
   const untouched = await page.evaluate(async (id) => (await fetch('/api/drafts/' + id)).json(), autoId);
