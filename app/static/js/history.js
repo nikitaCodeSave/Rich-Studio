@@ -1,7 +1,7 @@
 // Undo/redo for the whole post: a stack of draft snapshots, one per pause in editing.
 import { computed, signal } from '../vendor/signals-core.js';
-import { autosave, draftPayload, loadPost } from './editor.js';
-import { dirty, parsed, saveState, showParsed } from './state.js';
+import { autosave, draftPayload, loadPost, setMode } from './editor.js';
+import { dirty, parsed, S, saveState, showParsed } from './state.js';
 
 const LIMIT = 100;
 const PAUSE_MS = 400; // edits closer than this become one undo step
@@ -51,7 +51,9 @@ export function recordHistory() {
 
 function restore(snap) {
   current = snap;
+  const inJson = S.mode === 'json';
   loadPost(JSON.parse(snap));
+  if (inJson) setMode('json', true); // an undo while typing JSON keeps the person in the JSON tab
   dirty.value = true;
   saveState.value = 'есть изменения';
   autosave();

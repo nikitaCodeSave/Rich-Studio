@@ -48,15 +48,22 @@ export function callbacksFor(kb) {
   return out;
 }
 
-// Drafts keep the text of every mode, not only the one that is sent, and the JSON not applied yet
+// Drafts keep the text of every mode, not only the one that is sent, and the JSON not applied yet;
+// the rest of `_studio` is someone else's (an imported post's source and warnings) and goes back as it came
 export function draftPayload() {
-  return { ...buildPost(), _studio: { format: S.format, buffers: { blocks: S.buf.blocks, html: S.buf.html, markdown: S.buf.markdown }, ...(S.json && { json: S.json }) } };
+  return { ...buildPost(), _studio: { ...S.notes, format: S.format, buffers: { blocks: S.buf.blocks, html: S.buf.html, markdown: S.buf.markdown }, ...(S.json && { json: S.json }) } };
 }
 
-export function loadPost(post) {
+// the keys of `_studio` the editor writes itself; any other one is a note of the draft
+const OWN_STUDIO = ['format', 'buffers', 'json'];
+
+/** @param {Json} post @param {boolean} [keepNotes] only the post changes (JSON applied, an earlier version):
+ * the open draft keeps its notes */
+export function loadPost(post, keepNotes = false) {
   post = clone(post || {});
   const studio = post._studio;
   delete post._studio;
+  if (!keepNotes) setNotes(studio);
   S.topicChat = undefined; // the loaded post's topic belongs to the channel it is opened with
   const rm = post.rich_message || {};
   S.buf = { blocks: [], html: '', markdown: '' };
@@ -124,7 +131,7 @@ export function renderJson() {
 }
 
 function applyJson() {
-  try { loadPost(JSON.parse($('#src-json').value)); } catch (e) { $('#json-err').textContent = e.message; return; }
+  try { loadPost(JSON.parse($('#src-json').value), true); } catch (e) { $('#json-err').textContent = e.message; return; }
   S.json = null;
   setMode('json', true); changed(); toast('JSON применён', 'ok');
 }
@@ -140,6 +147,24 @@ export function bindJson() {
   $('#json-apply').onclick = applyJson;
   $('#json-mine').onclick = applyJson;
   $('#json-drop').onclick = () => { S.json = null; $('#json-err').textContent = ''; changed(); };
+}
+
+// ---------- the draft's notes: what an import (or anything else that made the draft) wants the person to know ----------
+/** The notes from a draft's `_studio`: every key the editor does not write itself. */
+export function setNotes(studio) {
+  S.notes = {};
+  if (studio && typeof studio === 'object' && !Array.isArray(studio)) {
+    for (const [k, v] of Object.entries(studio)) if (!OWN_STUDIO.includes(k)) S.notes[k] = v;
+  }
+  renderNotes();
+}
+
+// `warnings` is a list of strings; a single string (or anything else) is one item, so nothing is hidden
+function renderNotes() {
+  const w = S.notes.warnings;
+  const list = Array.isArray(w) ? w : w === undefined || w === null || w === '' ? [] : [w];
+  /** @type {import('./components/rs-draft-notes.js').RsDraftNotes} */ ($('#draft-notes')).warnings =
+    list.map((x) => (typeof x === 'string' ? x : JSON.stringify(x)));
 }
 
 // «В HTML» in the visual mode: the post as HTML source in its tab (html-export.js); the blocks stay in theirs

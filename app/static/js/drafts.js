@@ -3,7 +3,7 @@ import { api } from './api.js';
 import { showTarget } from './channels.js';
 import { closeDialog, openDialog } from './dialogs.js';
 import { $, h, store, toast } from './dom.js';
-import { autosave, changed, draftPayload, flushSave, loadPost } from './editor.js';
+import { autosave, changed, draftPayload, flushSave, loadPost, setNotes } from './editor.js';
 import { followDraft } from './editing.js';
 import { pushHistory, resetHistory } from './history.js';
 import { chatLabel, chats, dirty, editing, kindOf, S, saveState } from './state.js';
@@ -184,6 +184,8 @@ function draftConflict(detail) {
     h('button', { text: theirs ? 'Сохранить мою поверх' : 'Сохранить мою как новый', onclick: () => {
       closeDialog(d);
       if (!theirs) S.draftId = null;
+      // the post is mine, the notes are theirs: the editor never edits them, and an agent or an import may have added warnings
+      else setNotes(theirs.payload && theirs.payload._studio);
       saveDraft(false, true).catch((e) => toast(e.message, 'err'));
     } })]);
   d.addEventListener('close', () => { S.conflict = false; });
