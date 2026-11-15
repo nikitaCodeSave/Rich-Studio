@@ -125,8 +125,8 @@ def list_posts(limit: int = 100, status: str | None = None, chat: str | None = N
     with conn() as c:
         rows = c.execute(
             f"""select id, draft_id, chat_id, message_id, status, scheduled_at, sent_at, error, created_at,
-                                   kind, actor, version, pinned, comment_status, reactions, clicks, poll_results, payload,
-                                   outcome_unknown,
+                                   kind, actor, version, pinned, comment_status, reactions, clicks, reply_errors, poll_results,
+                                   payload, outcome_unknown,
                                    json_extract(payload, '$.poll.question') as poll_question
                             from posts {cond} order by coalesce(scheduled_at, sent_at, created_at) desc, rowid desc limit ?""",  # noqa: S608 - fixed fragments
             (*args, limit),
@@ -185,13 +185,38 @@ def find_poll(poll_id: str) -> dict | None:
         return _post(c.execute("select * from posts where poll_id=?", (poll_id,)).fetchone())
 
 
+# callback_data is a key of a JSON object here, never part of a JSON path: SQLite's path syntax has no escape for
+# a quote ('$."a\"b"' is a bad path), so a button with " in its data would fail the press before it is answered.
+# json_each and json_group_object take the key as a value. One statement each, so concurrent presses are not lost
+_BUMP_CLICK = """update posts set clicks = (
+  select json_group_object(key, value) from (
+    select key, case when key = :key then value + 1 else value end as value
+      from json_each(coalesce(posts.clicks, '{}'))
+    union all
+    select :key, 1 where not exists (select 1 from json_each(coalesce(posts.clicks, '{}')) where key = :key)
+  )) where id = :id"""
+# json(value): the objects come out of the subquery as text, and json_group_object would store them as strings
+_NOTE_REPLY_ERROR = """update posts set reply_errors = (
+  select json_group_object(key, json(value)) from (
+    select key, case when key = :key then json_object('n', json_extract(value, '$.n') + 1, 'error', :error, 'at', :at)
+                     else value end as value
+      from json_each(coalesce(posts.reply_errors, '{}'))
+    union all
+    select :key, json_object('n', 1, 'error', :error, 'at', :at)
+      where not exists (select 1 from json_each(coalesce(posts.reply_errors, '{}')) where key = :key)
+  )) where id = :id"""
+
+
 def bump_click(pid: str, data: str) -> None:
-    with conn() as c:  # one statement, so concurrent clicks are not lost
-        c.execute(
-            """update posts set clicks=json_set(coalesce(clicks,'{}'), '$.' || json_quote(?),
-                     coalesce(json_extract(coalesce(clicks,'{}'), '$.' || json_quote(?)), 0) + 1) where id=?""",
-            (data, data, pid),
-        )
+    with conn() as c:
+        c.execute(_BUMP_CLICK, {"key": data, "id": pid})
+
+
+def note_reply_error(pid: str, data: str, error: str) -> None:
+    """A rich reply to the button `data` of the post did not go: one more for that button, with the last reason
+    (without secrets, redact.py)."""
+    with conn() as c:
+        c.execute(_NOTE_REPLY_ERROR, {"key": data, "error": _error(error), "at": int(time.time()), "id": pid})
 
 
 def claim_post(pid: str, *, due_by: int | None) -> bool:

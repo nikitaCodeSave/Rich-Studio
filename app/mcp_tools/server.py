@@ -44,7 +44,9 @@ studio_status says whether scheduled posts, button answers and first comments wi
 studio_health lists what is wrong and what to do (status ok|warn|fail per check); studio_logs reads the log.
 A post is {"rich_message": InputRichMessage with exactly one of html|markdown|blocks, "reply_markup"?,
 "options"?, "pin"?, "comment"?, "callbacks"?, "poll_after"? (sendPoll fields: a poll sent right after the post)};
-it reaches the Bot API unchanged. describe_type gives exact
+it reaches the Bot API unchanged. callbacks answer callback buttons: {callback_data: text | {text?, show_alert?,
+"reply"?: sendRichMessage fields {rich_message, ephemeral_message_parameters?: {replace_callback_query_message?}}}};
+reply is a rich message only the person who pressed sees (not yet confirmed to arrive under a channel post). describe_type gives exact
 fields of any Bot API type. Uploaded files are referenced as upload:<name>."""
 
 

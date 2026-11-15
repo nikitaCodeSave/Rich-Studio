@@ -49,6 +49,8 @@ export async function loadPosts() {
       p.pinned ? '📌 закреплён' : null,
       p.reactions && Object.keys(p.reactions).length ? Object.entries(p.reactions).map(([k, v]) => (k.startsWith('custom:') ? '★' : k === 'paid' ? '⭐' : k) + ' ' + v).join('  ') : null,
       p.clicks && Object.keys(p.clicks).length ? 'нажатия: ' + Object.entries(p.clicks).map(([k, v]) => ((p.buttons && p.buttons[k]) || k) + ' ' + v).join(', ') : null,
+      // rich replies to those presses that did not go (Bot API 10.4; the reason is in the log, callback.reply_failed)
+      p.reply_errors && Object.keys(p.reply_errors).length ? 'rich-ответ не дошёл: ' + Object.entries(p.reply_errors).map(([k, v]) => ((p.buttons && p.buttons[k]) || k) + ' ' + v.n).join(', ') : null,
       p.comment_status ? commentNote(p) : null,
       pr ? `голосов: ${pr.total}${pr.is_closed ? ' (закрыт)' : ''} · ` + pr.options.map((o) => `${o.text} ${o.voter_count}`).join(' / ') : null,
     ].filter(Boolean);

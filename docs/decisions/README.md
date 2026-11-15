@@ -28,3 +28,4 @@
 | [0018](0018-html-export-on-request.md) | Визуальный пост в HTML по кнопке «В HTML», а не синхронизация вкладок |
 | [0019](0019-unrecorded-send.md) | Пост ушёл, а запись не удалась: 502 «не публикуйте повторно» с `message_id`, дозапись из памяти, шаги после записи — предупреждения |
 | [0020](0020-dependabot-self-contained-prs.md) | Dependabot только для PR, готовых как пришли: npm-инструменты, digest образа, `deploy/`, actions; Python-пакеты и CodeMirror обновляются намеренно |
+| [0021](0021-ephemeral-callback-reply.md) | Rich-ответ на callback-кнопку: поле `reply` с параметрами `sendRichMessage`, ответ до `answerCallbackQuery`, окно 15 секунд от получения, без повторов |

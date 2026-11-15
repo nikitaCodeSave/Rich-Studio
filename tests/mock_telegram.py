@@ -5,6 +5,8 @@ TG_BOT_TOKEN=1:x TG_API_BASE=http://127.0.0.1:8081. GET /log shows every call;
 POST /push queues an update that the studio will receive through getUpdates;
 POST /fail makes a method answer 400 (for checks of refused sends);
 POST /hold keeps the answers of a method back until POST /release (for checks of a request under way).
+sendRichMessage with ephemeral_message_parameters.callback_query_id is an ephemeral reply to a button press:
+no chat_id, message_id 0.
 """
 
 import asyncio
@@ -166,6 +168,20 @@ class FakeTelegram:
         if method == "sendMessage":  # the studio's short answers in the owner's chat
             self.next_id += 1
             return {"ok": True, "result": _message(self.next_id, text=body.get("text"))}
+        eph = body.get("ephemeral_message_parameters") or {}
+        if isinstance(eph, str):  # multipart uploads send it as a JSON string
+            eph = json.loads(eph)
+        if method == "sendRichMessage" and eph.get("callback_query_id") and not eph.get("receiver_user_id"):
+            # an ephemeral reply to a button press (Bot API 10.4): seen only by the person who pressed it, no
+            # message in the chat (message_id 0), chat_id not needed
+            self.next_id += 1
+            res = _message(
+                0, ephemeral_message_id=self.next_id, receiver_user={"id": 7, "is_bot": False, "first_name": "U"}
+            )
+            res["rich_message"] = {"blocks": parsed_blocks(body.get("rich_message"))}
+            return {"ok": True, "result": res}
+        if method in ("sendRichMessage", "sendPoll") and body.get("chat_id") in (None, ""):
+            return {"ok": False, "error_code": 400, "description": "Bad Request: chat_id is empty"}
         if method in ("sendRichMessage", "sendPoll"):
             self.next_id += 1
             res = _message(self.next_id)
@@ -252,7 +268,7 @@ class FakeTelegram:
                         body[k] = v
                     else:
                         files[k] = (v.filename, len(await v.read()))
-                for k in ("rich_message", "reply_markup"):
+                for k in ("rich_message", "reply_markup", "ephemeral_message_parameters"):
                     if k in body:
                         body[k] = json.loads(body[k])
             else:

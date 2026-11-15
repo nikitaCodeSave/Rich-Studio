@@ -53,7 +53,7 @@ def load_migrations(folder: Path = MIGRATIONS_DIR) -> list[str]:
 
 MIGRATIONS = load_migrations()
 
-JSON_FIELDS = ("payload", "reactions", "clicks", "poll_results", "chat_ids", "topics", "rights")
+JSON_FIELDS = ("payload", "reactions", "clicks", "reply_errors", "poll_results", "chat_ids", "topics", "rights")
 
 
 @contextlib.contextmanager
