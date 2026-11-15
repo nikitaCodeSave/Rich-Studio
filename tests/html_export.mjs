@@ -118,7 +118,7 @@ const every = [
   {
     type: 'table', is_bordered: true, is_striped: true, is_compact: true, caption: 'Подпись', cells: [
       [{ text: 'A', is_header: true, align: 'center', valign: 'middle' }, { text: 'B', is_header: true, align: 'left', valign: 'top' }, { text: 'C', is_header: true, align: 'right', valign: 'bottom' }],
-      [{ text: { type: 'bold', text: 'двойная' }, colspan: 2, rowspan: 1, align: 'left', valign: 'middle' }, { align: 'center', valign: 'middle' }],
+      [{ text: { type: 'bold', text: 'двойная' }, colspan: 2, rowspan: 1, align: 'left', valign: 'middle' }, { align: 'center', valign: 'middle', rowspan: 2 }],
     ],
   },
   { type: 'details', is_open: true, summary: ['Раскрыть ', { type: 'bold', text: 'всё' }], blocks: [{ type: 'paragraph', text: 'внутри' }, { type: 'pre', text: 'a\nb' }] },
@@ -192,8 +192,9 @@ check('Links: e-mail, phone and mention by id are links Telegram reads as such',
 const media = all.media || [];
 const ids = media.map((m) => m.id);
 check('Every media block gets its own entry in media, the tag points to it',
-  media.length === 10 && new Set(ids).size === 10 && html.includes('<img src="tg://photo?id=photo1"/>') && html.includes('<video src="tg://animation?id=animation1"></video>')
-    && html.includes('<audio src="tg://voice_note?id=voice1"></audio>') && html.includes('<tg-document src="tg://document?id=document1"></tg-document>')
+  media.length === 10 && new Set(ids).size === 10 && html.includes('<img src="tg://photo?id=photo1"/>') && html.includes('<video src="tg://video?id=animation1"></video>')
+    && html.includes('<audio src="tg://audio?id=voice1"></audio>') && !/tg:\/\/(animation|voice)/.test(html)
+    && media.find((m) => m.id === 'animation1')?.media.type === 'animation' && media.find((m) => m.id === 'voice1')?.media.type === 'voice_note' && html.includes('<tg-document src="tg://document?id=document1"></tg-document>')
     && html.includes('<img src="tg://photo?id=photo3" tg-spoiler/>') && media.find((m) => m.id === 'photo3')?.media.has_spoiler === true
     && html.includes('<figure><img src="tg://photo?id=photo4"/><figcaption>Фото<cite>Автор фото</cite></figcaption></figure>'),
   JSON.stringify(ids) + ' ' + (html.match(/<tg-collage[\s\S]*?<\/tg-slideshow>/)?.[0] || ''));
@@ -204,6 +205,17 @@ check('Ids already in media are not taken; an entry with the same file is used a
   again.ok && JSON.stringify(had) === hadBefore && again.html === '<img src="tg://photo?id=photo2"/>\n<img src="tg://photo?id=photo3"/>'
     && JSON.stringify(again.media) === JSON.stringify([...had, { id: 'photo3', media: { type: 'photo', media: 'file-6' } }]),
   JSON.stringify(again));
+// the outline compares structure and text, not the values of attributes: these are checked here, by the string
+check('Attribute values the outline does not compare: link, rowspan, map, tg-time, emoji',
+  ['<a href="https://t.me/telegram">ссылка</a>', '<td rowspan="2" align="center"></td>', '<tg-map lat="41.9" long="12.5" zoom="14"></tg-map>',
+    '<tg-map lat="55.75" long="37.62"></tg-map>', '<tg-time unix="1798761600" format="wDT">завтра</tg-time>',
+    '<tg-emoji emoji-id="5368324170671202286">👍</tg-emoji>', '<a href="tg://user?id=123456789">Павел</a>'].every((x) => html.includes(x)),
+  html.match(/<tg-map[^>]*>|<tg-time[^>]*>|<tg-emoji[^>]*>|<td rowspan[^>]*>/g)?.join(' '));
+check('A post without extra spaces exports without warnings', all.ok && all.warnings?.length === 0, JSON.stringify(all.warnings));
+const spaced = await toHtml([{ type: 'heading', size: 3, text: 'ровно' }, { type: 'paragraph', text: ['a', { type: 'bold', text: 'b     c' }] }, { type: 'paragraph', text: 'строка\n  с отступом\tи табом' }, { type: 'pre', text: 'код  как есть' }]);
+check('Spaces in a row, tabs and an indent after a line break: exported with a warning that names the place, code is left alone',
+  spaced.ok && spaced.html.includes('<b>b     c</b>') && JSON.stringify(spaced.warnings) === JSON.stringify(['блок 2 («Абзац») › «Жирный»', 'блок 3 («Абзац»)']),
+  JSON.stringify(spaced));
 check('Each block starts on its own line', all.ok && html.startsWith('<h2>Все <b>блоки</b></h2>\n<a name="top"></a>\n<p>'), html.slice(0, 120));
 
 // ---------- 3. what HTML cannot say refuses the whole export ----------

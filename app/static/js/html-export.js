@@ -93,7 +93,11 @@ const DETECTED = { mention: ['@', 'username'], hashtag: ['#', 'hashtag'], cashta
 // <a href> Telegram reads as an e-mail, a phone, a mention or a link inside the post, not as a plain link
 /** @type {[RegExp, string][]} */
 const SPECIAL_HREF = [[/^#/, 'ссылку на якорь или сноску'], [/^mailto:/i, 'e-mail'], [/^tel:/i, 'телефон'], [/^tg:\/\/user\?/i, 'упоминание']];
-const MEDIA_TAGS = { photo: 'img', video: 'video', animation: 'video', audio: 'audio', voice_note: 'audio', document: 'tg-document' };
+// block → [tag, tg:// link]: the spec gives the tag (InputRichBlockAnimation «<video>», VoiceNote «<audio>»), the docs
+// only tg://photo, video, document and audio links; what kind the file is, its entry in media says
+const MEDIA_TAGS = { photo: ['img', 'photo'], video: ['video', 'video'], animation: ['video', 'video'], audio: ['audio', 'audio'], voice_note: ['audio', 'audio'], document: ['tg-document', 'document'] };
+// the preview names the kind of a tg:// file by its link, so it draws such an animation as a video
+const LINKED_AS = { animation: 'video', voice_note: 'audio' };
 const DEFAULT_ALIGN = { th: 'center', td: 'left' }; // Telegram's own, as tests/telegram_parse/captured.json shows
 const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
 // a type is looked up only among the table's own keys: «constructor» or «__proto__» are not types
@@ -107,27 +111,43 @@ const plain = (v) => typeof v === 'string' ? v : Array.isArray(v) ? v.map(plain)
  * @param {{ media?: any[], skipEntities?: boolean, layout?: boolean }} [opts] media: rich_message.media already there
  *   (its ids stay taken, an entry with the same file is used again); skipEntities: rich_message.skip_entity_detection
  *   is on; layout: false gives the HTML without line breaks and indents between blocks, the one that is checked
- * @returns {{ ok: true, html: string, media: any[] } | { ok: false, problems: string[], diff?: { blocks: string, html: string } }}
+ * @returns {{ ok: true, html: string, media: any[], warnings: string[] } | { ok: false, problems: string[], diff?: { blocks: string, html: string } }}
+ *   warnings: where spaces in a row, tabs or an indent after a line break are, which HTML squeezes into one space
  */
 export function blocksToHtml(blocks, opts = {}) {
   // line breaks and indents between blocks are for the person reading the source; the check reads the HTML without
   // them, because the outline counts them as spaces where neither Telegram nor the preview shows anything
   const tight = write(blocks, opts, false);
   if (tight.problems.length) return { ok: false, problems: tight.problems };
+  const warnings = [...tight.squeezed];
   if (tight.html) {
     const theirs = lookOf({ blocks });
     const mine = lookOf({ html: tight.html, media: tight.media });
     if (mine !== theirs) return { ok: false, problems: ['В предпросмотре HTML выглядит иначе, чем визуальный пост'], diff: firstDifference(theirs, mine) };
   }
   const out = opts.layout === false ? tight : write(blocks, opts, true);
-  return { ok: true, html: out.html, media: out.media };
+  return { ok: true, html: out.html, media: out.media, warnings };
 }
 
-/** The post as the preview reads it (RichRender.outline). In code a line break is a line break: from blocks the
- * preview draws it as <br>, from HTML source as the text's own newline, which the outline turns into a space. */
+/** The post as the preview reads it (RichRender.outline): structure and text, not the values of attributes (links,
+ * rowspan, map points, tg-time, emoji ids), which tests/html_export.mjs checks by themselves. In code a line break
+ * is a line break: from blocks the preview draws it as <br>, from HTML source as the text's own newline, which the
+ * outline turns into a space. An animation and a voice note are compared as the video and audio their links say. */
 export function lookOf(richMessage) {
-  return RichRender.outline({ rich_message: richMessage })
+  const rm = richMessage.blocks ? { ...richMessage, blocks: linkedKinds(richMessage.blocks) } : richMessage;
+  return RichRender.outline({ rich_message: rm })
     .replace(/<pre[^>]*>.*?<\/pre>/gs, (p) => p.replace(/<br>/g, ' ').replace(/ +/g, ' ').replace(/(<pre[^>]*>) | (<\/pre>)/g, '$1$2'));
+}
+
+/** The blocks with an animation as a video and a voice note as an audio, as the preview draws their tg:// links:
+ * the kind of the file is checked by the entry in media, not by the outline. */
+function linkedKinds(v) {
+  if (Array.isArray(v)) return v.map(linkedKinds);
+  if (!isObj(v)) return v;
+  const out = Object.fromEntries(Object.entries(v).map(([k, x]) => [k, linkedKinds(x)]));
+  const as = own(LINKED_AS, v.type);
+  if (as && v[v.type] !== undefined) { out.type = as; out[as] = out[v.type]; delete out[v.type]; }
+  return out;
 }
 
 function firstDifference(a, b) {
@@ -141,6 +161,8 @@ function firstDifference(a, b) {
 function write(blocks, opts, pretty) {
   /** @type {string[]} */
   const problems = [];
+  /** @type {Set<string>} */
+  const squeezed = new Set(); // Telegram reads HTML whitespace as HTML does (captured example-post-extras)
   const media = [...(opts.media || [])];
   const taken = new Set(media.map((m) => m && m.id));
   const used = new Set();
@@ -154,7 +176,11 @@ function write(blocks, opts, pretty) {
   // ---------- text ----------
   const rt = (v, where, pre = false) => {
     if (v === undefined || v === null) return '';
-    if (typeof v === 'string') return pre ? esc(v) : esc(v).replace(/\n/g, '<br/>');
+    if (typeof v === 'string') {
+      if (pre) return esc(v);
+      if (/\t| {2}|\n /.test(v)) squeezed.add(where);
+      return esc(v).replace(/\n/g, '<br/>');
+    }
     if (Array.isArray(v)) return v.map((x) => rt(x, where, pre)).join('');
     if (!isObj(v)) { say(where, 'текст не по спецификации: ' + JSON.stringify(v)); return ''; }
     const t = v.type;
@@ -344,8 +370,8 @@ function write(blocks, opts, pretty) {
       case 'photo': case 'video': case 'animation': case 'audio': case 'document': case 'voice_note': {
         const m = b[t];
         if (!isObj(m) || typeof m.media !== 'string') { say(here, 'нет файла'); return ''; }
-        const tag = MEDIA_TAGS[t];
-        const src = attrs([['src', `tg://${t}?id=${mediaId(t, m)}`], ['tg-spoiler', !!m.has_spoiler]]);
+        const [tag, link] = MEDIA_TAGS[t];
+        const src = attrs([['src', `tg://${link}?id=${mediaId(t, m)}`], ['tg-spoiler', !!m.has_spoiler]]);
         return figure(tag === 'img' ? `<img${src}/>` : `<${tag}${src}></${tag}>`, b.caption, here);
       }
       default: say(here, `для «${t}» нет записи в HTML`); return '';
@@ -353,7 +379,7 @@ function write(blocks, opts, pretty) {
   };
 
   const html = (Array.isArray(blocks) ? blocks : []).map((b, i) => block(b, `блок ${i + 1}`, '')).join(pretty ? '\n' : '');
-  return { html, media, problems };
+  return { html, media, problems, squeezed };
 }
 
 // ---------- the button ----------
@@ -369,6 +395,8 @@ export function exportToHtml(apply) {
     S.media = r.media;
     apply();
     toast('Пост переведён в HTML' + (added ? `, медиа добавлены в список (${added})` : '') + '. Блоки остались во вкладке «Визуально».', 'ok');
+    // not a refusal: the text stays, only its extra spaces go
+    if (r.warnings.length) toast('В HTML несколько пробелов подряд, табуляция и отступ после переноса строки станут одним пробелом: ' + r.warnings.slice(0, 3).join('; ') + (r.warnings.length > 3 ? ` и ещё ${r.warnings.length - 3}` : '') + '.');
   };
   if (!S.buf.html.trim() || S.buf.html === r.html) { put(); return; }
   openDialog([
