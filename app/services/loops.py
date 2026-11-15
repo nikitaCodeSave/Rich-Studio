@@ -114,7 +114,7 @@ class Loops:
     async def stop(self) -> None:
         STATE.stopping = True
         deadline = time.monotonic() + SHUTDOWN_GRACE
-        while publisher.in_flight and time.monotonic() < deadline:  # noqa: ASYNC110 - a plain set, filled by requests too
+        while publisher.in_flight and time.monotonic() < deadline:  # noqa: ASYNC110 - publisher.InFlight (owners per id), filled by requests too
             await asyncio.sleep(0.2)
         if publisher.in_flight:
             log.warning("stopping with %d sends under way", len(publisher.in_flight))
