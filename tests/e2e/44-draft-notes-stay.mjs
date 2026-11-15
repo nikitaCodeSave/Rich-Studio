@@ -1,6 +1,7 @@
 // The draft's own notes the editor does not write (`_studio.source` and `_studio.warnings` of a forwarded post, any
 // other key) survive opening, editing, «Применить JSON» and undo; the warnings show above the editor as text and
-// fold away; none of it goes to Telegram. Undo in the JSON tab stays in the JSON tab. A post forwarded to the bot
+// fold away; none of it goes to Telegram. Undo in the JSON tab stays in the JSON tab. «Сохранить мою поверх» keeps the
+// notes the other side wrote; «Новый», «Править» and another draft start without them. A post forwarded to the bot
 // shows the warnings its import wrote.
 /** @param {import('./harness.mjs').Ctx} ctx */
 export default async function ({ page, check, mockLog, until, push, BASE }) {
@@ -14,6 +15,14 @@ export default async function ({ page, check, mockLog, until, push, BASE }) {
   const kept = (s) => !!s && JSON.stringify([s.source, s.warnings, s.template]) === JSON.stringify([notes.source, notes.warnings, notes.template]);
   const box = page.locator('#draft-notes details');
   const quick = { timeout: 3000 };
+  const noBox = () => page.waitForFunction(() => !document.querySelector('#draft-notes').shadowRoot.querySelector('details'), null, quick).then(() => true, () => false);
+  const ownOnly = (st) => !!st && Object.keys(st).every((k) => ['format', 'buffers', 'json'].includes(k));
+  const typeInPost = async (t) => {
+    await page.click('#mode-tabs [data-mode=blocks]');
+    await page.locator('#pane-blocks .rte').first().click();
+    await page.keyboard.press('End');
+    await page.keyboard.type(t);
+  };
 
   await page.goto(`${BASE}/?draft=${d.id}`);
   await page.waitForSelector('.block');
@@ -59,6 +68,29 @@ export default async function ({ page, check, mockLog, until, push, BASE }) {
     kept(applied?.payload?._studio) && kept(undone?.payload?._studio) && jsonTab && /Пересланный мой/.test(preview || ''),
     JSON.stringify({ applied: applied?.payload?._studio, undone: undone?.payload?._studio, jsonTab }));
 
+  // the draft changes elsewhere while this tab has an unsaved edit: «Сохранить мою поверх» saves this tab's post with
+  // the notes the other side wrote (an agent added a warning). As in e2e 19, this tab's save waits at the network
+  // until the other one is in, so it carries the older version
+  let otherSaved = () => {};
+  const otherIn = new Promise((r) => { otherSaved = r; });
+  const hold = async (route) => { if (route.request().method() === 'PUT') await otherIn; await route.continue().catch(() => {}); };
+  await page.route('**/api/drafts/' + d.id, hold);
+  await typeInPost(' ещё');
+  await page.waitForFunction(() => /есть изменения/.test(document.querySelector('#save-state').textContent), null, quick).catch(() => {});
+  const added = 'агент: проверьте ссылку в конце';
+  const theirs = { ...notes, warnings: [...warnings, added] };
+  await fetch(BASE + '/api/drafts/' + d.id, { method: 'PUT', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ title: 'Из пересылки', post: { rich_message: { blocks: [{ type: 'paragraph', text: 'Агент' }] }, _studio: theirs } }) });
+  otherSaved();
+  await page.waitForSelector('dialog[open] >> text=Черновик изменился', { timeout: 8000 }).catch(() => {});
+  await page.click('dialog[open] >> text=Сохранить мою поверх').catch(() => {});
+  const over = await until(async () => { const x = await draft(); return x.payload?.rich_message?.blocks?.[0]?.text === 'Пересланный мой ещё' && x; });
+  await page.unroute('**/api/drafts/' + d.id, hold);
+  const overShown = (await box.textContent(quick).catch(() => '')) || '';
+  notes.warnings = theirs.warnings;
+  check('«Сохранить мою поверх» keeps my post and the notes the other side wrote',
+    kept(over?.payload?._studio) && overShown.includes(added), JSON.stringify({ studio: over?.payload?._studio, overShown }));
+
   // the notes stay in the studio: what goes to Telegram is the post
   const before = (await mockLog()).filter((c) => c.method === 'sendRichMessage').length;
   await page.click('#btn-publish');
@@ -66,9 +98,38 @@ export default async function ({ page, check, mockLog, until, push, BASE }) {
   const sent = sends ? sends.at(-1).body : null;
   const after = await draft();
   check('The notes do not go to Telegram and stay with the draft after publishing',
-    !!sent && sent.rich_message?.blocks?.[0]?.text === 'Пересланный мой' && !('_studio' in sent)
+    !!sent && sent.rich_message?.blocks?.[0]?.text === 'Пересланный мой ещё' && !('_studio' in sent)
       && !JSON.stringify(sent).includes('Чужой канал') && !JSON.stringify(sent).includes('sparkle') && kept(after?.payload?._studio),
     JSON.stringify({ sent }));
+
+  // the notes belong to their draft: «Править» on the published post, another draft, «Новый» start without them
+  const posted = (await api('GET', '/api/posts')).find((x) => x.draft_id === d.id && x.status === 'sent');
+  await page.click('#side-tabs [data-tab=posts]');
+  await page.locator('#posts li', { hasText: 'Пересланный мой ещё' }).getByRole('button', { name: 'Править' }).click(quick).catch(() => {});
+  const copy = await until(async () => { const one = (await api('GET', '/api/drafts')).find((x) => posted && x.post_id === posted.id); return one && api('GET', '/api/drafts/' + one.id); });
+  const copyClean = (await noBox()) && ownOnly(copy?.payload?._studio);
+  await page.click('#side-tabs [data-tab=drafts]');
+  // a draft whose `warnings` is one string, not a list: shown as one item
+  const single = await api('POST', '/api/drafts', { title: 'Одна строка замечаний', post: { rich_message: { markdown: 'Текст' }, _studio: { warnings: 'одно предупреждение строкой' } } });
+  await page.waitForFunction((id) => [...document.querySelectorAll('#drafts li')].some((li) => /^Одна строка замечаний/.test(li.textContent || '')) || !id, single?.id, { timeout: 6000 }).catch(() => {});
+  await page.locator('#drafts li', { hasText: /^Одна строка замечаний/ }).click(quick).catch(() => {});
+  await box.waitFor(quick).catch(() => {});
+  const singleShown = (await box.textContent(quick).catch(() => '')) || '';
+  const singleItems = await page.locator('#draft-notes li').count();
+  await page.locator('#drafts li', { hasText: /^Правка: Из пересылки/ }).click(quick).catch(() => {});
+  const switchedClean = await noBox();
+  await page.click('#btn-new');
+  const newClean = await noBox();
+  await typeInPost(' новый');
+  const fresh = await until(async () => {
+    const id = await page.evaluate(() => new URLSearchParams(location.search).get('draft'));
+    const x = id && id !== copy?.id && (await api('GET', '/api/drafts/' + id));
+    return x && /новый/.test(JSON.stringify(x.payload?.rich_message)) && x;
+  });
+  check('«Править», another draft and «Новый» start without the notes; a single string warning shows as one item',
+    copyClean && !!single?.id && /Замечания к черновику: 1/.test(singleShown) && singleShown.includes('одно предупреждение строкой') && singleItems === 1
+      && switchedClean && newClean && ownOnly(fresh?.payload?._studio),
+    JSON.stringify({ copy: copy?.payload?._studio, copyClean, singleShown, singleItems, switchedClean, newClean, fresh: fresh?.payload?._studio }));
 
   // a real import: the owner (TG_PREVIEW_CHAT) forwards a post with a callback button to the bot
   const owner = { id: 777, is_bot: false, first_name: 'Владелец' };

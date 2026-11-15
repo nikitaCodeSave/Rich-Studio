@@ -63,13 +63,7 @@ export function loadPost(post, keepNotes = false) {
   post = clone(post || {});
   const studio = post._studio;
   delete post._studio;
-  if (!keepNotes) {
-    S.notes = {};
-    if (studio && typeof studio === 'object' && !Array.isArray(studio)) {
-      for (const [k, v] of Object.entries(studio)) if (!OWN_STUDIO.includes(k)) S.notes[k] = v;
-    }
-  }
-  renderNotes();
+  if (!keepNotes) setNotes(studio);
   S.topicChat = undefined; // the loaded post's topic belongs to the channel it is opened with
   const rm = post.rich_message || {};
   S.buf = { blocks: [], html: '', markdown: '' };
@@ -156,10 +150,21 @@ export function bindJson() {
 }
 
 // ---------- the draft's notes: what an import (or anything else that made the draft) wants the person to know ----------
+/** The notes from a draft's `_studio`: every key the editor does not write itself. */
+export function setNotes(studio) {
+  S.notes = {};
+  if (studio && typeof studio === 'object' && !Array.isArray(studio)) {
+    for (const [k, v] of Object.entries(studio)) if (!OWN_STUDIO.includes(k)) S.notes[k] = v;
+  }
+  renderNotes();
+}
+
+// `warnings` is a list of strings; a single string (or anything else) is one item, so nothing is hidden
 function renderNotes() {
   const w = S.notes.warnings;
+  const list = Array.isArray(w) ? w : w === undefined || w === null || w === '' ? [] : [w];
   /** @type {import('./components/rs-draft-notes.js').RsDraftNotes} */ ($('#draft-notes')).warnings =
-    Array.isArray(w) ? w.map((x) => (typeof x === 'string' ? x : JSON.stringify(x))) : [];
+    list.map((x) => (typeof x === 'string' ? x : JSON.stringify(x)));
 }
 
 // «В HTML» in the visual mode: the post as HTML source in its tab (html-export.js); the blocks stay in theirs
