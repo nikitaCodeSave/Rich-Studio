@@ -91,7 +91,7 @@ class Loops:
         idempotency.write_unwritten()
         stale = store.recover_stale_sending(keep={*publisher.in_flight, *publisher.unrecorded})
         if stale:
-            log.warning("%d posts were being sent when the service stopped; marked failed", stale)
+            log.warning("%d posts or first comments were being sent when the service stopped; marked failed", stale)
         STATE.role, STATE.holder = "leader", STATE.owner
         self.tasks = [asyncio.create_task(f()) for f in self.factories]
         log.info("background loops started", extra={"event": "loops.lead", "owner": STATE.owner})

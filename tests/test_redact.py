@@ -175,6 +175,31 @@ def test_network_error_text_after_the_send_is_masked_in_the_warnings(client, tg,
     assert all(_clean(p["error"] or "") for p in store.list_posts())
 
 
+def test_network_error_of_the_first_comment_is_masked_in_the_saved_error(client, tg, bot_token, monkeypatch):
+    """The comment's failure is added to the post's error by store.fail_comment, not update_post (issue #98)."""
+    monkeypatch.setattr(settings.get(), "updates_on", True)
+    r = client.post("/api/send", json={"post": {**BLOCKS_POST, "comment": {"html": "<p>x</p>"}}}).json()
+
+    async def timeout(method, params=None, timeout=60):
+        raise httpx.ReadTimeout(f"timed out: https://api.telegram.org/bot{TOKEN}/{method}")
+
+    monkeypatch.setattr(telegram, "call", timeout)
+    forward = {
+        "update_id": 9,
+        "message": {
+            "message_id": 77,
+            "chat": {"id": -2002},
+            "is_automatic_forward": True,
+            "forward_origin": {"type": "channel", "chat": {"id": -1001}, "message_id": r["message"]["message_id"]},
+        },
+    }
+    assert asyncio.run(updates.handle_update(forward)) == "comment"
+    p = store.get_post(r["post"]["id"])
+    assert p["comment_status"] == "failed" and "мог уйти" in p["error"]
+    assert _clean(p["error"]) and "/bot<token>/sendRichMessage" in p["error"]
+    assert _clean(client.get("/api/posts").text)
+
+
 # ---------- the second line: texts that never went through the transport ----------
 def test_answers_mask_what_the_transport_did_not_see(client, tg, monkeypatch):
     async def refused(method, params=None, timeout=60):

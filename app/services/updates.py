@@ -13,8 +13,9 @@ import redact
 import settings
 import store
 import telegram as tg
+from errors import StudioError
 
-from . import channels, forward_import, invite_links, suggested_posts
+from . import channels, forward_import, invite_links, publisher, suggested_posts
 
 log = logging.getLogger("rich-studio.updates")
 # tests replace this one name; patching asyncio.sleep itself would also stop the fake Telegram server
@@ -33,6 +34,7 @@ ALLOWED_UPDATES = [
 ]
 # Telegram keeps undelivered updates for about a day; a forward older than that will never arrive
 COMMENT_WAIT = 24 * 3600
+COMMENT_MAY_HAVE_GONE = "Он мог уйти, проверьте обсуждение"
 
 
 @dataclass
@@ -122,26 +124,7 @@ async def handle_update(u: dict) -> str | None:
         p = store.find_post(origin["chat"]["id"], origin.get("message_id"))
         if not p or p.get("comment_status") != "waiting":
             return None
-        comment = p["payload"].get("comment")
-        try:
-            res = await tg.call(
-                "sendRichMessage",
-                {
-                    "chat_id": m["chat"]["id"],
-                    "rich_message": comment,
-                    "reply_parameters": {"message_id": m["message_id"]},
-                },
-            )
-            store.update_post(p["id"], comment_status="sent", comment_message_id=res["message_id"])
-        except tg.TelegramError as e:
-            store.update_post(p["id"], comment_status="failed", error=f"первый комментарий: {e.description}")
-        except Exception as e:  # noqa: BLE001 - mid-send: the update is already confirmed, so say it once here
-            store.update_post(
-                p["id"],
-                comment_status="failed",
-                error=f"первый комментарий: {type(e).__name__}: {e}. Он мог уйти, проверьте обсуждение",
-            )
-        return "comment"
+        return "comment" if await _send_comment(p, m) else None
     if rc := u.get("message_reaction_count"):
         p = store.find_post(rc["chat"]["id"], rc["message_id"])
         if p:
@@ -161,6 +144,55 @@ async def handle_update(u: dict) -> str | None:
     if (m := u.get("message")) and forward_import.wanted(m):  # the owner forwarded a post: a draft of it
         return await forward_import.on_message(m)
     return None
+
+
+async def _send_comment(p: dict, forward: dict) -> bool:
+    """The first comment of post `p`, as a reply to its forward in the discussion group. Sent like a post: taken as
+    "sending" before Telegram is asked, the request in publisher.in_flight (a stop waits for it). A stop or a crash
+    mid-request leaves "may have gone", never "the forward did not come" a day later; nothing sends it again (the
+    update is confirmed already). False: nothing to send, the comment no longer waits."""
+    pid = p["id"]
+    publisher.in_flight.add(pid)  # before the claim: health must never see "sending" without the id here
+    try:
+        if not store.claim_comment(pid):  # taken meanwhile (the same forward twice), or no longer waiting
+            return False
+        try:
+            res = await tg.call(
+                "sendRichMessage",
+                {
+                    "chat_id": forward["chat"]["id"],
+                    "rich_message": p["payload"].get("comment"),
+                    "reply_parameters": {"message_id": forward["message_id"]},
+                },
+            )
+        except tg.TelegramError as e:
+            _fail_comment(pid, f"первый комментарий: {e.description}")
+            return True
+        except StudioError as e:  # the request itself is wrong (e.g. a missing upload): nothing went out
+            _fail_comment(pid, f"первый комментарий: {e}")
+            return True
+        except Exception as e:  # noqa: BLE001 - mid-send: the update is already confirmed, so say it once here
+            _fail_comment(pid, f"первый комментарий: {type(e).__name__}: {e}. {COMMENT_MAY_HAVE_GONE}")
+            return True
+        except asyncio.CancelledError:  # shutdown mid-send: the comment may be in the discussion
+            _fail_comment(pid, f"первый комментарий: студия остановилась во время отправки. {COMMENT_MAY_HAVE_GONE}")
+            raise
+        try:
+            store.update_post(pid, comment_status="sent", comment_message_id=res["message_id"])
+        except Exception as e:  # noqa: BLE001 - in the discussion all the same: its id goes to the log
+            # the comment stays "sending": the recovery after the next start says it may have gone
+            publisher.log_unrecorded(forward["chat"]["id"], res["message_id"], pid, e, "first comment of a post")
+        return True
+    finally:
+        publisher.in_flight.discard(pid)
+
+
+def _fail_comment(pid: str, error: str) -> None:
+    """Never raises: a database error must not hide Telegram's own, nor end a cancellation."""
+    try:
+        store.fail_comment(pid, error)
+    except Exception:
+        log.exception("could not record the failed first comment of post %s: %s", pid, error)
 
 
 async def loop() -> None:
