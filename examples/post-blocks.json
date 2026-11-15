@@ -5,6 +5,10 @@
     {"type": "date_time", "text": "1 января 2027 в 03:00 МСК", "unix_time": 1798761600, "date_time_format": "wDT"},
     ". Тема: ", {"type": "bold", "text": "что нового в Bot API"}, "."
   ]},
+  {"type": "paragraph", "text": [
+    "Из 10.4 покажем адрес TON прямо в тексте: ",
+    {"type": "ton_address", "text": "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c", "address": "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c"}
+  ]},
   {"type": "table", "is_bordered": true, "is_striped": true, "is_compact": true,
    "caption": "Программа",
    "cells": [
