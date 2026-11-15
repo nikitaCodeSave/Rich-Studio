@@ -190,8 +190,12 @@ def posts() -> dict:
     # a missed post waits for the person however long the studio was off, and so does a send that may have gone (only
     # a person can look at the channel); a failed first comment is shown for a day from its failure, not from the post
     # (the studio has nothing to resolve it with)
-    # a post or a comment being sent this second is "sending" in the table; only one left behind is a problem
-    found, total = store.stats.problem_posts(since, frozenset(publisher.in_flight))
+    # a post or a comment being sent this second is "sending" in the table; only one left behind is a problem. Each
+    # by its own list: the scheduler holds a post id in in_flight for the pin and the poll after the send, and a
+    # comment gone unconfirmed meanwhile is left behind all the same. Both read before the rows
+    found, total = store.stats.problem_posts(
+        since, frozenset(publisher.in_flight), comments_now=frozenset(publisher.comments_in_flight)
+    )
     if not total:
         return _check("posts", "ok", "пропущенных нет, за сутки без сбоев")
     shown = f", показаны {len(found)} последних" if total > len(found) else ""

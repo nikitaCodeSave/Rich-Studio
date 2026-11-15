@@ -1,9 +1,10 @@
 """The poll after a post and the first comment are written down before Telegram is asked (issue #98).
 
 Like the post itself: the poll's row is "sending" and the comment's status is "sending" while the request runs, and
-the request is in publisher.in_flight (a stop waits for it). A stop or a crash mid-request leaves "may have gone",
-never no trace or the false "the forward never came" a day later, and nothing sends it again. A comment that failed
-while the studio was off for longer than a day is in the health report for a day from its failure."""
+the request is in publisher.in_flight (a stop waits for it), a comment's in publisher.comments_in_flight too. A stop
+or a crash mid-request leaves "may have gone", never no trace or the false "the forward never came" a day later, and
+nothing sends it again. A comment that failed while the studio was off for longer than a day is in the health report
+for a day from its failure."""
 
 import asyncio
 import sqlite3
@@ -29,6 +30,7 @@ class Crash(BaseException):
 def fresh_state(monkeypatch):
     monkeypatch.setattr(loops, "STATE", loops.State(owner="me"))
     monkeypatch.setattr(publisher, "in_flight", publisher.InFlight())
+    monkeypatch.setattr(publisher, "comments_in_flight", publisher.InFlight())
     monkeypatch.setattr(publisher, "unrecorded", {})
 
 
@@ -187,7 +189,10 @@ def _comment_send(monkeypatch, pid: str, then):
     async def call(method, params=None, *a, **kw):
         if method != "sendRichMessage" or "reply_parameters" not in (params or {}):
             return await real(method, params, *a, **kw)
-        seen.update(status=store.get_post(pid)["comment_status"], in_flight=pid in publisher.in_flight)
+        seen.update(
+            status=store.get_post(pid)["comment_status"],
+            in_flight=pid in publisher.in_flight and pid in publisher.comments_in_flight,
+        )
         res = await real(method, params, *a, **kw)
         return await then(None) if then else res
 
@@ -202,7 +207,8 @@ def test_the_first_comment_is_marked_sending_before_telegram_is_asked(client, tg
     assert asyncio.run(updates.handle_update(_forward(r))) == "comment"
     assert seen == {"status": "sending", "in_flight": True}
     p = store.get_post(pid)
-    assert (p["comment_status"], p["comment_message_id"]) == ("sent", tg.next_id) and not publisher.in_flight
+    assert (p["comment_status"], p["comment_message_id"]) == ("sent", tg.next_id)
+    assert not publisher.in_flight and not publisher.comments_in_flight
 
 
 def test_a_stop_mid_comment_is_may_have_gone_not_a_forward_that_never_came(client, tg, monkeypatch):
@@ -231,7 +237,10 @@ def test_a_crash_mid_comment_is_may_have_gone_after_the_restart(client, tg, monk
         asyncio.run(updates.handle_update(_forward(r)))
     assert store.get_post(pid)["comment_status"] == "sending"
     monkeypatch.setattr(publisher, "in_flight", publisher.InFlight([pid]))
+    monkeypatch.setattr(publisher, "comments_in_flight", publisher.InFlight([pid]))
     assert pid not in _flagged()  # being sent this second: normal
+    monkeypatch.setattr(publisher, "comments_in_flight", publisher.InFlight())
+    assert pid in _flagged()  # the post id alone (the scheduler holds it) is not this comment's request
     monkeypatch.setattr(publisher, "in_flight", publisher.InFlight())  # a new process
     assert pid in _flagged()  # left behind by a crash
     assert store.expire_comments(int(time.time()) + 1, "первый комментарий: пересылка не пришла") == 0
@@ -256,7 +265,8 @@ def test_a_comment_whose_sent_cannot_be_written_stays_sending_and_is_never_resen
 
     monkeypatch.setattr(store, "update_post", update)
     assert asyncio.run(updates.handle_update(_forward(r))) == "comment"
-    assert store.get_post(pid)["comment_status"] == "sending" and not publisher.in_flight
+    assert store.get_post(pid)["comment_status"] == "sending"
+    assert not publisher.in_flight and not publisher.comments_in_flight
     assert pid in _flagged() and "send.unrecorded" in health.posts()["action"]
     assert asyncio.run(updates.handle_update(_forward(r))) is None
     _recover()
@@ -297,6 +307,7 @@ def test_the_list_of_posts_tells_a_comment_under_way_from_an_unconfirmed_one(cli
     monkeypatch.setattr(loops.STATE, "role", "standby")
     assert listed() == ("sending", None)
     publisher.in_flight.add(pid)
+    publisher.comments_in_flight.add(pid)
     assert listed() == ("sending", None)
     store.fail_comment(pid, "первый комментарий: отказ")
     assert listed() == ("failed", False)
@@ -339,7 +350,7 @@ def test_a_comment_sent_while_the_scheduler_sends_the_poll_keeps_its_post_in_fli
         poll_gate.set()
         await scheduled  # the scheduler is done with the post, its comment is not
         assert store.get_post(pid)["comment_status"] == "sending" and pid in publisher.in_flight
-        assert pid not in _flagged()
+        assert pid in publisher.comments_in_flight and pid not in _flagged()
         stopping = asyncio.create_task(loops.Loops([]).stop())
         await asyncio.sleep(0.3)
         assert not stopping.done()  # waits for the comment
@@ -350,6 +361,97 @@ def test_a_comment_sent_while_the_scheduler_sends_the_poll_keeps_its_post_in_fli
     asyncio.run(scenario())
     p = store.get_post(pid)
     assert (p["status"], p["comment_status"]) == ("sent", "sent") and pid not in publisher.in_flight
+
+
+def _scheduler_held(monkeypatch, step: str) -> tuple[str, dict]:
+    """A scheduled post with a first comment, and the scheduler's step after its send (`pin`, or the poll
+    `poll_after`) held at `gates["step"]` once Telegram got it; the first comment is held at `gates["comment"]` the
+    same way. Returns the post id and the events: `<name>_asked` set when Telegram got the request."""
+    monkeypatch.setattr(settings.get(), "updates_on", True)
+    post = {**BLOCKS_POST, "comment": COMMENT, **({"pin": True} if step == "pin" else {"poll_after": POLL})}
+    pid = store.add_post("@c", post, status="scheduled", scheduled_at=int(time.time()) - 5)["id"]
+    gates = {n: asyncio.Event() for n in ("step", "step_asked", "comment", "comment_asked")}
+    held = "pinChatMessage" if step == "pin" else "sendPoll"
+    real = telegram.call
+
+    async def call(method, params=None, *a, **kw):
+        res = await real(method, params, *a, **kw)
+        name = "comment" if method == "sendRichMessage" and "reply_parameters" in (params or {}) else "step"
+        if name == "comment" or method == held:
+            gates[f"{name}_asked"].set()
+            await gates[name].wait()
+        return res
+
+    monkeypatch.setattr(telegram, "call", call)
+    return pid, gates
+
+
+def _comment_seen(pid: str) -> tuple:
+    """The first comment as the list of posts and the health report see it: status, in flight, stuck."""
+    [p] = [p for p in listing.list_posts() if p["id"] == pid]
+    return p["comment_status"], p["comment_in_flight"], pid in _flagged()
+
+
+@pytest.mark.parametrize("step", ["pin", "poll_after"])
+def test_an_unconfirmed_comment_is_not_under_way_while_the_scheduler_holds_its_post(client, tg, monkeypatch, step):
+    """Issue #164: the scheduler holds the post's id in publisher.in_flight while it pins the post or sends the poll
+    after it (each call up to a minute, more with waits on 429). A comment that went out meanwhile and whose "sent"
+    the database refused is «не подтверждён» in the list and stuck in the health report in that window, not
+    «отправляется»; while its own request runs it is under way, and not stuck."""
+    pid, gates = _scheduler_held(monkeypatch, step)
+    real = store.update_post
+
+    def update(post_id, **fields):
+        if fields.get("comment_status") == "sent":
+            raise sqlite3.OperationalError(FULL)
+        return real(post_id, **fields)
+
+    monkeypatch.setattr(store, "update_post", update)
+
+    async def scenario():
+        scheduled = asyncio.create_task(scheduler.run_due_posts())
+        await asyncio.wait_for(gates["step_asked"].wait(), 5)
+        forward = _forward({"message": {"message_id": store.get_post(pid)["message_id"]}})
+        comment = asyncio.create_task(updates.handle_update(forward))
+        await asyncio.wait_for(gates["comment_asked"].wait(), 5)
+        assert _comment_seen(pid) == ("sending", True, False)  # its request runs
+        gates["comment"].set()
+        assert await comment == "comment"  # Telegram took it, the database refused the record
+        assert pid in publisher.in_flight  # the scheduler is not done with the post
+        assert _comment_seen(pid) == ("sending", False, True)
+        gates["step"].set()
+        await scheduled
+
+    asyncio.run(scenario())
+    assert _comment_seen(pid) == ("sending", False, True)
+    assert not publisher.in_flight and not publisher.comments_in_flight
+    assert _count(tg, "sendRichMessage", comment=True) == 1
+
+
+def test_a_comment_cut_off_while_the_scheduler_holds_its_post_leaves_the_post_in_flight(client, tg, monkeypatch):
+    """A stop cuts the comment off (CancelledError) while the scheduler still sends the poll after the post: the
+    comment is "may have gone" and no longer in flight, the post stays in flight for the scheduler until it is
+    done, and a stop still waits for that."""
+    pid, gates = _scheduler_held(monkeypatch, "poll_after")
+
+    async def scenario():
+        scheduled = asyncio.create_task(scheduler.run_due_posts())
+        await asyncio.wait_for(gates["step_asked"].wait(), 5)
+        forward = _forward({"message": {"message_id": store.get_post(pid)["message_id"]}})
+        comment = asyncio.create_task(updates.handle_update(forward))
+        await asyncio.wait_for(gates["comment_asked"].wait(), 5)
+        comment.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await comment
+        assert pid in publisher.in_flight and pid not in publisher.comments_in_flight
+        assert _comment_seen(pid) == ("failed", False, True)
+        assert "мог уйти" in store.get_post(pid)["error"]
+        gates["step"].set()
+        await scheduled
+
+    asyncio.run(scenario())
+    assert not publisher.in_flight and not publisher.comments_in_flight
+    assert _count(tg, "sendRichMessage", comment=True) == 1
 
 
 def test_in_flight_counts_its_owners():

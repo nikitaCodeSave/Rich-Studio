@@ -141,10 +141,10 @@ def _comment_in_flight(p: dict) -> bool | None:
     """A first comment "sending": True while its request is under way, False when nobody sends it any more (e.g.
     Telegram took it and the database refused the record, send.unrecorded; or Telegram refused it and its failure
     could not be written), None when this process cannot tell: a standby never sends comments, the process holding
-    the lease does. Inexact while the scheduler holds the same id for the steps after the send (pin, poll_after):
-    True then, whatever became of the comment."""
+    the lease does. Read from publisher.comments_in_flight: in_flight also holds the post id while the scheduler pins
+    the post or sends the poll after it."""
     if p.get("comment_status") != "sending":
         return False
     if loops.STATE.role == "standby":
         return None
-    return p["id"] in publisher.in_flight
+    return p["id"] in publisher.comments_in_flight

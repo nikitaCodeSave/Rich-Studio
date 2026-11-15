@@ -146,11 +146,14 @@ async def handle_update(u: dict, received: float | None = None) -> str | None:
 
 async def _send_comment(p: dict, forward: dict) -> bool:
     """The first comment of post `p`, as a reply to its forward in the discussion group. Sent like a post: taken as
-    "sending" before Telegram is asked, the request in publisher.in_flight (a stop waits for it). A stop or a crash
-    mid-request leaves "may have gone", never "the forward did not come" a day later; nothing sends it again (the
-    update is confirmed already). False: nothing to send, the comment no longer waits."""
+    "sending" before Telegram is asked, the request in publisher.in_flight (a stop waits for it) and in
+    publisher.comments_in_flight (the list of posts and health tell it from the scheduler holding the same post id).
+    A stop or a crash mid-request leaves "may have gone", never "the forward did not come" a day later; nothing sends
+    it again (the update is confirmed already). False: nothing to send, the comment no longer waits."""
     pid = p["id"]
-    publisher.in_flight.add(pid)  # before the claim: health must never see "sending" without the id here
+    # before the claim: health must never see "sending" without the id in both
+    publisher.in_flight.add(pid)
+    publisher.comments_in_flight.add(pid)
     try:
         if not store.claim_comment(pid):  # taken meanwhile (the same forward twice), or no longer waiting
             return False
@@ -181,7 +184,8 @@ async def _send_comment(p: dict, forward: dict) -> bool:
             # the comment stays "sending": the recovery after the next start says it may have gone
             publisher.log_unrecorded(forward["chat"]["id"], res["message_id"], pid, e, "first comment of a post")
         return True
-    finally:
+    finally:  # whatever the outcome, a cancellation too; one owner each: the scheduler may still hold the post id
+        publisher.comments_in_flight.discard(pid)
         publisher.in_flight.discard(pid)
 
 
