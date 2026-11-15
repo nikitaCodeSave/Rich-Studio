@@ -23,8 +23,8 @@ Done when every failed run has its job, step and failing test or line, you know 
 
 | What the log shows | Cause | Fix |
 |---|---|---|
-| `test_lock.py`: `requirements.lock отстал от requirements.txt` in a Dependabot pip PR | Dependabot bumps `requirements.txt` only, by design (`.github/dependabot.yml`) | 3a |
-| `vendor_codemirror: app/static/vendor/ is not what package-lock.json gives` or `vendor_codemirror: … a second copy …` in a Dependabot npm PR that bumps `@codemirror/*` or `@lezer/*` (the group `codemirror`, or a security update, which Dependabot opens outside any group) | Dependabot bumps `package.json` and the lock only; the copy in `app/static/vendor/codemirror-*` is made by `scripts/vendor_codemirror.mjs` | 3a, `make vendor` |
+| `test_lock.py`: `requirements.lock отстал от requirements.txt` | a pin in `requirements.txt` moved without `make lock` | 3a |
+| `vendor_codemirror: app/static/vendor/ is not what package-lock.json gives` or `vendor_codemirror: … a second copy …` | `package.json` or the lock moved a package of the CodeMirror set; the copy in `app/static/vendor/codemirror-*` is made by `scripts/vendor_codemirror.mjs` | 3a, `make vendor` |
 | `FAIL  <check>` in `e2e` of a PR whose diff cannot reach the editor (an image digest, docs, another job's deps) | flake: a fixed pause before reading a page that updates asynchronously | 3b |
 | `supply-chain` or Trivy: a CVE in a package outside the diff | a fresh advisory | the CVE rule in `AGENTS.md` |
 | anything else | a real break | reproduce locally (`make check-fast`, the single test), fix test-first (`tests/AGENTS.md`) |
@@ -35,18 +35,17 @@ Done when every failure has a class and its evidence.
 
 ## 3. Fix, one cause per PR
 
-**a. Dependabot pip PR**: the lock goes into the PR's own branch.
+**a. A Python package or CodeMirror moves** (a CVE, a planned bump): a PR of its own from `main`. Dependabot opens none of these (`docs/decisions/0020-dependabot-self-contained-prs.md`); a Dependabot PR that does is a config error, close it.
 
 ```bash
-git switch -c <branch> --track origin/<branch>
-.venv/bin/pip install -r requirements-dev.txt   # the bumped tools, so make check runs what CI runs
-make lock && git diff --stat                     # only the bumped packages and their dependencies move
+git switch -c deps/<what> origin/main
+make lock LOCK_ARGS="--upgrade-package <name>"   # a transitive package (a CVE); after raising a pin in requirements*.txt plain `make lock`
+.venv/bin/pip install -r requirements-dev.txt     # the bumped tools, so make check runs what CI runs
+git diff --stat                                   # only the bumped packages and their dependencies move
 make check && git commit -am "requirements.lock: …" && git push
 ```
 
-Once you pushed, Dependabot stops rebasing the PR; `@dependabot recreate` would throw the lock commit away, so rebase it yourself if `main` moves.
-
-Dependabot PR of CodeMirror (the group `codemirror`, or a security update of one of its packages): the same with `npm ci && make vendor` in the PR's branch instead of `make lock`; commit `app/static/vendor/` (the old `codemirror-<hash>/` goes, a new one comes). If the bump brought in a package the set did not have, `make vendor` names the `npm install --save-dev --save-exact …` to run first. `a second copy <pkg> <version> in node_modules/<other>/node_modules/<pkg>` means the bump moved one package past what another one of the set accepts (a new `@codemirror/view` that needs a newer `@codemirror/state`): run `make vendor-update` in the branch, which moves the whole set to its latest versions together, check `npm ls <pkg>` shows one version, and commit `package.json`, the lock and `app/static/vendor/`.
+CodeMirror (a CVE from `npm audit`, or a planned update): `make vendor-update` moves the whole set to its latest versions together and builds the copy again; commit `package.json`, the lock and `app/static/vendor/` (the old `codemirror-<hash>/` goes, a new one comes). After a hand edit of `package.json` or the lock, `make vendor` alone. If a version brought in a package the set did not have, `make vendor` names the `npm install --save-dev --save-exact …` to run first. `a second copy <pkg> <version> in node_modules/<other>/node_modules/<pkg>` means one package moved past what another one of the set accepts: `make vendor-update`, then `npm ls <pkg>` shows one version.
 
 **b. Flaky browser check**: its own PR (area editor). Replace the pause before the read with a wait for the event, then the unchanged `check` (as in `tests/e2e/19-a-new-post-becomes.mjs`):
 
