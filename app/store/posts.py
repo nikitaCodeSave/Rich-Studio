@@ -4,10 +4,17 @@ import json
 import time
 import uuid
 
+import redact
+
 from .db import EXTRA_COLUMNS, JSON_FIELDS, conn, row
 
 # columns update_post may touch; anything else is a programming error, never SQL
 UPDATABLE = {"chat_id", "message_id", "payload", "status", "scheduled_at", "sent_at", "error", *EXTRA_COLUMNS}
+
+
+def _error(text: str | None) -> str | None:
+    """An error text as it is saved: shown in the list of posts, kept in backups, so without secrets (redact.py)."""
+    return redact.scrub(text) if text else text
 
 
 def _insert(
@@ -38,7 +45,7 @@ def _insert(
             status,
             scheduled_at,
             now if status == "sent" else None,
-            error,
+            _error(error),
             now,
             kind,
             actor,
@@ -84,6 +91,8 @@ def update_post(pid: str, **fields) -> dict | None:
     for f in JSON_FIELDS:
         if f in fields and fields[f] is not None:
             fields[f] = json.dumps(fields[f], ensure_ascii=False)
+    if "error" in fields:
+        fields["error"] = _error(fields["error"])
     sets = ", ".join(f"{k}=?" for k in fields)
     with conn() as c:
         c.execute(f"update posts set {sets} where id=?", (*fields.values(), pid))  # noqa: S608 - names checked above
@@ -140,7 +149,7 @@ def mark_outcome_unknown(pid: str, error: str) -> None:
     """A send that may have gone out (no answer from Telegram, a stop mid-send): failed, and flagged, so that the row
     never leaves the list on its own and the health report shows it until a person removes it."""
     with conn() as c:
-        c.execute("update posts set status='failed', outcome_unknown=1, error=? where id=?", (error, pid))
+        c.execute("update posts set status='failed', outcome_unknown=1, error=? where id=?", (_error(error), pid))
 
 
 def delete_post(pid: str) -> None:
@@ -245,7 +254,7 @@ def recover_stale_sending(keep: set[str] | frozenset[str] = frozenset()) -> int:
         cur = c.execute(
             f"""update posts set status='failed', outcome_unknown=1, error=?
                 where status='sending' and id not in ({marks})""",  # noqa: S608 - placeholders only
-            ("сервис остановился во время отправки; проверьте канал, пост мог уйти", *keep),
+            (_error("сервис остановился во время отправки; проверьте канал, пост мог уйти"), *keep),
         )
         return cur.rowcount
 
@@ -280,7 +289,7 @@ def mark_missed(pid: str, error: str, *, scheduled_at: int) -> bool:
     with conn() as c:
         cur = c.execute(
             "update posts set status='missed', error=? where id=? and status='scheduled' and scheduled_at=?",
-            (error, pid, scheduled_at),
+            (_error(error), pid, scheduled_at),
         )
         return cur.rowcount == 1
 
@@ -289,7 +298,8 @@ def retry_later(pid: str, at: int, error: str) -> None:
     """A claimed post that never reached Telegram goes back to the queue."""
     with conn() as c:
         c.execute(
-            "update posts set status='scheduled', retry_at=?, error=? where id=? and status='sending'", (at, error, pid)
+            "update posts set status='scheduled', retry_at=?, error=? where id=? and status='sending'",
+            (at, _error(error), pid),
         )
 
 
@@ -339,7 +349,7 @@ def expire_comments(sent_before: int, error: str) -> int:
         cur = c.execute(
             """update posts set comment_status='failed', error=coalesce(error || '; ', '') || ?
                where comment_status='waiting' and sent_at<?""",
-            (error, sent_before),
+            (_error(error), sent_before),
         )
         return cur.rowcount
 

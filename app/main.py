@@ -20,6 +20,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 import logs
 import mcp_tools
 import metrics
+import redact
 import security
 import settings
 import spec
@@ -196,12 +197,13 @@ async def lifespan(app):
 
 async def _studio_error(request: Request, e: Exception):
     assert isinstance(e, StudioError)  # noqa: S101 - registered for StudioError only
-    return JSONResponse({"detail": e.detail}, status_code=e.status)
+    # error texts carry Telegram's and exceptions' words: no secret goes out with them (redact.py)
+    return JSONResponse({"detail": redact.scrub_all(e.detail)}, status_code=e.status)
 
 
 async def _telegram_error(request: Request, e: Exception):
     assert isinstance(e, tg.TelegramError)  # noqa: S101
-    body = {"detail": f"Telegram: {e.description}", "error_code": e.code}
+    body = {"detail": redact.scrub(f"Telegram: {e.description}"), "error_code": e.code}
     if e.retry_after:  # flood wait longer than the studio waits itself: the caller decides when to try again
         body["retry_after"] = e.retry_after
     # 400: Telegram refused this request (a bad button link, no rights in the topic...), nothing went out and
@@ -210,7 +212,8 @@ async def _telegram_error(request: Request, e: Exception):
 
 
 async def _no_answer(request: Request, e: Exception):
-    return JSONResponse({"detail": f"{e}. Действие могло выполниться, проверьте в Telegram"}, status_code=502)
+    detail = redact.scrub(f"{e}. Действие могло выполниться, проверьте в Telegram")
+    return JSONResponse({"detail": detail}, status_code=502)
 
 
 def create_app(cfg: settings.Settings | None = None) -> FastAPI:
