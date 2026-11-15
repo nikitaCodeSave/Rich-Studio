@@ -156,16 +156,20 @@ def scheduler() -> dict:
 
 
 def posts() -> dict:
-    found = store.stats.problem_posts(int(time.time()) - DAY)
+    since = int(time.time()) - DAY
+    # a missed post waits for the person however long the studio was off; a first comment fails at the latest when
+    # its wait ends, and a day from then is the window for it, not a day from the post
     # a post the scheduler is sending this second is "sending" in the table; only one left behind is a problem
-    found = [p for p in found if not (p["status"] == "sending" and p["id"] in publisher.in_flight)]
-    if not found:
-        return _check("posts", "ok", "за сутки без сбоев")
+    found, total = store.stats.problem_posts(since, since - updates.COMMENT_WAIT, frozenset(publisher.in_flight))
+    if not total:
+        return _check("posts", "ok", "пропущенных нет, за сутки без сбоев")
+    shown = f", показаны {len(found)} последних" if total > len(found) else ""
     return _check(
         "posts",
         "warn",
-        f"{len(found)} постов за сутки требуют внимания (не ушли, пропущены или без первого комментария)",
-        "прочитайте error у каждого; пропущенный отложите заново (POST /api/posts/{id}/reschedule) или опубликуйте",
+        f"{total} постов требуют внимания (не ушли, пропущены или без первого комментария){shown}",
+        "прочитайте error у каждого; пропущенный виден здесь, пока его не решат: отложить заново или отправить сейчас "
+        "(POST /api/posts/{id}/reschedule), а не нужен или уже опубликован копией — отменить (DELETE /api/posts/{id})",
         details={"posts": found},
     )
 
