@@ -9,6 +9,7 @@
 ## Как обновить
 
 1. Последняя версия: `npm view swagger-ui-dist version`. Мажорная версия меняется только отдельным решением.
-2. Во временной папке вне репозитория: `npm pack swagger-ui-dist@<версия> && tar -xzf swagger-ui-dist-<версия>.tgz`. Пакет не ставится (`npm install` запустил бы его postinstall), в `package.json` он не попадает.
-3. Скопировать пять файлов выше из `package/` сюда, поправить в этой заметке версию, integrity (из вывода `npm pack`) и sha256 (`sha256sum swagger-ui-bundle.js swagger-ui.css`).
-4. `make check` и `make e2e-local ONLY=api-docs`: страница рисуется, нарушений CSP нет, ни один запрос не уходит за пределы студии, «Try it out» с ключом отвечает 200. Посмотреть `test-results/ui/docs-1400.png`.
+2. Во временной папке вне репозитория: `npm pack swagger-ui-dist@<версия> && tar -xzf swagger-ui-dist-<версия>.tgz`. У самого `swagger-ui-dist` скриптов нет, но его зависимость `@scarf/scarf` при `npm install` запускает postinstall (`node ./report.js`, телеметрия). Поэтому файлы берутся из архива `npm pack`, без установки, и в `package.json` студии пакет не попадает.
+3. Происхождение, в другой временной папке: `npm init -y && npm install --ignore-scripts swagger-ui-dist@<версия> && npm audit signatures`. Должно быть «verified registry signatures» для обоих пакетов и «verified attestation» (SLSA provenance из GitHub Actions `swagger-api/swagger-ui`). `integrity` пакета в `package-lock.json` этой папки совпадает с integrity из `npm pack`.
+4. Скопировать пять файлов выше из `package/` сюда, поправить в этой заметке версию, integrity (из вывода `npm pack`) и sha256 (`sha256sum swagger-ui-bundle.js swagger-ui.css`).
+5. `make check` и `make e2e-local ONLY=api-docs`: страница рисуется, нарушений CSP нет, ни один запрос не уходит за пределы студии, «Try it out» с ключом отвечает 200, `?url=` не подгружает чужую спецификацию, ключ из «Authorize» не остаётся в хранилище браузера. Посмотреть `test-results/ui/docs-1400.png`.
