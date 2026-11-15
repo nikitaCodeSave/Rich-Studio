@@ -714,8 +714,10 @@ def test_api_key_protects_media_render_and_docs(client, monkeypatch):
         assert client.get(path).status_code == 401, path
     assert client.get("/static/js/main.js").status_code == 200
     client.cookies.set("rs_key", "secret")  # the old script-set cookie; the client is shared, so take it off after
-    assert client.get("/api/spec").status_code == 401
-    client.cookies.delete("rs_key")
+    try:
+        assert client.get("/api/spec").status_code == 401
+    finally:
+        client.cookies.delete("rs_key")
     assert client.post("/api/session", json={"key": "secret"}).status_code == 200  # the editor's login
     assert client.get("/api/spec").status_code == 200
 
