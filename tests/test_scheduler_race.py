@@ -2,11 +2,14 @@
 after that reading (moves it, cancels it) wins: the post goes out only at its time as it is now."""
 
 import asyncio
+import sqlite3
 import time
+
+import pytest
 
 import store
 import telegram
-from services import scheduler
+from services import publisher, scheduler
 from test_reliability import schedule, sends
 
 DAY = 24 * 3600
@@ -83,13 +86,34 @@ def test_late_post_moved_after_the_queue_was_read_is_not_missed(client, tg, monk
     assert sends(tg) == 0
 
 
-def test_late_post_moved_to_now_after_the_queue_was_read_goes_out(client, tg, monkeypatch):
-    """The decision rests on the post as it is now: the person asked for now, so it is not late any more."""
+def test_late_post_moved_to_now_after_the_queue_was_read_goes_out_on_the_next_pass(client, tg, monkeypatch):
+    """The person asked for now: the post is not late any more, the next reading of the queue sends it."""
     pid = schedule(client, at=int(time.time()) - 3 * 3600)["id"]
     read_queue_then(monkeypatch, move(client, pid, int(time.time())))
     asyncio.run(scheduler.run_due_posts())
+    assert store.get_post(pid)["status"] != "missed"
+    monkeypatch.setattr(store, "due_posts", store.posts.due_posts)  # the next pass reads the queue anew
+    asyncio.run(scheduler.run_due_posts())
     assert store.get_post(pid)["status"] == "sent"
     assert sends(tg) == 1
+
+
+def test_database_error_on_a_late_post_leaves_it_waiting(client, tg, monkeypatch):
+    """Nothing was sent, so nothing may look "may have gone": the post stays scheduled and can be moved."""
+    pid = schedule(client, at=int(time.time()) - 3 * 3600)["id"]
+
+    def locked(*a, **kw):
+        raise sqlite3.OperationalError("database is locked")
+
+    with monkeypatch.context() as m:
+        m.setattr(store, "mark_missed", locked)
+        with pytest.raises(sqlite3.OperationalError):
+            asyncio.run(scheduler.run_due_posts())
+    store.recover_stale_sending()  # what the next lease does first
+    assert store.get_post(pid)["status"] == "scheduled" and not publisher.in_flight
+    asyncio.run(scheduler.run_due_posts())  # the database is back: missed, as ADR 0005 says
+    assert store.get_post(pid)["status"] == "missed"
+    assert sends(tg) == 0
 
 
 def test_post_cancelled_after_the_queue_was_read_is_not_sent(client, tg, monkeypatch):

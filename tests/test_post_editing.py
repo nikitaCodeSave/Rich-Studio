@@ -153,7 +153,7 @@ def test_scheduling_to_several_channels_is_all_or_nothing(client, monkeypatch):
 def test_a_missed_post_is_edited_before_it_is_scheduled_again(client, tg):
     """«Править» on a missed post: its new content is what goes out after «Отложить заново»."""
     rec = store.add_scheduled(["@chan"], {"rich_message": {"markdown": "старый"}}, int(time.time()) - 7200)[0]
-    store.mark_missed(rec["id"], "студия не работала")
+    store.update_post(rec["id"], status="missed", error="студия не работала")
     r = client.post(
         f"/api/posts/{rec['id']}/edit", params={"post_version": 0}, json={"rich_message": {"markdown": "новый"}}
     )
@@ -180,7 +180,7 @@ def test_buttons_of_a_scheduled_post_are_a_version_and_wait_for_the_scheduler(cl
     assert client.post(f"/api/posts/{rec['id']}/buttons", json={"reply_markup": kb}).json()["version"] == 1
     # the scheduler takes it between the read and the write: the buttons that go out stay the record
     read = store.get_post(rec["id"])
-    assert store.claim_post(rec["id"])
+    assert store.claim_post(rec["id"], due_by=None)
     monkeypatch.setattr(posts, "_get", lambda pid: read)
     r = client.post(f"/api/posts/{rec['id']}/buttons", json={"reply_markup": None})
     assert r.status_code == 400 and "уже отправляется" in r.json()["detail"]

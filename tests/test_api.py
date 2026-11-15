@@ -617,7 +617,7 @@ def test_stale_sending_posts_are_not_retried(client):
     store.update_post(p["id"], status="sending")
     assert store.recover_stale_sending() >= 1
     assert client.get("/api/posts/" + p["id"]).json()["status"] == "failed"
-    assert not store.claim_post(p["id"])
+    assert not store.claim_post(p["id"], due_by=None)
 
 
 def test_spec_refresh_rejects_bad_downloads(monkeypatch, tmp_path):

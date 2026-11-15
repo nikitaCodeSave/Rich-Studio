@@ -164,9 +164,10 @@ def bump_click(pid: str, data: str) -> None:
         )
 
 
-def claim_post(pid: str, due_by: int | None = None) -> bool:
-    """Atomically move a scheduled post to 'sending'; False if it was already taken or cancelled, or (with `due_by`)
-    if its time or retry time is now later than `due_by`: moved after the queue was read, it waits for the new one."""
+def claim_post(pid: str, *, due_by: int | None) -> bool:
+    """Atomically move a scheduled post to 'sending'; False if it was already taken or cancelled, or if its time or
+    retry time is now later than `due_by`: moved after the queue was read, it waits for the new one. `due_by=None`
+    takes it whatever its time is (tests only)."""
     with conn() as c:
         cur = c.execute(
             """update posts set status='sending' where id=? and status='scheduled'
@@ -238,12 +239,13 @@ def due_posts() -> list[dict]:
         return [row(r) for r in rows]  # type: ignore[misc]
 
 
-def mark_missed(pid: str, error: str) -> bool:
-    """A post far past its time: keep it for the person instead of sending it late. The scheduler calls it on the
-    post it has claimed ('sending'), having checked the time on the row as it is now, not as the queue read it."""
+def mark_missed(pid: str, error: str, *, scheduled_at: int) -> bool:
+    """A scheduled post far past its time: keep it for the person instead of sending it late. Only if it still waits
+    for the `scheduled_at` the caller read: a post moved or cancelled since then is left alone (False)."""
     with conn() as c:
         cur = c.execute(
-            "update posts set status='missed', error=? where id=? and status in ('scheduled', 'sending')", (error, pid)
+            "update posts set status='missed', error=? where id=? and status='scheduled' and scheduled_at=?",
+            (error, pid, scheduled_at),
         )
         return cur.rowcount == 1
 

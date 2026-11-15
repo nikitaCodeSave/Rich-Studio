@@ -23,7 +23,8 @@ def _missed(p: dict, now: float) -> bool:
     return bool(limit) and now - p["scheduled_at"] > limit
 
 
-async def _send_claimed(p: dict, now: float) -> None:
+async def _send_claimed(queued: dict, now: float) -> None:
+    p = store.get_post(queued["id"]) or queued  # the content as it is now, after any edit since the query
     try:
         res = await publisher.send(publisher.resolve_chat(p["chat_id"]), p["payload"], p.get("kind"))
     except StudioError as e:  # bad settings: nothing was sent
@@ -65,23 +66,23 @@ async def run_due_posts() -> int:
         if loops.STATE.stopping:  # shutting down: what is not claimed yet waits for the next start
             break
         now = time.time()
+        # the queue was read before the earlier sends: a post moved or cancelled since then is left alone by both
+        # updates below (missed only if it still waits for the time read, taken only if its time has come)
+        if _missed(queued, now):  # the service was off: a late "good morning" is worse than none
+            late = int((now - queued["scheduled_at"]) // 60)
+            late_text = f"{late // 60} ч {late % 60} мин" if late >= 60 else f"{late} мин"
+            store.mark_missed(
+                queued["id"],
+                f"студия не работала в назначенное время (опоздание {late_text}): пост не отправлен, "
+                "опубликуйте или отложите заново",
+                scheduled_at=queued["scheduled_at"],
+            )
+            continue
         publisher.in_flight.add(queued["id"])  # before the claim: health must never see "sending" without the id here
         try:
-            # the time is checked in the claim itself: a post moved to a later time or cancelled after the query
-            # (while an earlier one was being sent) is not taken
-            if not store.claim_post(queued["id"], int(now)):
+            if not store.claim_post(queued["id"], due_by=int(now)):  # taken, cancelled or moved to a later time
                 continue
-            p = store.get_post(queued["id"]) or queued  # the post as it is now, after any edit or move since the query
-            if _missed(p, now):  # the service was off: a late "good morning" is worse than none
-                late = int((now - p["scheduled_at"]) // 60)
-                late_text = f"{late // 60} ч {late % 60} мин" if late >= 60 else f"{late} мин"
-                store.mark_missed(
-                    p["id"],
-                    f"студия не работала в назначенное время (опоздание {late_text}): пост не отправлен, "
-                    "опубликуйте или отложите заново",
-                )
-                continue
-            await _send_claimed(p, now)
+            await _send_claimed(queued, now)
         finally:
             publisher.in_flight.discard(queued["id"])
     return len(due)
