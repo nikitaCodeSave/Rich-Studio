@@ -28,7 +28,7 @@ class Crash(BaseException):
 @pytest.fixture(autouse=True)
 def fresh_state(monkeypatch):
     monkeypatch.setattr(loops, "STATE", loops.State(owner="me"))
-    monkeypatch.setattr(publisher, "in_flight", set())
+    monkeypatch.setattr(publisher, "in_flight", publisher.InFlight())
     monkeypatch.setattr(publisher, "unrecorded", {})
 
 
@@ -122,7 +122,7 @@ def test_a_crash_mid_poll_is_may_have_gone_after_the_restart(client, tg, monkeyp
         asyncio.run(publisher.publish(["@c"], {**BLOCKS_POST, "poll_after": POLL}))
     [left] = _polls()
     assert left["status"] == "sending"  # the trace a crash leaves: written before the request
-    monkeypatch.setattr(publisher, "in_flight", set())  # a new process knows of no send under way
+    monkeypatch.setattr(publisher, "in_flight", publisher.InFlight())  # a new process knows of no send under way
     assert left["id"] in _flagged()
     _recover()
     poll = store.get_post(left["id"])
@@ -230,9 +230,9 @@ def test_a_crash_mid_comment_is_may_have_gone_after_the_restart(client, tg, monk
     with pytest.raises(Crash):
         asyncio.run(updates.handle_update(_forward(r)))
     assert store.get_post(pid)["comment_status"] == "sending"
-    monkeypatch.setattr(publisher, "in_flight", {pid})
+    monkeypatch.setattr(publisher, "in_flight", publisher.InFlight([pid]))
     assert pid not in _flagged()  # being sent this second: normal
-    monkeypatch.setattr(publisher, "in_flight", set())  # a new process
+    monkeypatch.setattr(publisher, "in_flight", publisher.InFlight())  # a new process
     assert pid in _flagged()  # left behind by a crash
     assert store.expire_comments(int(time.time()) + 1, "первый комментарий: пересылка не пришла") == 0
     _recover()
@@ -257,11 +257,84 @@ def test_a_comment_whose_sent_cannot_be_written_stays_sending_and_is_never_resen
     monkeypatch.setattr(store, "update_post", update)
     assert asyncio.run(updates.handle_update(_forward(r))) == "comment"
     assert store.get_post(pid)["comment_status"] == "sending" and not publisher.in_flight
-    assert pid in _flagged()
+    assert pid in _flagged() and "send.unrecorded" in health.posts()["action"]
     assert asyncio.run(updates.handle_update(_forward(r))) is None
     _recover()
     assert store.get_post(pid)["comment_status"] == "failed"
     assert _count(tg, "sendRichMessage", comment=True) == 1
+
+
+def test_a_comment_sent_while_the_scheduler_sends_the_poll_keeps_its_post_in_flight(client, tg, monkeypatch):
+    """Review of #156: the scheduler and getUpdates hold the same post id. The forward comes while the scheduler sends
+    the poll after the post, the scheduler finishes first: the comment still being sent must stay in flight (not
+    stuck in the health report), and a stop waits for it instead of cutting it off as "may have gone"."""
+    monkeypatch.setattr(settings.get(), "updates_on", True)
+    monkeypatch.setattr(loops, "SHUTDOWN_GRACE", 5)
+    post = {**BLOCKS_POST, "comment": COMMENT, "poll_after": POLL}
+    pid = store.add_post("@c", post, status="scheduled", scheduled_at=int(time.time()) - 5)["id"]
+    poll_asked, poll_gate, comment_asked, comment_gate = (asyncio.Event() for _ in range(4))
+    real_send, real_call = publisher.send, telegram.call
+
+    async def send(chat, body, kind=kinds.RICH):
+        res = await real_send(chat, body, kind)
+        if kind == kinds.POLL:
+            poll_asked.set()
+            await poll_gate.wait()
+        return res
+
+    async def call(method, params=None, *a, **kw):
+        res = await real_call(method, params, *a, **kw)
+        if method == "sendRichMessage" and "reply_parameters" in (params or {}):
+            comment_asked.set()
+            await comment_gate.wait()
+        return res
+
+    monkeypatch.setattr(publisher, "send", send)
+    monkeypatch.setattr(telegram, "call", call)
+
+    async def scenario():
+        scheduled = asyncio.create_task(scheduler.run_due_posts())
+        await asyncio.wait_for(poll_asked.wait(), 5)
+        forward = _forward({"message": {"message_id": store.get_post(pid)["message_id"]}})
+        comment = asyncio.create_task(updates.handle_update(forward))
+        await asyncio.wait_for(comment_asked.wait(), 5)
+        poll_gate.set()
+        await scheduled  # the scheduler is done with the post, its comment is not
+        assert store.get_post(pid)["comment_status"] == "sending" and pid in publisher.in_flight
+        assert pid not in _flagged()
+        stopping = asyncio.create_task(loops.Loops([]).stop())
+        await asyncio.sleep(0.3)
+        assert not stopping.done()  # waits for the comment
+        comment_gate.set()
+        assert await comment == "comment"
+        await asyncio.wait_for(stopping, 5)
+
+    asyncio.run(scenario())
+    p = store.get_post(pid)
+    assert (p["status"], p["comment_status"]) == ("sent", "sent") and pid not in publisher.in_flight
+
+
+def test_in_flight_counts_its_owners():
+    sending = publisher.InFlight()
+    sending.add("p")
+    sending.add("p")
+    sending.discard("p")
+    assert "p" in sending and list(sending) == ["p"] and len(sending) == 1
+    sending.discard("p")
+    sending.discard("p")  # one discard too many is harmless, as with a set
+    assert "p" not in sending and not sending
+
+
+def test_a_comment_is_claimed_only_while_it_waits(client, tg, monkeypatch):
+    r = _with_comment(client, monkeypatch)
+    pid = r["post"]["id"]
+    assert store.claim_comment(pid) is True
+    assert store.claim_comment(pid) is False  # taken already
+    store.fail_comment(pid, "первый комментарий: отказ")
+    assert store.claim_comment(pid) is False
+    assert store.get_post(pid)["comment_status"] == "failed"
+    without = store.add_post("@c", BLOCKS_POST, status="sent", message_id=1)["id"]
+    assert store.claim_comment(without) is False and store.get_post(without)["comment_status"] is None
 
 
 def test_a_comment_failure_is_added_to_the_error_of_the_post(client, tg, monkeypatch):
@@ -302,7 +375,7 @@ def test_a_comment_cut_off_mid_send_leaves_the_report_a_day_after(client, tg, mo
     _comment_send(monkeypatch, pid, _crash)
     with pytest.raises(Crash):
         asyncio.run(updates.handle_update(_forward(r)))
-    monkeypatch.setattr(publisher, "in_flight", set())
+    monkeypatch.setattr(publisher, "in_flight", publisher.InFlight())
     _recover()
     assert _flagged() == [pid]
     _fail_comment_days_ago(pid, 1.01)

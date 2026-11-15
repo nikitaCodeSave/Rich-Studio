@@ -13,6 +13,8 @@ import asyncio
 import logging
 import re
 import time
+from collections import Counter
+from collections.abc import Iterable, Iterator
 from datetime import datetime
 from typing import Any
 
@@ -29,10 +31,41 @@ RESERVED_PARAMS = {"chat_id", "rich_message", "reply_markup", "message_id"}
 MAY_HAVE_GONE = "Пост мог уйти в канал, проверьте перед повтором"
 POLL_MAY_HAVE_GONE = "Опрос мог уйти в канал, проверьте перед повтором"
 UNRECORDED = "опубликован, студия не смогла записать — не публикуйте повторно"
+
+
+class InFlight:
+    """Ids being sent right now, each with a count of its owners; reads like a set (`pid in`, iteration, len).
+
+    One id can have two owners: the scheduler holds a post's id until its steps after the send are done (pin, the
+    poll after it), and getUpdates holds the same id while it sends the post's first comment, whose forward may come
+    meanwhile. The first to finish must not take the id from the other."""
+
+    def __init__(self, ids: Iterable[str] = ()):
+        self._owners: Counter[str] = Counter(ids)
+
+    def add(self, pid: str) -> None:
+        self._owners[pid] += 1
+
+    def discard(self, pid: str) -> None:
+        if self._owners[pid] > 1:
+            self._owners[pid] -= 1
+        else:
+            self._owners.pop(pid, None)
+
+    def __contains__(self, pid: object) -> bool:
+        return pid in self._owners
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(list(self._owners))
+
+    def __len__(self) -> int:
+        return len(self._owners)
+
+
 # ids of posts this process is sending right now (now or from the scheduler, the poll after a post too, and posts
 # whose first comment it is sending): their "sending" status is normal, not stuck; health reads it, a stop waits for
 # it to empty, and startup recovery only exists because a crash empties it
-in_flight: set[str] = set()
+in_flight = InFlight()
 # sends Telegram accepted whose "sent" the database refused (a full or read-only disk): post id → what to write.
 # write_unrecorded tries again before each send, each pass of the scheduler and the recovery of "sending" rows, which
 # leaves these rows alone meanwhile. Health still shows them as stuck in "sending": the record is behind the channel

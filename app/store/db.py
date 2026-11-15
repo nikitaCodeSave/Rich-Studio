@@ -24,7 +24,7 @@ EXTRA_COLUMNS = {
     "kind": "text default 'rich'",  # services/kinds.py: rich | poll | live_photo | paid_media
     "chat_num": "integer",  # numeric chat id from Telegram (chat_id may be @username)
     "pinned": "integer default 0",
-    "comment_status": "text",  # waiting | sending | sent | failed | skipped
+    "comment_status": "text",  # waiting | sent | failed
     "comment_message_id": "integer",
     "reactions": "text",  # {"👍": 3, ...} from message_reaction_count
     "clicks": "text",  # {"callback_data": n}
