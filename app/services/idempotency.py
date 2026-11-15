@@ -29,21 +29,29 @@ MAX_KEY = 200
 STALE_PENDING = 15 * 60
 
 
-# a retry with the key of a send that may have gone never goes out (the key does not expire): say what to do instead
-BLOCKED = (
-    "Повтор с этим ключом больше ничего не отправит: если поста в канале нет, отправьте заново с новым ключом "
-    "(заголовок Idempotency-Key, в MCP параметр idempotency_key)"
-)
+# a retry with the key of a send that may have gone never goes out (the key does not expire): say what to do instead.
+# The agent cannot see the channel, so the person checks it.
+NEW_KEY = "с новым ключом (заголовок Idempotency-Key, в MCP параметр idempotency_key)"
+BLOCKED = {
+    "send": f"проверьте канал вместе с пользователем; если сообщение туда не дошло, отправьте заново {NEW_KEY}",
+    "schedule": "проверьте вместе с пользователем отложенные посты (вкладка «Посты», list_posts); если этого поста "
+    f"там нет, отложите заново {NEW_KEY}",
+    # a new key does not help either: the suggestion stays "approving" until Telegram's outcome or a person's reopen
+    "suggested-approve": "новый ключ тоже не поможет, пока решение ждёт ответа Telegram: пусть пользователь проверит "
+    "в личных сообщениях канала, дошло ли оно; если нет, он сам нажимает «Решить снова» в редакторе (агенту это "
+    f"недоступно), и после этого решение можно отправить {NEW_KEY}",
+}
 
 
 def publisher_may_have_gone() -> str:
     return f"запрос прерван во время отправки. {MAY_HAVE_GONE}"
 
 
-def _blocked(detail: Any) -> MayHaveGone:
+def _blocked(scope: str, detail: Any) -> MayHaveGone:
+    hint = f"Повтор с этим ключом больше ничего не отправит: {BLOCKED.get(scope, BLOCKED['send'])}"
     if isinstance(detail, dict):
-        return MayHaveGone({**detail, "message": f"{detail.get('message', '')}. {BLOCKED}"})
-    return MayHaveGone(f"{detail}. {BLOCKED}")
+        return MayHaveGone({**detail, "message": f"{detail.get('message', '')}. {hint}"})
+    return MayHaveGone(f"{detail}. {hint}")
 
 
 def fingerprint(scope: str, body: Any) -> str:
@@ -64,9 +72,9 @@ async def run(key: str | None, scope: str, body: Any, action: Callable[[], Await
         if existing["status"] == "done":
             return existing["response"]
         if existing["status"] == "uncertain":
-            raise _blocked(existing["response"])
+            raise _blocked(scope, existing["response"])
         if time.time() - existing["created_at"] > STALE_PENDING:
-            raise _blocked(publisher_may_have_gone())
+            raise _blocked(scope, publisher_may_have_gone())
         raise Conflict("запрос с этим Idempotency-Key ещё выполняется")
     try:
         result = await action()

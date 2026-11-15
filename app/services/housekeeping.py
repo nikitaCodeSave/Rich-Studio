@@ -1,7 +1,8 @@
 """The studio watching itself: health changes go to the log, old service data is cleaned up.
 
-Service data (idempotency keys) is always cleaned. What the person made (uploads, versions of posts) is
-deleted only when MEDIA_UNUSED_DAYS / VERSIONS_KEEP say so; otherwise the health report says it grows.
+Service data (idempotency keys of finished requests; a key after which the post may have gone stays for good) is
+always cleaned. What the person made (uploads, versions of posts) is deleted only when MEDIA_UNUSED_DAYS /
+VERSIONS_KEEP say so; otherwise the health report says it grows.
 With DEADMAN_URL each round also tells an outside service it is alive: silence there means the studio is down.
 """
 
