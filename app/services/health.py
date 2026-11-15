@@ -14,6 +14,7 @@ from typing import Any
 
 import logs
 import metrics
+import redact
 import settings
 import spec
 import store
@@ -369,7 +370,7 @@ def report() -> dict:
     status = max((c["status"] for c in checks), key=ORDER.__getitem__)
     now = time.time()
     # error texts come from Telegram, proxies and exceptions; a proxy's 404 page may echo the URL with the token
-    return logs.scrub_all(
+    return redact.scrub_all(
         {
             "status": status,
             # which build is answering: an agent comparing two reports must know whether the studio was upgraded

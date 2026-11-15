@@ -240,7 +240,7 @@ class FakeTelegram:
                         body[k] = json.loads(body[k])
             else:
                 body = await request.json()
-            if method == "getUpdates":
+            if method == "getUpdates" and not self.queue.get(method):  # a queued answer: an error of the long poll
                 return await self._get_updates(body)
             self.calls.append({"method": method, "token": token, "body": body, "files": files})
             return self.answer(method, body)  # a queued starlette Response (e.g. an HTML 502) goes out as is

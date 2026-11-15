@@ -39,9 +39,10 @@ def refs_in(payload: str) -> set[str]:
 
 
 def upload_refs() -> set[str]:
-    """File names that drafts and live posts mention as upload:<name>."""
+    """File names that drafts, templates (their post and field defaults) and live posts mention as upload:<name>."""
     marks = ",".join("?" * len(_LIVE))
     with conn() as c:
         texts = [r[0] for r in c.execute("select payload from drafts")]
+        texts += [t for r in c.execute("select payload, fields from post_templates") for t in r]
         texts += [r[0] for r in c.execute(f"select payload from posts where status in ({marks})", _LIVE)]  # noqa: S608
     return {m for t in texts for m in refs_in(t)}

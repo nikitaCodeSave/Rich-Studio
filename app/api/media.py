@@ -11,7 +11,9 @@ from services import media
 router = APIRouter()
 
 
-@router.get("/api/media", tags=["media"], summary="Загруженные файлы; used — нужен ли файл черновику или посту")
+@router.get(
+    "/api/media", tags=["media"], summary="Загруженные файлы; used — нужен ли файл черновику, шаблону или посту"
+)
 def media_list():
     return media.list_files()
 
@@ -47,7 +49,7 @@ async def media_fetch(req: FetchReq):
 @router.post(
     "/api/media/cleanup",
     tags=["media"],
-    summary="Удалить файлы, которые не упоминает ни один черновик и ни один живой пост",
+    summary="Удалить файлы, которые не упоминает ни один черновик, шаблон и живой пост",
 )
 def media_cleanup():
     return {"deleted": media.delete_unused()}
@@ -56,7 +58,7 @@ def media_cleanup():
 @router.delete(
     "/api/media/{name}",
     tags=["media"],
-    summary="Удалить файл; если он нужен отложенному посту или черновику, 409 (force=true удаляет всё равно)",
+    summary="Удалить файл; если он нужен отложенному посту, черновику или шаблону, 409 (force=true удаляет всё равно)",
 )
 def media_delete(name: str, force: bool = False):
     media.delete(name, force)

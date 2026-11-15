@@ -7,6 +7,8 @@ rare (one per network error or crash mid-send) and small, so the table does not 
 import json
 import time
 
+import redact
+
 from .db import conn, row
 
 TTL = 24 * 3600  # done keys older than a day are forgotten
@@ -31,7 +33,9 @@ def claim(key: str, scope: str, fingerprint: str) -> dict | None:
 
 
 def finish(key: str, status: str, response) -> None:
-    """status: done (response is the result) or uncertain (response is the error detail)."""
+    """status: done (response is the result) or uncertain (response is the error detail, saved without secrets)."""
+    if status == "uncertain":
+        response = redact.scrub_all(response)
     with conn() as c:
         c.execute(
             "update idempotency set status=?, response=? where key=?",

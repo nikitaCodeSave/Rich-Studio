@@ -61,7 +61,7 @@ def describe(name: str) -> dict:
 
 
 def list_files() -> list[dict]:
-    """Uploads, newest first; `used` is false when no draft and no live post mentions the file."""
+    """Uploads, newest first; `used` is false when no draft, template or live post mentions the file."""
     files = [
         p for p in media_dir().iterdir() if p.is_file() and not p.name.startswith(".")
     ]  # .name.part: a download in progress
@@ -71,7 +71,7 @@ def list_files() -> list[dict]:
 
 
 def delete_unused(older_than: float | None = None) -> list[str]:
-    """Remove files nothing mentions any more (drafts, scheduled, missed and published posts).
+    """Remove files nothing mentions any more (drafts, templates, scheduled, missed and published posts).
 
     older_than: unix time; only files last changed before it (housekeeping keeps fresh uploads).
     """
@@ -109,11 +109,12 @@ def free_name(filename: str | None) -> str:
 
 
 def used_by(name: str) -> list[str]:
-    """What still needs the file: scheduled or missed posts and drafts that mention upload:<name>."""
+    """What still needs the file: scheduled or missed posts, drafts and templates that mention upload:<name>."""
     ref = describe(name)["ref"]
     waiting = {"scheduled": "отложенный", "missed": "пропущенный"}
     posts = [f"{waiting[p['status']]} пост в {p['chat_id']}" for p in store.using_upload(ref)]
-    return posts + [f"черновик «{d['title'] or 'Без названия'}»" for d in store.drafts_using(ref)]
+    drafts = [f"черновик «{d['title'] or 'Без названия'}»" for d in store.drafts_using(ref)]
+    return posts + drafts + [f"шаблон «{t['title']}»" for t in store.templates.templates_using(ref)]
 
 
 def delete(name: str, force: bool = False) -> None:
