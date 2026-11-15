@@ -5,6 +5,7 @@ an own Bot API server)."""
 import asyncio
 import json
 import logging
+import time
 
 import httpx
 import pytest
@@ -15,7 +16,7 @@ import redact
 import settings
 import store
 import telegram
-from services import updates
+from services import scheduler, updates
 from test_api import BLOCKS_POST, POLL
 from test_mcp import call, rpc
 
@@ -173,6 +174,16 @@ def test_network_error_text_after_the_send_is_masked_in_the_warnings(client, tg,
     warnings = r.json()["warnings"]
     assert len(warnings) == 2 and all("<token>" in w for w in warnings) and _clean(r.text)
     assert all(_clean(p["error"] or "") for p in store.list_posts())
+
+
+def test_network_error_after_a_scheduled_send_is_masked_in_the_saved_error(client, tg, bot_token, monkeypatch):
+    """The scheduler adds the warnings to the post's error by store.add_error, not update_post (issue #158)."""
+    _echoing_server(monkeypatch, {"pinChatMessage"})
+    pid = store.add_post("@c", {**BLOCKS_POST, "pin": True}, status="scheduled", scheduled_at=int(time.time()))["id"]
+    asyncio.run(scheduler.run_due_posts())
+    p = store.get_post(pid)
+    assert p["status"] == "sent" and "не удалось закрепить" in p["error"]
+    assert _clean(p["error"]) and "/bot<token>/pinChatMessage" in p["error"]
 
 
 def test_network_error_of_the_first_comment_is_masked_in_the_saved_error(client, tg, bot_token, monkeypatch):

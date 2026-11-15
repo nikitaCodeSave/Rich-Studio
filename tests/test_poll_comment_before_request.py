@@ -14,7 +14,7 @@ import pytest
 import settings
 import store
 import telegram
-from services import health, kinds, loops, publisher, scheduler, updates
+from services import health, kinds, listing, loops, publisher, scheduler, updates
 from test_api import BLOCKS_POST, POLL
 
 COMMENT = {"html": "<p>Ссылки из эфира</p>"}
@@ -264,6 +264,44 @@ def test_a_comment_whose_sent_cannot_be_written_stays_sending_and_is_never_resen
     assert _count(tg, "sendRichMessage", comment=True) == 1
 
 
+def test_the_list_of_posts_tells_a_comment_under_way_from_an_unconfirmed_one(client, tg, monkeypatch):
+    """Issue #158: "sending" is a request under way (the editor says «отправляется») or a comment nobody sends any
+    more, here one Telegram took whose record the database refused («не подтверждён»); a standby cannot tell."""
+    r = _with_comment(client, monkeypatch)
+    pid = r["post"]["id"]
+
+    def listed() -> tuple:
+        [p] = [p for p in client.get("/api/posts").json() if p["id"] == pid]
+        return p["comment_status"], p["comment_in_flight"]
+
+    real_call, real_update, during = telegram.call, store.update_post, {}
+
+    async def call(method, params=None, *a, **kw):
+        if method == "sendRichMessage" and "reply_parameters" in (params or {}):
+            [p] = [p for p in listing.list_posts() if p["id"] == pid]
+            during["listed"] = p["comment_status"], p["comment_in_flight"]
+        return await real_call(method, params, *a, **kw)
+
+    def update(post_id, **fields):
+        if fields.get("comment_status") == "sent":
+            raise sqlite3.OperationalError(FULL)
+        return real_update(post_id, **fields)
+
+    assert listed() == ("waiting", False)
+    monkeypatch.setattr(telegram, "call", call)
+    monkeypatch.setattr(store, "update_post", update)
+    assert asyncio.run(updates.handle_update(_forward(r))) == "comment"
+    assert during == {"listed": ("sending", True)}
+    assert listed() == ("sending", False)
+    # a standby never sends comments, the lease holder does: from here neither is known, whatever in_flight says
+    monkeypatch.setattr(loops.STATE, "role", "standby")
+    assert listed() == ("sending", None)
+    publisher.in_flight.add(pid)
+    assert listed() == ("sending", None)
+    store.fail_comment(pid, "первый комментарий: отказ")
+    assert listed() == ("failed", False)
+
+
 def test_a_comment_sent_while_the_scheduler_sends_the_poll_keeps_its_post_in_flight(client, tg, monkeypatch):
     """Review of #156: the scheduler and getUpdates hold the same post id. The forward comes while the scheduler sends
     the poll after the post, the scheduler finishes first: the comment still being sent must stay in flight (not
@@ -349,6 +387,33 @@ def test_a_comment_failure_is_added_to_the_error_of_the_post(client, tg, monkeyp
     assert (
         p["error"]
         == "не удалось закрепить: нет прав; первый комментарий: Bad Request: not enough rights to send messages"
+    )
+
+
+def test_the_warnings_of_a_scheduled_post_keep_a_comment_failure_written_meanwhile(client, tg, monkeypatch):
+    """Issue #158, the other way round: the forward comes while the scheduler pins the post and the comment fails in
+    that second. The pin's warning is written after the failure and must not replace it."""
+    monkeypatch.setattr(settings.get(), "updates_on", True)
+    post = {**BLOCKS_POST, "comment": COMMENT, "pin": True}
+    pid = store.add_post("@c", post, status="scheduled", scheduled_at=int(time.time()) - 5)["id"]
+    tg.fail["pinChatMessage"] = "Bad Request: not enough rights to pin a message"
+    real, comment = telegram.call, {}
+
+    async def call(method, params=None, *a, **kw):
+        if method == "pinChatMessage":  # the comment waits now, and its forward comes before the pin's answer
+            refused = {"ok": False, "error_code": 400, "description": "Bad Request: not enough rights to send messages"}
+            tg.queue["sendRichMessage"] = [refused]
+            forward = _forward({"message": {"message_id": store.get_post(pid)["message_id"]}})
+            comment["handled"] = await updates.handle_update(forward)
+        return await real(method, params, *a, **kw)
+
+    monkeypatch.setattr(telegram, "call", call)
+    asyncio.run(scheduler.run_due_posts())
+    p = store.get_post(pid)
+    assert comment == {"handled": "comment"} and (p["status"], p["comment_status"]) == ("sent", "failed")
+    assert p["error"] == (
+        "первый комментарий: Bad Request: not enough rights to send messages; "
+        "не удалось закрепить: Bad Request: not enough rights to pin a message"
     )
 
 
