@@ -83,15 +83,16 @@ e2e:
 e2e-local:
 	scripts/e2e_local.sh $(ONLY)
 
-# requirements.lock: every runtime package with hashes, for the image. After a change in requirements.txt
-# (by hand or Dependabot) run it and commit the lock; tests/test_lock.py checks they agree.
+# requirements.lock: every runtime package with hashes, for the image. After a change in requirements.txt run it and
+# commit the lock; tests/test_lock.py checks they agree. Transitive packages stay where the lock has them:
+# LOCK_ARGS=--upgrade moves all of them to the newest, LOCK_ARGS="--upgrade-package <name>" one (a CVE fix)
 lock:
 	$(UV) pip compile requirements.txt --universal --python-version 3.12 --generate-hashes \
-	  --annotation-style line --custom-compile-command "make lock" -o requirements.lock
+	  --annotation-style line --custom-compile-command "make lock" $(LOCK_ARGS) -o requirements.lock
 
 # CodeMirror for the source editor (docs/decisions/0017): app/static/vendor/codemirror-<hash>/ and codemirror.js
-# from node_modules as package-lock.json pins it; make check compares them byte for byte. After a Dependabot PR of the
-# group codemirror (package.json and the lock only) run it in the PR's branch and push the result, as `make lock`.
+# from node_modules as package-lock.json pins it; make check compares them byte for byte. After package.json or the lock
+# moved a package of the set by hand, run it and commit the result; Dependabot leaves the set alone (decisions/0020).
 vendor:
 	node scripts/vendor_codemirror.mjs
 

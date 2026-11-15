@@ -55,9 +55,9 @@ docker compose up -d --build
 
 Что Bot API 10.4 (9 ноября 2026) дал студии: элемент текста «Адрес TON» (`ton_address`) в редакторе и предпросмотре; цитата из rich-поста (`reply_parameters.quote_rich_texts` в `options`) уходит в Telegram как есть. HTML-виджеты (`sendWidget`) в каналы не отправляются, поэтому в редакторе их нет; их методы, как и любые другие, доступны через `/api/raw`.
 
-На сервере (`STUDIO_MODE=server`) спецификация закреплена (`SPEC_PIN`): студия ничего не скачивает и работает на копии из образа, новая версия приходит с обновлением образа. Ещё вручную: после изменения `requirements.txt` (и после PR Dependabot) `make lock` пересобирает `requirements.lock` с хэшами, из которого ставит пакеты образ. Swagger UI для `/docs` лежит в студии закреплённой версией и обновляется по заметке `app/static/vendor/swagger-ui/README.md`.
+На сервере (`STUDIO_MODE=server`) спецификация закреплена (`SPEC_PIN`): студия ничего не скачивает и работает на копии из образа, новая версия приходит с обновлением образа. Ещё вручную: Python-пакеты. Dependabot их не поднимает ([0020](docs/decisions/0020-dependabot-self-contained-prs.md)): поднимите пин в `requirements.txt` или `requirements-dev.txt` (что устарело, покажет `.venv/bin/pip list --outdated`) и выполните `make lock`, он пересобирает `requirements.lock` с хэшами, из которого ставит пакеты образ. Зависимости зависимостей поднимает `make lock LOCK_ARGS=--upgrade`. Swagger UI для `/docs` лежит в студии закреплённой версией и обновляется по заметке `app/static/vendor/swagger-ui/README.md`.
 
-CodeMirror для вкладок HTML, Markdown и JSON лежит в `app/static/vendor/codemirror-<хеш>/`: файлы пакетов из npm как есть, только импорты сделаны относительными ([0017](docs/decisions/0017-codemirror-vendored-modules.md)). `make vendor-update` поднимает его до последних версий, после PR Dependabot по CodeMirror нужен `make vendor` в ветке PR. `make check` сверяет каталог с `package-lock.json`.
+CodeMirror для вкладок HTML, Markdown и JSON лежит в `app/static/vendor/codemirror-<хеш>/`: файлы пакетов из npm как есть, только импорты сделаны относительными ([0017](docs/decisions/0017-codemirror-vendored-modules.md)). `make vendor-update` поднимает его до последних версий. Dependabot его не трогает. `make check` сверяет каталог с `package-lock.json`.
 
 ## Редактор
 
@@ -353,7 +353,7 @@ claude mcp add --transport http rich-studio http://localhost:7424/mcp --header "
 Одной командой: `make check` (всё ниже плюс проверка слоёв `lint-imports`). Правила для агентов: [AGENTS.md](AGENTS.md).
 Между шагами хватает `make check-fast` (без браузера). Если есть `.venv`, `make` берёт Python оттуда; в облачной сессии Claude Code его и `node_modules` готовит хук `.claude/hooks/session-start.sh`.
 
-CI на каждый PR: тесты и линтеры, браузерные проверки, аудит зависимостей (`pip-audit`, `npm audit`), поиск секретов (gitleaks), сборка и запуск образа с проверкой Trivy. Зависимости раз в неделю обновляет Dependabot.
+CI на каждый PR: тесты и линтеры, браузерные проверки, аудит зависимостей (`pip-audit`, `npm audit`), поиск секретов (gitleaks), сборка и запуск образа с проверкой Trivy. Раз в неделю по расписанию тот же аудит и Trivy идут на `main`: так видна CVE, вышедшая без единого push. Dependabot раз в месяц предлагает инструменты разработки, digest базового образа и actions, раз в неделю Caddy и Litestream для сервера; Python-пакеты и CodeMirror обновляются вручную ([0020](docs/decisions/0020-dependabot-self-contained-prs.md)).
 
 ```
 pip install -r requirements-dev.txt
