@@ -42,7 +42,7 @@ make fmt                                        # автоисправление
 - Общие списки разнесены по файлам, чтобы параллельные PR не правили одну строку: шаг схемы — новый файл `app/store/migrations/NNNN_имя.sql`, инструмент MCP — функция в `app/mcp_tools/tools/<область>.py` (новая область — новый файл), браузерная проверка — новый файл `tests/e2e/NN-имя.mjs`. Списки маршрутов и инструментов в `docs/reference/` собирает `make docs`; при конфликте в них не сливайте руками, а пересоберите. README и `SKILL.md` правьте точечно, без переформатирования соседних строк.
 - Перед PR: rebase на свежий `main`, `make docs`, если менялись маршруты или инструменты, затем `make check`. Номер нового файла миграции, занятый другим PR, роняет `test_migrations.py`: после rebase возьмите следующий свободный.
 - Ревью делает не автор (см. раздел 9 в `docs/REVIEW_CHECKLIST.md`). Approve и merge только у человека.
-- Job `supply-chain` и Trivy в `docker` падают и от свежей CVE в зависимости, которой нет в диффе. Сначала попробуйте обновить зависимость отдельным PR. Если исправления нет, временно игнорируйте её: `pip-audit --ignore-vuln <ID>` в `ci.yml` или строка в `.trivyignore`, всегда с комментарием «почему, ссылка, до какой даты». Отключать job нельзя.
+- Job `supply-chain` и Trivy в `docker` падают и от свежей CVE в зависимости, которой нет в диффе. Сначала попробуйте обновить зависимость отдельным PR (`make lock LOCK_ARGS="--upgrade-package <имя>"`, для CodeMirror `make vendor-update`; шаг 3a в `.claude/skills/ci-triage/SKILL.md`). Если исправления нет, временно игнорируйте её: `pip-audit --ignore-vuln <ID>` в `ci.yml` или строка в `.trivyignore`, всегда с комментарием «почему, ссылка, до какой даты». Отключать job нельзя.
 - В облачной сессии зависимости ставит `.claude/hooks/session-start.sh` (в `.venv` и `node_modules`). Для промежуточных шагов есть `make check-fast` (без браузера), перед PR нужен полный `make check`.
 
 ## Документация в том же PR
@@ -57,7 +57,7 @@ make fmt                                        # автоисправление
 - Не править `app/bundled/api.json` руками: это копия спецификации с https://github.com/PaulSonOfLars/telegram-bot-api-spec. Обновляет её `make spec-update` (код выхода 10, если версия новая); после него сделай зелёным `tests/test_spec_coverage.py`.
 - Не подменять `asyncio.sleep` глобально в тестах: это останавливает подставной Telegram в соседнем потоке. Подменяй `_sleep` модуля.
 - Не менять старые файлы в `app/store/migrations/`, только добавлять новые.
-- Не править `requirements.lock` руками: после изменения `requirements.txt` (и в PR Dependabot) `make lock`, `tests/test_lock.py` сверяет их.
+- Не править `requirements.lock` руками: после изменения `requirements.txt` `make lock` (одну транзитивную зависимость поднимает `make lock LOCK_ARGS="--upgrade-package <имя>"`), `tests/test_lock.py` сверяет их. Python-пакеты и CodeMirror Dependabot не обновляет (`docs/decisions/0020-dependabot-self-contained-prs.md`).
 - Не добавлять сборщик, фреймворк или новую рантайм-зависимость без обсуждения: редактор специально работает без сборки.
 - Не отправлять ничего в настоящий Telegram из тестов. Для всего есть `tests/mock_telegram.py`.
 
