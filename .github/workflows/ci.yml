@@ -46,6 +46,9 @@ jobs:
       - run: npm ci
       - run: npx eslint .
       - run: npx tsc -p .
+      # app/static/vendor/codemirror*: byte for byte what make vendor builds from the lock, and it loads with no bare import
+      - run: node scripts/vendor_codemirror.mjs --check
+      - run: npm run test:codemirror
       - run: npx playwright install --with-deps chromium
       - run: npm run test:render
       - run: npm run test:parity
