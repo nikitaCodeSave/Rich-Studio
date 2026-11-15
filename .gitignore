@@ -9,3 +9,9 @@ node_modules
 test-results/
 .venv
 .claude/worktrees/
+.env.*
+!.env.example
+litestream.env
+secrets/
+*.pem
+*.key
