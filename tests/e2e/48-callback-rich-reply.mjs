@@ -60,7 +60,11 @@ export default async function ({ page, check, mockLog, push, until, applyJson, M
   // open the post for editing: its button card says how the presses went
   await page.click('#side-tabs [data-tab=drafts]');
   await page.click('#side-tabs [data-tab=posts]');
-  await page.locator('#posts li', { hasText: '#' + mid }).getByRole('button', { name: 'Править' }).click();
+  // the list of posts has the failure next to the clicks, by the button's text
+  const row = page.locator('#posts li', { hasText: '#' + mid });
+  await page.waitForFunction((m) => [...document.querySelectorAll('#posts li')].some((li) => li.textContent.includes('#' + m) && /rich-ответ не дошёл: 🔑 Ответ 1/.test(li.textContent)), mid, quick).catch(() => {});
+  const listed = await row.textContent();
+  await row.getByRole('button', { name: 'Править' }).click();
   await page.evaluate(() => { /** @type {HTMLDetailsElement} */ (document.getElementById('panel-kb')).open = true; });
   await page.waitForFunction(() => /Нажатий: 2 · rich-ответ не дошёл 1 раз/.test(document.querySelector('#kb .cb-answer')?.textContent || ''), null, quick).catch(() => {});
   const stats = await page.locator('#kb .cb-answer').first().textContent();
@@ -73,6 +77,6 @@ export default async function ({ page, check, mockLog, push, until, applyJson, M
       && JSON.stringify(posted.body.reply_markup) === JSON.stringify({ inline_keyboard: [[{ text: '🔑 Ответ', callback_data: 'key' }]] }) && posted.body.ephemeral_message_parameters === undefined
       && !!reply && reply.chat_id === undefined && reply.rich_message.html === '<p><b>Секрет</b> только для вас: <code>RICH2026</code></p>'
       && reply.ephemeral_message_parameters.replace_callback_query_message === true && replyAt < answerAt && answer && answer.body.text === 'Смотрите ниже' && answer.body.reply === undefined
-      && tries === 1 && rec && rec.reply_errors.key.n === 1 && /query is too old/.test(rec.reply_errors.key.error) && /Нажатий: 2 · rich-ответ не дошёл 1 раз/.test(stats || ''),
-    JSON.stringify({ shown, issues, passes, summary, reply, replyAt, answerAt, answer: answer && answer.body, tries, reply_errors: rec && rec.reply_errors, stats }));
+      && tries === 1 && rec && rec.reply_errors.key.n === 1 && /query is too old/.test(rec.reply_errors.key.error) && /Нажатий: 2 · rich-ответ не дошёл 1 раз/.test(stats || '') && /нажатия: 🔑 Ответ 2 · rich-ответ не дошёл: 🔑 Ответ 1/.test(listed || ''),
+    JSON.stringify({ shown, issues, passes, summary, reply, replyAt, answerAt, answer: answer && answer.body, tries, reply_errors: rec && rec.reply_errors, stats, listed }));
 }
