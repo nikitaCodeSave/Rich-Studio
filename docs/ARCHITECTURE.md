@@ -33,7 +33,7 @@
 | `app/telegram/` | транспорт к Bot API, `upload:` → `attach://` (в полях файлов `media`, `photo`, `live_photo`, `thumbnail`, `cover`), проверка прав бота | не меняет payload, кроме `upload:` |
 | `app/store/` | SQLite: соединения, миграции (`PRAGMA user_version`; шаг и его номер в одной транзакции), черновики, посты, каналы | |
 | `app/spec/` | загрузка и кэш api.json (с `SPEC_PIN` только копия из образа), сводка для редактора, diff версий, валидатор, перевод блоков из ответа Telegram в отправляемые (`convert.py`), текста с entities в блоки (`entities.py`, смещения в UTF-16) | |
-| `app/static/js/` | редактор: ES-модули без сборки, вход `main.js`; общее состояние в `state.js` | не пишет пользовательский HTML в `innerHTML` (это запрещает ESLint) |
+| `app/static/js/` | редактор: ES-модули без сборки, вход `main.js`; общее состояние в `state.js`; вкладки исходника — CodeMirror поверх textarea (`code-editor.js`, подсказки в `completion.js`) | не пишет пользовательский HTML в `innerHTML` (это запрещает ESLint); имён полей Bot API в подсказках нет, они из `/api/spec` |
 | `app/static/render.js` | предпросмотр поста, очистка HTML/Markdown (`sanitize`), разбор HTML/Markdown по правилам Telegram, `outline` для сверки | правила разбора меняются только вместе с примером в `tests/telegram_parse/`, записанным с настоящего Telegram |
 
 ## Сервер
@@ -59,6 +59,7 @@
 - Новый тип сообщения (как опрос или Live Photo): запись в `services/kinds.py` с проверкой, маршрут или инструмент MCP через `posts.send_kind`, диалог в редакторе. Отправка, планировщик, правка, кнопки и список постов берут остальное из записи.
 - Новое событие от Telegram: ветка в `services/updates.handle_update` и тип в `ALLOWED_UPDATES`.
 - Изменение схемы БД, новая колонка тоже: новый файл `store/migrations/NNNN_имя.sql` со следующим номером (старые не менять; `EXTRA_COLUMNS` закрыт). Номера идут подряд, повтор или пропуск останавливает запуск. Шаг выполняется в одной транзакции со своим номером, поэтому в файле не должно быть своих `begin`/`commit` и `vacuum`.
+- Новое поле поста (`models.Post`): его тип Bot API в `POST_TYPES` (`api/specs.py`), по нему вкладка JSON подсказывает поля; без него `GET /api/spec` падает, это ловит `tests/test_api.py`.
 - Новая настройка: поле в `Settings` + `from_env` (числа через `_number`, секреты через `_secret`: ошибка попадает в общий список) + строка в `.env.example`; обязательное на сервере — в `_server_problems`.
 - Новый маршрут, который публикует или меняет канал: `dependencies=PUBLISH` (см. `api/posts.py`), опасный для всей студии — `Depends(need("admin"))`; тест в `tests/test_access.py`. Инструмент MCP получает уровень по своим аннотациям (`PUBLIC` — `publish`, только чтение — `read`, остальное — `draft`).
 - Новый фоновый цикл: функция в списке `factories` в `main.lifespan` (запускается под lease, только в одном процессе) и строки по [OBSERVABILITY.md](OBSERVABILITY.md#куда-добавлять-новое).
@@ -72,6 +73,7 @@
 - Подменять Telegram: `monkeypatch.setattr(telegram, "call", fake)`.
 - `tests/e2e_ui.mjs` — раннер браузерных проверок против запущенной студии и `tests/mock_telegram.py`; сами проверки — по файлу на каждую в `tests/e2e/`.
 - `npm run test:render` — `tests/render_unit.mjs`: очистка HTML/Markdown в render.js на враждебных примерах (script, on*, javascript:, svg, mXSS), без студии. Новая дыра в санитайзере → сначала пример сюда.
+- `npm run test:codemirror` — `tests/codemirror_vendor.mjs`: вендоренный CodeMirror (`make vendor`, [0017](decisions/0017-codemirror-vendored-modules.md)) грузится в Node без DOM, каждый bare-импорт запрещён. `npm run test:completion` — `tests/completion_unit.mjs`: подсказки вкладок исходника (`static/js/completion.js`) через настоящий `CompletionContext` на спецификации, которую отдаёт `GET /api/spec` (типы с `const_field` и конверт поста `post`: поля `models.Post`, параметры sendRichMessage и sendPoll из `api/specs.py`).
 - `npm run test:parity` — `tests/render_parity.mjs`: предпросмотр каждого примера из `tests/telegram_parse/captured.json` совпадает с предпросмотром блоков, которые для него вернул настоящий Telegram. Новый пример: добавить в `cases.json` и записать `scripts/capture_telegram_parse.py` (нужен токен и чат, сообщения сразу удаляются). Осознанное расхождение помечается `known_gap` с причиной.
 - `npm run lint` — ESLint для `app/static` и тестов на JS: ловит неопределённые имена и забытые импорты, которые браузер покажет только при клике.
-- Перед изменением и перед PR: `make check` (ruff, формат, mypy, `lint-imports`, pytest, ESLint, tsc, `test:render`, `test:parity`, `test:shots`).
+- Перед изменением и перед PR: `make check` (ruff, формат, mypy, `lint-imports`, pytest, ESLint, tsc, сверка вендора CodeMirror, `test:codemirror`, `test:completion`, `test:render`, `test:parity`, `test:shots`).

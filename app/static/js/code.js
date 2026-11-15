@@ -1,4 +1,5 @@
 // HTML and Markdown modes: snippet bars and textarea helpers.
+import { insertSource } from './code-editor.js';
 import { $, h } from './dom.js';
 import { changed } from './editor.js';
 import { addMediaEntry } from './media.js';
@@ -6,6 +7,7 @@ import { S } from './state.js';
 
 // ---------- code modes ----------
 export function insertAtCursor(ta, snip) {
+  if (insertSource(ta, snip)) return;
   const [a, b] = [ta.selectionStart, ta.selectionEnd];
   const sel = ta.value.slice(a, b);
   const text = snip.replace('$SEL$', sel);

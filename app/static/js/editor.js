@@ -2,6 +2,7 @@
 import { api } from './api.js';
 import { $, $$, clone, debounce, h, toast } from './dom.js';
 import { channelTitle } from './channels.js';
+import { setSource, showSource } from './code-editor.js';
 import { saveDraft } from './drafts.js';
 import { renderBlocksPane } from './forms.js';
 import { recordHistory } from './history.js';
@@ -84,8 +85,8 @@ export function loadPost(post) {
 
 export function renderAll() {
   renderBlocksPane();
-  $('#src-html').value = S.buf.html;
-  $('#src-markdown').value = S.buf.markdown;
+  setSource(/** @type {HTMLTextAreaElement} */ ($('#src-html')), S.buf.html);
+  setSource(/** @type {HTMLTextAreaElement} */ ($('#src-markdown')), S.buf.markdown);
   renderJson();
   renderMedia();
   renderKeyboard();
@@ -103,6 +104,7 @@ export function setMode(mode, silent) {
   ['blocks', 'html', 'markdown', 'json'].forEach((m) => { $('#pane-' + m).hidden = m !== mode; });
   $('#panel-media').hidden = mode === 'blocks';
   if (mode === 'json') { renderJson(); $('#json-err').textContent = ''; }
+  if (mode !== 'blocks') showSource(mode);
   const hints = { blocks: 'отправляется как rich_message.blocks', html: 'отправляется как rich_message.html', markdown: 'отправляется как rich_message.markdown', json: 'активный формат: ' + S.format };
   $('#mode-hint').textContent = hints[mode];
   if (!silent) changed();
@@ -116,7 +118,7 @@ export function renderJson() {
   const post = buildPost();
   const text = S.json ? S.json.text : JSON.stringify(post, null, 2);
   const ta = /** @type {HTMLTextAreaElement} */ ($('#src-json'));
-  if (ta.value !== text) ta.value = text;
+  setSource(ta, text);
   $('#json-stale').hidden = !S.json || S.json.base === JSON.stringify(post);
   $('#mode-tabs [data-mode=json]').classList.toggle('pending', !!S.json);
 }

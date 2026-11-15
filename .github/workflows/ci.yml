@@ -72,6 +72,8 @@ jobs:
           node-version: "22"
       - run: pip install -r requirements.txt
       - run: npm ci && npx playwright install --with-deps chromium
+      # the source tabs' suggestions on the spec GET /api/spec gives: Python from requirements.txt, so here and not in js
+      - run: npm run test:completion
       # the stand of make e2e-local: mock Telegram and a studio with an empty DATA_DIR; their log tails on a failure
       - run: scripts/e2e_local.sh
       - uses: actions/upload-artifact@v7

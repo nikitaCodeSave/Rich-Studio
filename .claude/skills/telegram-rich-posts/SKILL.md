@@ -26,6 +26,7 @@ curl -s https://raw.githubusercontent.com/PaulSonOfLars/telegram-bot-api-spec/ma
 - If the version is newer than 10.4, read what changed before writing the post: `POST $S/api/spec/refresh` returns the diff (new types, fields, methods), and https://core.telegram.org/bots/api-changelog has the human description. Prefer the new features when they fit the user's goal and say which ones you used.
 - Exact fields of any type or method, from the current spec:
   `curl -s $S/api/spec/type/InputRichBlockTable | jq` (or `jq '.types.InputRichBlockTable' api.json`).
+- Every field a post can have, as the editor's JSON tab suggests them: `curl -s $S/api/spec | jq '.post.types | map_values([.fields[].name])'` (the post's own fields; `PostOptions`, the sendRichMessage parameters `options` takes; `PollAfter`, the sendPoll ones of `poll_after`).
 - The HTML/Markdown tag grammar is not in api.json. It lives in https://core.telegram.org/bots/api#rich-message-formatting-options. When a tag below is marked ⚠️ or the version is newer, check that section (WebFetch may truncate the page; per-type pages at https://docs.aiogram.dev mirror the spec).
 
 ## 2. Request shape
