@@ -6,7 +6,7 @@
 |---|---|---|
 | `app/cli.py` | токены доступа из командной строки (`make token`) | экрана для токенов в редакторе нет намеренно |
 | `app/main.py` | `create_app()`: middleware, обработчики ошибок, роутеры, фоновые циклы | логики нет |
-| `app/settings.py` | все переменные окружения в одном `Settings`; модули вызывают `settings.get()` в момент использования; проверка при старте (`SettingsError` со всеми ошибками сразу), секреты из `*_FILE`, правила `STUDIO_MODE=server` | не читает env при импорте других модулей |
+| `app/settings.py` | все переменные окружения в одном `Settings`; модули вызывают `settings.get()` в момент использования; проверка при старте (`SettingsError` со всеми ошибками сразу), секреты из `*_FILE`, правила `STUDIO_MODE=server` (`https://` в `STUDIO_URL`, токен бота, `STUDIO_API_KEY` не короче `SERVER_KEY_MIN` = 32 символов, иначе студия не стартует; без ключа вход только по именным токенам, их наличие проверяет `main.py` при старте) | не читает env при импорте других модулей |
 | `app/security.py` | Host, CSRF, Content-Type, CSP; кто спрашивает (`Principal`: именной токен, `STUDIO_API_KEY` или cookie сессии редактора) и уровень по методу запроса (GET — `read`, остальное — `draft`) | уровни выше `draft` проверяют сами маршруты (`api.deps.need`) и инструменты MCP (`mcp_tools.common.level_of`) |
 | `app/logs.py` | журнал: stderr для человека, JSON с ротацией в `DATA_DIR/logs` для агента, `request_id` на каждой строке (`bind`), вычистка токена, чтение с фильтрами | |
 | `app/metrics.py` | счётчики, задержки p50/p95 и пульс фоновых циклов в памяти процесса; его можно звать из любого слоя | не пишет на диск |
@@ -37,7 +37,7 @@
 
 ## Сервер
 
-`deploy/`: студия в образе из GHCR (uid 10001, read-only), Caddy с HTTPS, Litestream с копией базы в S3. Образ собирает `.github/workflows/image.yml` по ручному запуску или тегу `v*`, пакеты из `requirements.lock` с хэшами. Восстановление из реплики проверяет `scripts/restore_check.sh` (CI `restore.yml`, ежедневно). Решение: [0010](decisions/0010-server-image-and-pinned-spec.md).
+`deploy/`: студия в образе из GHCR (uid 10001, read-only), Caddy с HTTPS, Litestream с копией базы в S3. Образ собирает `.github/workflows/image.yml` по ручному запуску или тегу `v*`, пакеты из `requirements.lock` с хэшами. Что образ стартует без сети, останавливается по `docker stop` с кодом 0 в пределах `stop_grace_period` и сохраняет данные после перезапуска, проверяет `scripts/image_smoke.sh` (CI `ci.yml`, job `docker`). Восстановление из реплики проверяет `scripts/restore_check.sh` (CI `restore.yml`, ежедневно). Решение: [0010](decisions/0010-server-image-and-pinned-spec.md).
 
 ## Политика ошибок при отправке
 
