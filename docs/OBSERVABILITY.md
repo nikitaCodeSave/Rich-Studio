@@ -27,6 +27,8 @@
 | `health.change` | `services/housekeeping.watch` | check, status, action |
 | `cleanup`, `backup.daily`, `start`, `stop` | уборка, бэкап, запуск | что сделано |
 | `forward.import` | `services/forward_import` (пост, пересланный боту) | `draft_id` и число `warnings`, или `refused` с причиной |
+| `send.unrecorded` (ERROR) | `services/publisher`: Telegram принял пост или опрос после поста, база не приняла запись (диск полон, только чтение) | chat_id, message_id, post_id (у опроса после поста пусто) |
+| `send.recorded` | `services/publisher.write_unrecorded`: такая запись дописана позже (ERROR, если строки уже нет) | post_id, message_id |
 
 - Токен вычищается из каждой готовой строки (`logs.scrub`) в обоих выходах, включая трассировки. Текст постов, запросы и тела ответов не пишутся. `httpx` понижен до `WARNING`: его строки с URL дублировали наши.
 - Предупреждения `uvicorn.error` (падение запроса с трассировкой) тоже попадают в файл.

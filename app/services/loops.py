@@ -85,8 +85,10 @@ class Loops:
             await self._stand_by()
 
     def _lead(self) -> None:
-        # nobody else runs the loops now: a "sending" row no process of ours is sending was cut off by a crash
-        stale = store.recover_stale_sending(keep=publisher.in_flight)
+        # nobody else runs the loops now: a "sending" row no process of ours is sending was cut off by a crash.
+        # One Telegram accepted and the database refused is known to be out: written now, or left for later
+        publisher.write_unrecorded()
+        stale = store.recover_stale_sending(keep={*publisher.in_flight, *publisher.unrecorded})
         if stale:
             log.warning("%d posts were being sent when the service stopped; marked failed", stale)
         STATE.role, STATE.holder = "leader", STATE.owner
@@ -115,6 +117,10 @@ class Loops:
             await asyncio.sleep(0.2)
         if publisher.in_flight:
             log.warning("stopping with %d sends under way", len(publisher.in_flight))
+        if publisher.write_unrecorded():  # the last chance: the next start marks what is left "may have gone"
+            log.error(
+                "stopping with %d sent posts the database did not take (send.unrecorded)", len(publisher.unrecorded)
+            )
         await _cancel([*self.tasks, *([self.keeper] if self.keeper else [])])
         if STATE.role == "leader":
             with contextlib.suppress(Exception):
