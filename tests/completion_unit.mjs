@@ -14,9 +14,9 @@ import { htmlCatalog, htmlSource, jsonSource } from '../app/static/js/completion
 
 const repo = fileURLToPath(new URL('..', import.meta.url));
 const py = process.env.PYTHON || (existsSync(join(repo, '.venv/bin/python')) ? join(repo, '.venv/bin/python') : 'python3');
-const dump = 'import sys; sys.path.insert(0, "."); import json, spec; spec.current.load_initial(); from api.specs import get_spec; print(json.dumps(get_spec()))';
+const dump = 'import sys; sys.path.insert(0, "app"); import json, spec; spec.current.load_initial(); from api.specs import get_spec; print(json.dumps(get_spec()))';
 const spec = JSON.parse(execFileSync(py, ['-I', '-c', dump], {
-  cwd: join(repo, 'app'), env: { ...process.env, DATA_DIR: mkdtempSync(join(tmpdir(), 'rs-completion-')), SPEC_PIN: 'on' }, maxBuffer: 1 << 26,
+  cwd: repo, env: { ...process.env, DATA_DIR: mkdtempSync(join(tmpdir(), 'rs-completion-')), SPEC_PIN: 'on' }, maxBuffer: 1 << 26,
 }).toString());
 // snippets.js is a classic script that sets window.SNIPPETS
 globalThis.window = /** @type {any} */ ({});
