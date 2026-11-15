@@ -89,7 +89,7 @@ export function reschedulePost(p) {
 /** Earlier versions of the post: what each one changed, a small preview, and «В редактор» for any of them. */
 export async function showHistory(p) {
   const [now, versions] = await Promise.all([api('GET', '/api/posts/' + p.id), api('GET', `/api/posts/${p.id}/versions`)]);
-  const load = (payload) => { closeDialog(); loadPost(payload); changed(); toast('Загружено в редактор. «Обновить пост» вернёт его в канал', 'ok'); };
+  const load = (payload) => { closeDialog(); loadPost(payload, true); changed(); toast('Загружено в редактор. «Обновить пост» вернёт его в канал', 'ok'); };
   // newest first: each entry is compared with the one it replaced
   const all = [{ label: now.status === 'sent' ? 'Сейчас в канале' : 'Сейчас в очереди', meta: '', payload: now.payload },
     ...versions.map((v) => ({ label: 'До замены ' + when(v.replaced_at), meta: v.actor && v.actor !== 'ui' ? v.actor : '', payload: v.payload }))];
