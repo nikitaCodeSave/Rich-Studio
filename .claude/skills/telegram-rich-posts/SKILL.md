@@ -7,7 +7,7 @@ description: Write, check, preview and publish Telegram channel posts with Rich 
 
 Use this skill when the user wants to write, format, preview, publish, schedule or edit a Telegram post (usually in their channel), or asks what formatting the Bot API supports.
 
-Baseline knowledge below is for **Bot API 10.3 (24.08.2026)**. Telegram ships new formatting often, so step 1 is mandatory.
+Baseline knowledge below is for **Bot API 10.4 (09.11.2026)**. Telegram ships new formatting often, so step 1 is mandatory.
 
 ## 1. Check freshness first (every session)
 
@@ -23,7 +23,7 @@ curl -s https://raw.githubusercontent.com/PaulSonOfLars/telegram-bot-api-spec/ma
 ```
 
 - With the `rich-studio` MCP tools: `bot_api_status`, and `refresh_bot_api` to download the newest spec right now (the studio otherwise checks at startup and every 12 hours; a server studio answers `pinned`: its spec changes only with an image update, so say that instead of retrying). Both report `gaps`: blocks the editor has no Russian label or preview for yet. Such blocks still send fine; tell the user the preview may show them as a JSON stub.
-- If the version is newer than 10.3, read what changed before writing the post: `POST $S/api/spec/refresh` returns the diff (new types, fields, methods), and https://core.telegram.org/bots/api-changelog has the human description. Prefer the new features when they fit the user's goal and say which ones you used.
+- If the version is newer than 10.4, read what changed before writing the post: `POST $S/api/spec/refresh` returns the diff (new types, fields, methods), and https://core.telegram.org/bots/api-changelog has the human description. Prefer the new features when they fit the user's goal and say which ones you used.
 - Exact fields of any type or method, from the current spec:
   `curl -s $S/api/spec/type/InputRichBlockTable | jq` (or `jq '.types.InputRichBlockTable' api.json`).
 - The HTML/Markdown tag grammar is not in api.json. It lives in https://core.telegram.org/bots/api#rich-message-formatting-options. When a tag below is marked ⚠️ or the version is newer, check that section (WebFetch may truncate the page; per-type pages at https://docs.aiogram.dev mirror the spec).
@@ -39,14 +39,14 @@ Which format:
 - **html**: covers everything, easiest to hand-edit.
 - **markdown**: GFM plus `||spoiler||`, `==marker==`, `$formula$` (Pandoc rules: `$5 и $10` is NOT a formula only because of the space and digit rules, check it), `$$block$$` on its own line, `[^1]` footnotes, and allowed HTML tags. Tables are always bordered and striped; `__x__` is bold, not underline; `~sub~` and `^sup^` do not exist (use `<sub>`, `<sup>`). A single line break inside a paragraph becomes a space: end the line with two spaces or `\` for a real break.
 
-## 3. Cheat sheet (10.3)
+## 3. Cheat sheet (10.4)
 
 Blocks (`type`): `paragraph{text}`, `heading{text,size 1-6}`, `pre{text,language?}`, `footer`, `divider`, `mathematical_expression{expression}` (LaTeX), `anchor{name}`, `list{items[{blocks,has_checkbox?,is_checked?,value?,type?}]}`, `blockquote{blocks,credit?}`, `expandable_blockquote{text,credit?}`, `pullquote{text,credit?}`, `collage{blocks,caption?}`, `slideshow{blocks,caption?}`, `table{cells[[{text?,is_header?,colspan?,rowspan?,align,valign}]],is_bordered?,is_striped?,is_compact?,caption?}`, `details{summary,blocks,is_open?}`, `map{location{latitude,longitude},zoom?,width?,height?,caption?}`, `buttons{buttons[1-8],align?}`, `photo|video|animation|audio|document|voice_note{<kind>: InputMedia*, caption?}`, `thinking` (drafts in private chats only).
 Captions are `{text, credit?}`. Table cell `align` (left/center/right) and `valign` (top/middle/bottom) are required.
 
 List item = blocks, not text: `{"type":"list","items":[{"blocks":[{"type":"paragraph","text":"Пункт"}]}]}`.
 
-Inline RichText: a string, an array, or `{type, text, ...}` with type `bold, italic, underline, strikethrough, spoiler, marked, code, subscript, superscript, url{url}, text_mention{user}, email_address, phone_number, bank_card_number, mention{username}, hashtag, cashtag, bot_command, date_time{unix_time,date_time_format}, custom_emoji{custom_emoji_id,alternative_text}, mathematical_expression{expression}, anchor{name}, anchor_link{anchor_name}, reference{name}, reference_link{reference_name}, button{button}`.
+Inline RichText: a string, an array, or `{type, text, ...}` with type `bold, italic, underline, strikethrough, spoiler, marked, code, subscript, superscript, url{url}, text_mention{user}, email_address, phone_number, bank_card_number, ton_address{address}, mention{username}, hashtag, cashtag, bot_command, date_time{unix_time,date_time_format}, custom_emoji{custom_emoji_id,alternative_text}, mathematical_expression{expression}, anchor{name}, anchor_link{anchor_name}, reference{name}, reference_link{reference_name}, button{button}`.
 
 HTML tags: `p h1-h6 b i u s sub sup mark code pre>code.language-x a[href] hr footer blockquote>cite aside(pullquote) ul ol li input[type=checkbox] details>summary table[bordered striped compact] caption tr th td[colspan rowspan align valign] figure figcaption img video audio`, plus `tg-spoiler, tg-emoji[emoji-id], tg-math, tg-math-block, tg-collage, tg-slideshow, tg-document, tg-thinking, tg-button-row`.
 Checked on the real Bot API (tests/telegram_parse/captured.json): `<blockquote expandable>` (`collapsed` gives a plain quote), `<tg-time unix format>text</tg-time>` (without text it is dropped), `<tg-map lat long zoom>`, `<tg-button-row align>` with `<tg-button type=url|copy_text|callback_data ...>`, footnote `<a href="#n1">` + `<tg-reference name="n1">` (without the reference it is a plain link), `<a href="#name">` to `<a name="name">`, `<a href="#">` = top of the post. `<span class="tg-spoiler">` is NOT a spoiler. A `<table>` without attributes has no borders; headers are centred by default.
@@ -57,9 +57,15 @@ Media: put `tg://photo?id=X` (video/audio/document/animation/voice_note) in html
 
 Buttons: `RichMessageButton{text, style?: primary|success|danger|link, exactly one of url|callback_data|login_url|switch_inline_query|switch_inline_query_chosen_chat|copy_text{text}|disabled{}}`. Keyboard under the post: normal `reply_markup.inline_keyboard`; a button `url` needs a host: Telegram rejects the whole post for `https://` alone, and validation reports it as an error.
 
-Channels: no ephemeral messages, no `message_effect_id`, no `thinking`/drafts, no `web_app` buttons (use a t.me link), `callback_data` needs a running bot. Bot API has no scheduling: use the studio scheduler.
+Channels: no `message_effect_id`, no `thinking`/drafts, no `web_app` buttons (use a t.me link), `callback_data` needs a running bot. Bot API has no scheduling: use the studio scheduler.
 
-Limits: 32 768 characters (client folds after ~8 000), 1-8 buttons per row, callback_data 1-64 bytes, map zoom 0-24. Unofficial: 50 media, 500 blocks, nesting 16.
+New in 10.4:
+- `ton_address{text, address}`: an address in the TON blockchain. Rich HTML and Markdown have no tag for it, and the documented auto-detection list does not name it (it names bank card numbers): in `html`/`markdown` it is unverified whether a plain address becomes one, so use blocks when it matters.
+- Quotes from rich messages: `options.reply_parameters.quote_rich_texts` (Array of RichText, one element per quoted text of the replied rich message, in order; the first and last may be partial). It goes to Telegram as is; `describe_type ReplyParameters` has the full rules.
+- Ephemeral replies to callback buttons (`ephemeral_message_parameters.callback_query_id` without `receiver_user_id`, optionally `replace_callback_query_message`): the changelog allows them in any chat except channel direct messages, other parts of the docs still speak only of groups, and nobody checked them under a channel post. The studio answers clicks only with `answerCallbackQuery` text (`callbacks`), not with a rich reply (issue #125): do not promise one.
+- HTML widgets (`sendWidget`, JavaScript inside a message): private chats only in production, channels refuse them. Not for channel posts; the studio has no editor for them.
+
+Limits (https://core.telegram.org/bots/api#rich-message-limits): 32 768 characters including custom emoji alternative text and formula source (client folds after ~8 000), 500 blocks counting nested blocks, list items and table rows, nesting 16 (formatting and blocks), 50 media, 20 table columns; 1-8 buttons per row, callback_data 1-64 bytes, map zoom 0-24. The studio's check does not count all of these yet (issue #126): keep a margin.
 
 ## 4. Workflow with Rich Studio (`$STUDIO_URL`, http://localhost:7424 by default; API docs at /docs (Swagger UI, no /redoc), the contract at /openapi.json, both need the token when the studio has one; every route and MCP tool: docs/reference/ in the studio repo)
 

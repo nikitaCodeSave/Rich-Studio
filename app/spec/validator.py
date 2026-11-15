@@ -28,18 +28,32 @@ class Validator:
         if len(types) == 1:
             return self._check_one(value, types[0], path)
         best = None
+        best_key: tuple = (0, 0)
         for t in types:
             sub = Validator(self.spec)
             sub._check_one(value, t, path)
             if not sub.errors:
                 self.warnings += sub.warnings
                 return
-            if best is None or len(sub.errors) < len(best.errors):
-                best = sub
+            key = (len(sub.errors), self._shape_gap(value, t))
+            if best is None or key < best_key:
+                best, best_key = sub, key
         if best:
             self.errors.append(
                 f"{path}: не подходит ни под один из типов {', '.join(types)} (ближайший: {best.errors[0]})"
             )
+
+    def _shape_gap(self, value, t: str) -> int:
+        """How far type t is from the shape of the value (0 fits). On equal error counts the nearest type
+        is the one matching the shape, so its error is shown, not the first type's."""
+        if isinstance(value, list):
+            return 0 if t.startswith("Array of ") else 1
+        if isinstance(value, dict):
+            if t.startswith("Array of ") or t in PRIMITIVES:
+                return 2
+            const = self.spec.type_const(t)
+            return 0 if const and value.get(const[0]) == const[1] else 1
+        return 0 if t in PRIMITIVES else 1
 
     def _check_one(self, value, t: str, path: str):
         if t.startswith("Array of "):
