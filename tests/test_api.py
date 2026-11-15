@@ -26,7 +26,7 @@ def post_json(client, path, body, **kw):
 # ---------- spec ----------
 def test_spec_summary_has_all_rich_blocks(client):
     s = client.get("/api/spec").json()
-    assert s["version"] == "Bot API 10.3"
+    assert s["version"] == "Bot API 10.4"
     subtypes = s["types"]["InputRichBlock"]["subtypes"]
     assert len(subtypes) == 24
     consts = {s["types"][n]["const"] for n in subtypes}
