@@ -5,7 +5,7 @@ import { changed } from './editor.js';
 import { objectFields } from './forms.js';
 import { RT_LABELS, RT_WRAP } from './labels.js';
 import { htmlToRt, linkError } from './paste.js';
-import { defaultObject, isNewType, rtTypes, T } from './spec.js';
+import { defaultObject, isNewType, rtTypes, T, textMirrorField } from './spec.js';
 
 // ---------- rich text field ----------
 /** @type {{ ed: HTMLElement, sync: () => void } | null} */
@@ -193,8 +193,8 @@ export function insertEntity(typeName) {
   const selected = r ? r.toString() : '';
   const v = defaultObject(typeName);
   if ('text' in v || T(typeName).fields.some((f) => f.name === 'text')) v.text = selected || v.text || (RT_LABELS[v.type] || v.type);
-  if (v.type === 'mention' && selected) v.username = selected.replace(/^@/, '');
-  if (v.type === 'hashtag' && selected) v.hashtag = selected.replace(/^#/, '');
+  const mirror = textMirrorField(typeName);
+  if (mirror && selected) v[mirror] = selected.replace({ mention: /^@/, hashtag: /^#/ }[v.type] || /^$/, '');
   if (v.type === 'custom_emoji') v.alternative_text = selected || '⭐';
   if (v.type === 'mathematical_expression') v.expression = selected || 'E=mc^2';
   editEntity(v, (val) => {
