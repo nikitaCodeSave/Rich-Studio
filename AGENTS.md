@@ -57,7 +57,7 @@ make fmt                                        # автоисправление
 - Не править `app/bundled/api.json` руками: это копия спецификации с https://github.com/PaulSonOfLars/telegram-bot-api-spec. Обновляет её `make spec-update` (код выхода 10, если версия новая); после него сделай зелёным `tests/test_spec_coverage.py`.
 - Не подменять `asyncio.sleep` глобально в тестах: это останавливает подставной Telegram в соседнем потоке. Подменяй `_sleep` модуля.
 - Не менять старые файлы в `app/store/migrations/`, только добавлять новые.
-- Не править `requirements.lock` руками: после изменения `requirements.txt` (и в PR Dependabot) `make lock`, `tests/test_lock.py` сверяет их.
+- Не править `requirements.lock` руками: после изменения `requirements.txt` `make lock` (одну транзитивную зависимость поднимает `make lock LOCK_ARGS="--upgrade-package <имя>"`), `tests/test_lock.py` сверяет их. Python-пакеты и CodeMirror Dependabot не обновляет (`docs/decisions/0020-dependabot-self-contained-prs.md`).
 - Не добавлять сборщик, фреймворк или новую рантайм-зависимость без обсуждения: редактор специально работает без сборки.
 - Не отправлять ничего в настоящий Telegram из тестов. Для всего есть `tests/mock_telegram.py`.
 

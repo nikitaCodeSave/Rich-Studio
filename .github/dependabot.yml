@@ -1,33 +1,47 @@
-# Weekly updates, one grouped PR per ecosystem, so agents' PRs do not drown in bumps.
-# Merge order matters as for any PR: rebase on main, make check green.
+# Dependabot opens only PRs that are complete as they come: green without a commit of ours in its branch, a human
+# merges them. What needs a step of ours is updated on purpose instead (docs/decisions/0020-dependabot-self-contained-prs.md):
+# - Python packages: the image installs requirements.lock (hashes), which only `make lock` builds;
+# - CodeMirror: vendored into app/static/vendor/codemirror-*/ (docs/decisions/0017), `make vendor-update`;
+# - a new Python minor (3.12 -> 3.13) or a major of anything: a migration, not a bump.
+# A fresh CVE in any of them turns the weekly scheduled run on main red (pip-audit on the lock, npm audit, Trivy):
+# .claude/skills/ci-triage/SKILL.md.
 version: 2
 updates:
-  # requirements.lock (what the image installs) is not bumped by Dependabot: after its PR run `make lock`
-  # and push the lock, tests/test_lock.py fails until then
-  - package-ecosystem: pip
-    directory: /
-    schedule: { interval: weekly, day: monday }
-    groups:
-      python: { patterns: ["*"] }
+  # dev tools only (eslint, typescript, playwright...): the editor itself has no npm dependencies at runtime
   - package-ecosystem: npm
     directory: /
-    schedule: { interval: weekly, day: monday }
+    schedule: { interval: monthly }
+    ignore:
+      - dependency-name: "@codemirror/*"
+      - dependency-name: "@lezer/*"
+      - dependency-name: "@marijn/*"
+      - dependency-name: crelt
+      - dependency-name: style-mod
+      - dependency-name: w3c-keyname
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
-      # CodeMirror and what it imports, vendored into app/static/vendor/codemirror-*/ (docs/decisions/0017): a PR of
-      # its own; Dependabot bumps package.json and the lock only, so run `make vendor` in its branch and push
-      codemirror:
-        patterns: ["@codemirror/*", "@lezer/*", "@marijn/*", "crelt", "style-mod", "w3c-keyname"]
-      js:
-        patterns: ["*"]
-        exclude-patterns: ["@codemirror/*", "@lezer/*", "@marijn/*", "crelt", "style-mod", "w3c-keyname"]
+      js: { patterns: ["*"] }
+  # Dockerfile: python:3.12-slim, new digests and patches only; the minor moves with CI's python-version and `make lock`
   - package-ecosystem: docker
     directory: /
-    schedule: { interval: weekly, day: monday }
-  - package-ecosystem: docker-compose   # deploy/: Caddy and Litestream, tag and digest together
+    schedule: { interval: monthly }
+    ignore:
+      - dependency-name: python
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+  # deploy/: Caddy (faces the internet) and Litestream, tag and digest together; weekly, as they release rarely
+  - package-ecosystem: docker-compose
     directory: /deploy
     schedule: { interval: weekly, day: monday }
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      # 0.x: a minor may change the config
+      - dependency-name: litestream/litestream
+        update-types: ["version-update:semver-minor"]
+  # a new action major is checked by the same CI run that uses it
   - package-ecosystem: github-actions
     directory: /
-    schedule: { interval: weekly, day: monday }
+    schedule: { interval: monthly }
     groups:
       actions: { patterns: ["*"] }
