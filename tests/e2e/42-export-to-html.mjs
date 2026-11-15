@@ -25,6 +25,8 @@ export default async function ({ page, check, state, showJson, applyJson, until 
   };
 
   await page.click('#btn-new');
+  // toasts of the checks before would cover the screenshots
+  await page.evaluate(() => document.querySelector('#toasts')?.replaceChildren());
   // the browser's own alert/confirm never appear on the way
   let native = 0;
   const onDialog = () => { native++; };
