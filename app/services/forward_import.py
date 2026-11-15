@@ -26,7 +26,18 @@ from . import listing
 
 log = logging.getLogger("rich-studio.forward_import")
 REACTION = "✍"  # one of the emoji ReactionTypeEmoji allows: «written down»
-BOT_ACTIONS = {"callback_data", "callback_game", "pay"}  # answered by the bot that sent the original, not by ours
+# button actions (InlineKeyboardButton, RichMessageButton) bound to the bot that sent the original: its answers to
+# clicks, its web app, a login signed with its token, its inline mode, its game and payment. Links and copy_text stay
+BOT_ACTIONS = {
+    "callback_data",
+    "callback_game",
+    "pay",
+    "web_app",
+    "login_url",
+    "switch_inline_query",
+    "switch_inline_query_current_chat",
+    "switch_inline_query_chosen_chat",
+}
 MESSAGE_KEYS = {"voice_note": "voice"}  # media field of an InputRichBlock -> the Message field, where they differ
 GRID = ("photo", "video")  # an album of these is a grid in Telegram: a collage in the draft
 # a Message field holding content of its own, by the spec's wording («Message is a sticker…», «contains paid media»)
@@ -112,7 +123,8 @@ def _content(m: dict, warnings: list[str]) -> _Post:
     markup = _keyboard(m.get("reply_markup"), dropped)
     if dropped:
         warnings.append(
-            f"убраны кнопки ({len(dropped)}), на которые отвечал бот исходного поста: студия на них не ответит"
+            f"убраны кнопки ({len(dropped)}), которые работают только у бота исходного поста (ответ на нажатие, "
+            "веб-приложение, вход, inline-запрос, игра, оплата); ссылки и копирование текста остались"
         )
     return _Post(media, text, extra, markup, len(dropped), lost)
 

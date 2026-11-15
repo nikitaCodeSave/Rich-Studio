@@ -234,6 +234,28 @@ def test_a_photo_with_a_caption(client, tg):
     assert [b["type"] for b in above] == ["paragraph", "photo"]
 
 
+def test_buttons_that_work_only_for_the_original_bot_are_removed(client, tg):
+    # each of these acts for the bot that sent the post: its callbacks, its web app, its login, its inline mode
+    bot_only = [
+        {"text": "a", "callback_data": "x"},
+        {"text": "b", "web_app": {"url": "https://app.example.com"}},
+        {"text": "c", "login_url": {"url": "https://example.com/login"}},
+        {"text": "d", "switch_inline_query": "q"},
+        {"text": "e", "switch_inline_query_current_chat": "q"},
+        {"text": "f", "switch_inline_query_chosen_chat": {"query": "q", "allow_user_chats": True}},
+        {"text": "g", "callback_game": {}},
+        {"text": "h", "pay": True},
+    ]
+    kept = [{"text": "Сайт", "url": "https://example.com"}, {"text": "Код", "copy_text": {"text": "PROMO"}}]
+    rich = {"blocks": [{"type": "paragraph", "text": "Пост"}, {"type": "buttons", "buttons": [*bot_only[:6], *kept]}]}
+    markup = {"inline_keyboard": [bot_only, kept]}
+    assert _handle(_forward(rich_message=rich, reply_markup=markup)) == "forward_import"
+    payload = store.get_draft(store.list_drafts()[0]["id"])["payload"]
+    assert payload["rich_message"]["blocks"][1]["buttons"] == kept
+    assert payload["reply_markup"] == {"inline_keyboard": [kept]}
+    assert any("(14)" in w for w in payload["_studio"]["warnings"])
+
+
 def test_content_a_rich_post_has_no_block_for_is_named(client, tg):
     still = [{"file_id": "still", "file_unique_id": "s", "width": 720, "height": 960}]
     live = {"file_id": "lp", "file_unique_id": "lp", "width": 720, "height": 960, "duration": 2}
