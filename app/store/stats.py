@@ -30,18 +30,20 @@ def overdue(before: int) -> list[dict]:
         )
 
 
-def problem_posts(since: int) -> list[dict]:
-    """Posts that need a person: failed or missed (since `since`), first comments that failed, still sending."""
+def problem_posts(since: int, comments_sent_since: int) -> list[dict]:
+    """Posts that need a person: missed (until rescheduled or cancelled, however old), still sending, failed since
+    `since`, and first comments that failed on posts sent since `comments_sent_since` (a comment fails at the
+    latest when its wait for the forward ends, so the caller counts its window from there)."""
     with conn() as c:
         return _brief(
             c.execute(
                 """select id, chat_id, status, comment_status, error,
                           coalesce(sent_at, scheduled_at, created_at) as at from posts
-                   where (status in ('failed', 'missed') and coalesce(sent_at, scheduled_at, created_at) >= ?)
-                      or status='sending'
+                   where status in ('missed', 'sending')
+                      or (status='failed' and coalesce(sent_at, scheduled_at, created_at) >= ?)
                       or (comment_status='failed' and coalesce(sent_at, created_at) >= ?)
                    order by at desc limit 20""",
-                (since, since),
+                (since, comments_sent_since),
             )
         )
 
