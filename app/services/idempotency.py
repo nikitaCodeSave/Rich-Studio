@@ -4,8 +4,8 @@ Agents retry requests after timeouts. With the same key a retry gets the first r
 back instead of a second post in the channel:
 - done: the stored result is returned again;
 - still running: 409, try later;
-- the first attempt hit a network error mid-send ("may have gone"): the same error again,
-  never a blind resend; check the channel and use a new key;
+- the first attempt hit a network error mid-send ("may have gone"): the same error again, with what to do
+  instead, never a blind resend, however late the retry; check the channel and use a new key;
 - the first attempt failed before anything was sent (the studio or Telegram refused it):
   the key is freed, a retry runs normally;
 - any other error, or a claim left "pending" by a crash: treated like "may have gone".
@@ -29,8 +29,21 @@ MAX_KEY = 200
 STALE_PENDING = 15 * 60
 
 
+# a retry with the key of a send that may have gone never goes out (the key does not expire): say what to do instead
+BLOCKED = (
+    "Повтор с этим ключом больше ничего не отправит: если поста в канале нет, отправьте заново с новым ключом "
+    "(заголовок Idempotency-Key, в MCP параметр idempotency_key)"
+)
+
+
 def publisher_may_have_gone() -> str:
     return f"запрос прерван во время отправки. {MAY_HAVE_GONE}"
+
+
+def _blocked(detail: Any) -> MayHaveGone:
+    if isinstance(detail, dict):
+        return MayHaveGone({**detail, "message": f"{detail.get('message', '')}. {BLOCKED}"})
+    return MayHaveGone(f"{detail}. {BLOCKED}")
 
 
 def fingerprint(scope: str, body: Any) -> str:
@@ -51,9 +64,9 @@ async def run(key: str | None, scope: str, body: Any, action: Callable[[], Await
         if existing["status"] == "done":
             return existing["response"]
         if existing["status"] == "uncertain":
-            raise MayHaveGone(existing["response"])
+            raise _blocked(existing["response"])
         if time.time() - existing["created_at"] > STALE_PENDING:
-            raise MayHaveGone(publisher_may_have_gone())
+            raise _blocked(publisher_may_have_gone())
         raise Conflict("запрос с этим Idempotency-Key ещё выполняется")
     try:
         result = await action()

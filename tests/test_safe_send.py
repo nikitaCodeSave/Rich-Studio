@@ -100,6 +100,85 @@ def test_pending_key_left_by_a_crash_is_may_have_gone(client, tg):
     assert sends(tg) == 1
 
 
+DAY_AND_HOUR = 25 * 3600
+
+
+def _age_keys(seconds: int) -> None:
+    with store.conn() as c:
+        c.execute("update idempotency set created_at=created_at-?", (seconds,))
+
+
+def _lose_answers(monkeypatch):
+    """The post reaches Telegram, the answer is lost on the way back."""
+    import telegram
+
+    real = telegram.call
+
+    async def lost(method, params=None, timeout=60):
+        result = await real(method, params, timeout)
+        if method == "sendRichMessage":
+            raise httpx.ReadTimeout("timed out")
+        return result
+
+    monkeypatch.setattr(telegram, "call", lost)
+    return lambda: monkeypatch.setattr(telegram, "call", real)
+
+
+def _crash_mid_send(client, key):
+    """The process died after the post went: the claim stays "pending"."""
+    assert client.post("/api/send", json={"post": BLOCKS_POST}, headers={"Idempotency-Key": key}).status_code == 200
+    with store.conn() as c:
+        c.execute("update idempotency set status='pending', response=null where key=?", (key,))
+
+
+def test_key_after_which_the_post_may_have_gone_never_expires(client, tg, monkeypatch):
+    from services import housekeeping
+
+    h = {"Idempotency-Key": "gone-1"}
+    restore = _lose_answers(monkeypatch)
+    assert client.post("/api/send", json={"post": BLOCKS_POST}, headers=h).status_code == 502
+    restore()
+    _crash_mid_send(client, "gone-2")
+    assert sends(tg) == 2
+    _age_keys(DAY_AND_HOUR)
+    housekeeping.cleanup()
+    for key in ("gone-1", "gone-2"):
+        r = client.post("/api/send", json={"post": BLOCKS_POST}, headers={"Idempotency-Key": key})
+        assert r.status_code == 502, r.text
+        assert "мог уйти" in r.json()["detail"] and "новым" in r.json()["detail"]  # what to do instead
+    assert sends(tg) == 2
+
+
+def test_done_key_is_forgotten_after_a_day(client, tg):
+    from services import housekeeping
+
+    h = {"Idempotency-Key": "done-1"}
+    assert client.post("/api/send", json={"post": BLOCKS_POST}, headers=h).status_code == 200
+    _age_keys(DAY_AND_HOUR)
+    assert housekeeping.cleanup()["idempotency_keys"] == 1
+    assert client.post("/api/send", json={"post": BLOCKS_POST}, headers=h).status_code == 200
+    assert sends(tg) == 2
+
+
+def test_agent_without_key_is_told_to_pass_a_new_one(client, tg, monkeypatch):
+    # MCP turns the request into the key: the same draft and version stay blocked after a day too
+    from test_mcp import call
+
+    _, d, _ = call(client, "save_draft", post=BLOCKS_POST, title="Анонс")
+    publish = {"draft_id": d["id"], "version": d["version"]}
+    restore = _lose_answers(monkeypatch)
+    res, _, text = call(client, "publish_post", **publish)
+    assert res["isError"] and "мог уйти" in text
+    restore()
+    _age_keys(DAY_AND_HOUR)
+    store.idempotency.purge()
+    res, _, text = call(client, "publish_post", **publish)
+    assert res["isError"] and "мог уйти" in text and "idempotency_key" in text
+    assert sends(tg) == 1
+    res, _, _ = call(client, "publish_post", **publish, idempotency_key="anons-2")
+    assert not res.get("isError") and sends(tg) == 2
+
+
 def test_schedule_and_poll_accept_keys(client, tg):
     h = {"Idempotency-Key": "sched-1"}
     body = {"post": BLOCKS_POST, "at": "2099-01-01T09:00:00+03:00"}
