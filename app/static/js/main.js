@@ -171,7 +171,8 @@ function bindActions() {
     if (b.dataset.tab === 'uploads') loadUploads();
   });
   $('#posts-filter').onchange = () => loadPosts().catch((e) => toast(e.message, 'err'));
-  $$('#mode-tabs button').forEach((b) => b.onclick = () => setMode(b.dataset.mode));
+  // only the mode tabs: the check pill lives in the same row and keeps its own handler
+  $$('#mode-tabs button[data-mode]').forEach((b) => b.onclick = () => setMode(b.dataset.mode));
   bindJson();
   bindHtmlExport();
   $('#media-add').onclick = () => { addMediaEntry('photo', ''); changed(); };

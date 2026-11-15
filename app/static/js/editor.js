@@ -24,7 +24,8 @@ export function buildPost() {
   const rm = {};
   if (S.format === 'blocks') rm.blocks = S.buf.blocks;
   else rm[S.format] = S.buf[S.format];
-  if (S.media.length) rm.media = S.media;
+  // InputRichMessage.media lists the files of tg:// links in html/markdown; blocks hold their files themselves
+  if (S.media.length && S.format !== 'blocks') rm.media = S.media;
   for (const [k, v] of Object.entries(S.flags)) if (v) rm[k] = v;
   const post = { rich_message: rm, options: {} };
   const kb = S.keyboard.filter((r) => r.length);
@@ -52,7 +53,9 @@ export function callbacksFor(kb) {
 // Drafts keep the text of every mode, not only the one that is sent, and the JSON not applied yet;
 // the rest of `_studio` is someone else's (an imported post's source and warnings) and goes back as it came
 export function draftPayload() {
-  return { ...buildPost(), _studio: { ...S.notes, format: S.format, buffers: { blocks: S.buf.blocks, html: S.buf.html, markdown: S.buf.markdown }, ...(S.json && { json: S.json }) } };
+  // a visual post does not carry the media list of the HTML/Markdown tabs, so the draft keeps it with their text
+  const media = S.format === 'blocks' && S.media.length ? { media: S.media } : {};
+  return { ...buildPost(), _studio: { ...S.notes, format: S.format, buffers: { blocks: S.buf.blocks, html: S.buf.html, markdown: S.buf.markdown, ...media }, ...(S.json && { json: S.json }) } };
 }
 
 // the keys of `_studio` the editor writes itself; any other one is a note of the draft
@@ -84,6 +87,7 @@ export function loadPost(post, keepNotes = false) {
     if (Array.isArray(b.blocks) && !rm.blocks) S.buf.blocks = b.blocks;
     if (typeof b.html === 'string' && rm.html === undefined) S.buf.html = b.html;
     if (typeof b.markdown === 'string' && rm.markdown === undefined) S.buf.markdown = b.markdown;
+    if (Array.isArray(b.media) && !rm.media) S.media = b.media;
   }
   const j = studio && studio.json;
   S.json = j && typeof j.text === 'string' && typeof j.base === 'string' ? { text: j.text, base: j.base } : null;
@@ -108,7 +112,7 @@ export function renderAll() {
 export function setMode(mode, silent) {
   S.mode = mode;
   if (mode !== 'json') S.format = mode;
-  $$('#mode-tabs button').forEach((b) => b.classList.toggle('on', b.dataset.mode === mode));
+  $$('#mode-tabs button[data-mode]').forEach((b) => b.classList.toggle('on', b.dataset.mode === mode));
   ['blocks', 'html', 'markdown', 'json'].forEach((m) => { $('#pane-' + m).hidden = m !== mode; });
   $('#panel-media').hidden = mode === 'blocks';
   $('#blocks-tools').hidden = mode !== 'blocks';
