@@ -1,8 +1,8 @@
 """What the hand-maintained parts of the editor still lack for the bundled Bot API spec.
 
 The editor itself is generated from api.json, so a new block or inline type works
-without code. Only the Russian labels (labels.js) and the preview (render.js) are
-written by hand. When a new Bot API version is bundled, these tests list exactly
+without code. Only the Russian labels (labels.js), the preview (render.js) and the
+«В HTML» export table (html-export.js) are written by hand. When a new Bot API version is bundled, these tests list exactly
 what to add; make them green and the release is fully supported. The same check
 runs in the studio (spec/coverage.py) and is shown in the spec dialog.
 """
@@ -46,7 +46,26 @@ def test_a_new_block_in_the_spec_is_reported():
     }
     types["InputRichBlock"]["subtypes"].append("InputRichBlockHologram")
     found = {(g["part"], g["name"]) for g in gaps(types)}
-    assert found == {("labels", "hologram"), ("preview", "hologram")}
+    assert found == {("labels", "hologram"), ("preview", "hologram"), ("export", "hologram")}
+
+
+def test_a_new_inline_type_is_reported_for_the_export_too():
+    types = copy.deepcopy(SPEC["types"])
+    types["RichTextGlow"] = {
+        "name": "RichTextGlow",
+        "fields": [
+            {
+                "name": "type",
+                "types": ["String"],
+                "required": True,
+                "description": "Type of the rich text, always “glow”",
+            },
+            {"name": "text", "types": ["RichText"], "required": True, "description": "Text"},
+        ],
+    }
+    types["RichText"]["subtypes"].append("RichTextGlow")
+    found = {(g["part"], g["where"]) for g in gaps(types) if g["name"] == "glow"}
+    assert found == {("labels", "RT_LABELS"), ("preview", "renderRT"), ("export", "INLINE_FIELDS")}
 
 
 def test_skill_is_where_claude_code_finds_it():

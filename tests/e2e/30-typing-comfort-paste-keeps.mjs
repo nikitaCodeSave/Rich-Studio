@@ -65,7 +65,8 @@ export default async function ({ page, check, state, showJson, applyJson }) {
   const pill = await page.locator('#check-pill').textContent();
   // a picture pasted into a text field becomes a photo block after it
   await paste(para, {}, 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==');
-  await page.waitForTimeout(800);
+  // the picture is uploaded first, then its block is added («Вставлено: 1 файл»; the table paste above said «Вставлено 2 строки»)
+  await page.waitForSelector('#toasts .toast.ok:has-text("Вставлено:")', { timeout: 8000 }).catch(() => {});
   await showJson();
   const afterImg = (await state()).rich_message.blocks;
   await page.click('#mode-tabs [data-mode=blocks]');

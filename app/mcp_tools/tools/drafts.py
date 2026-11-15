@@ -8,6 +8,7 @@ import store
 from errors import Conflict, NotFound
 from mcp_tools.common import LOCAL, READ, TO_ME, PostArg, ToolDecorator, draft_links, parse_post
 from services import channels, posts, publisher
+from services.drafts import keep_notes
 
 
 def register(tool: ToolDecorator) -> None:
@@ -39,7 +40,9 @@ def register(tool: ToolDecorator) -> None:
     ) -> dict:
         """Сохранить черновик и сразу проверить его (validation: ошибки исправить и сохранить снова). Он появится
         в редакторе, предпросмотр по адресу preview_path; дальше preview_post и publish_post принимают draft_id.
-        С draft_id обновляет существующий черновик (связь с правкой опубликованного поста сохраняется)."""
+        С draft_id обновляет существующий черновик (связь с правкой опубликованного поста сохраняется).
+        Заметки студии в _studio (source, warnings пересланного поста) остаются; буферы редактора сбрасываются:
+        они описывали прежний пост."""
         old = store.get_draft(draft_id) if draft_id else None
         if draft_id and not old:
             raise NotFound(f"черновика {draft_id} нет")
@@ -47,7 +50,7 @@ def register(tool: ToolDecorator) -> None:
         d = store.save_draft(
             draft_id,
             title or (old or {}).get("title") or "",
-            parse_post(post),
+            keep_notes(parse_post(post), (old or {}).get("payload")),
             version,
             (old or {}).get("post_id"),
             chats,

@@ -18,7 +18,7 @@ export function updateBadge() {
   b.classList.toggle('warn', !fresh && (S.spec.gaps.length > 0 || !!(check && check.error)));
   b.title = 'Редактор построен по ' + S.spec.version + (S.spec.release_date ? ' (' + S.spec.release_date + ')' : '')
     + (fresh ? '. Есть новое в API!' : '')
-    + (S.spec.gaps.length ? `. Редактору не хватает подписей или предпросмотра для ${S.spec.gaps.length} типов` : '')
+    + (S.spec.gaps.length ? `. Редактору не хватает подписей, предпросмотра или «В HTML» для ${S.spec.gaps.length} типов` : '')
     + (check ? '. Проверено ' + when(check.at) + (check.error ? ': не удалось скачать' : '') : '');
 }
 
@@ -28,10 +28,10 @@ export function changesList(changes) {
     h('ul', { class: 'changes' }, c.items.slice(0, 80).map((i) => h('li', {}, h('span', { class: 'muted', text: (kinds[i.kind] || i.kind) + ': ' }), h('code', { text: i.name }), i.description ? ' ' + i.description.slice(0, 160) : '')))));
 }
 
-// what labels.js and render.js do not know yet: the editor still works, it only looks rougher
+// what labels.js, render.js and html-export.js do not know yet: the editor still works, it only looks rougher
 export function gapsList(gaps) {
-  if (!gaps.length) return [h('p', { class: 'ok small', text: '✓ Подписи и предпросмотр знают все блоки и элементы текста этой версии.' })];
-  const part = { labels: 'нет русской подписи (в палитре видно имя из спецификации)', preview: 'нет отрисовки (в предпросмотре заглушка с JSON, в Telegram уйдёт как есть)' };
+  if (!gaps.length) return [h('p', { class: 'ok small', text: '✓ Подписи, предпросмотр и «В HTML» знают все блоки и элементы текста этой версии.' })];
+  const part = { labels: 'нет русской подписи (в палитре видно имя из спецификации)', preview: 'нет отрисовки (в предпросмотре заглушка с JSON, в Telegram уйдёт как есть)', export: 'нет записи в HTML («В HTML» откажется переводить пост с ним)' };
   return [h('p', { class: 'w small', text: 'Чего пока не хватает редактору. Пост с этими блоками всё равно отправится; поправить можно в коде или дождаться еженедельного PR.' }),
     h('ul', { class: 'changes' }, gaps.map((g) => h('li', {}, h('code', { text: g.name }), ` (${g.kind === 'block' ? 'блок' : 'элемент текста'} ${g.type}): `, h('span', { class: 'muted', text: part[g.part] || g.part }))))];
 }
@@ -43,7 +43,7 @@ export async function refreshSpec() {
   S.spec = await api('GET', '/api/spec');
   updateBadge();
   if (r.updated) renderAll();
-  const gaps = S.spec.gaps.length ? ` Не хватает подписей или предпросмотра: ${S.spec.gaps.length}.` : '';
+  const gaps = S.spec.gaps.length ? ` Не хватает подписей, предпросмотра или «В HTML»: ${S.spec.gaps.length}.` : '';
   if (r.error) return { ok: false, text: 'Не удалось скачать спецификацию: ' + r.error + '. Работаю по ' + S.spec.version + '.' };
   if (r.updated) return { ok: true, text: `Обновлено: ${before} → ${S.spec.version}, изменений: ${(r.changes || []).length}.` + gaps };
   return { ok: true, text: 'Уже последняя версия: ' + S.spec.version + '.' + gaps };

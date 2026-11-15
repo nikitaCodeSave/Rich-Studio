@@ -7,6 +7,21 @@ from .parse import enum_values
 from .source import Spec
 
 PRIMITIVES = {"String", "Integer", "Float", "Boolean", "True", "InputFile"}
+# RichText types with `text` and one more required String field that is NOT the visible text again (a link target,
+# an anchor or reference name); every other such type (email, phone, card, TON address, mention...) repeats its text.
+# Mirrored in app/static/js/spec.js (NOT_TEXT_MIRROR); tests/test_spec_coverage.py keeps both in step.
+NOT_TEXT_MIRROR = frozenset({"url", "anchor_link", "reference", "reference_link"})
+
+
+def text_mirror_field(spec_t: dict, const) -> str | None:
+    """The one required String field (besides type and text) that repeats the visible text, or None."""
+    if not const or const[1] in NOT_TEXT_MIRROR:
+        return None
+    req = {f["name"]: f for f in spec_t.get("fields", []) if f["required"] and f["name"] != const[0]}
+    if "text" not in req or len(req) != 2:
+        return None
+    (other,) = (f for n, f in req.items() if n != "text")
+    return other["name"] if other["types"] == ["String"] else None
 
 
 class Validator:
@@ -129,6 +144,10 @@ class Validator:
                 continue
             if f["required"] and f["types"] == ["RichText"] and (v == "" or v == []):
                 self.warnings.append(f"{path}.{k}: пустой текст, Telegram может отклонить блок")
+            if v == "" and k == text_mirror_field(spec_t, const):
+                self.warnings.append(
+                    f"{path}.{k}: пустое значение, а текст есть: Telegram может отклонить или не распознать {t}"
+                )
             if k == "url" and (bad := url_error(v)):
                 # seen only for keyboard buttons (an error there); here Telegram's verdict is unchecked
                 self.warnings.append(f"{path}.{k}: {bad}")
