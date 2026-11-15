@@ -183,8 +183,8 @@ class TemplateField(BaseModel):
     label: str = Field("", description="Подпись в форме заполнения; пусто — имя поля")
     type: Literal["text", "multiline", "url"] = Field(
         "text",
-        description="text — строка, multiline — несколько строк, url — ссылка http(s)/tg/mailto/tel или файл "
-        "upload:имя (только такое поле ставится в href и src)",
+        description="text — строка, multiline — несколько строк, url — ссылка http(s)/tg/mailto/tel, #якорь, /путь "
+        "или файл upload:имя (только такое поле ставится в href и src; файл — в медиа поста, не в атрибут HTML)",
     )
     required: bool = Field(True, description="Без значения черновик не создаётся (поле без значения берёт default)")
     default: str = Field("", description="Значение, если поле не заполнили")

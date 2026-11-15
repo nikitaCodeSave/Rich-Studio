@@ -188,6 +188,39 @@ def test_a_template_where_a_value_could_make_markup_is_refused(client, body, why
     assert client.get("/api/templates").json() == []
 
 
+@pytest.mark.parametrize(
+    "src",
+    [
+        # HTML5 skips only space, \t, \n, \r, \f before a value: after another space the value is unquoted, and
+        # «z href=https://evil.example onclick=alert(1)» would add attributes
+        '<span title=\v"{{x}}">x</span>',
+        '<span title=\u00a0"{{x}}">x</span>',
+        '<span title=\u3000"{{x}}">x</span>',
+        # "=" without an attribute name and a quote in a tag name: a browser reads no quoted value there, so the second
+        # tag gets the variable among its attributes
+        '<a ="x>T<a title=">" {{x}}>link</a>',
+        '<i=" x>T<b title=">" {{x}}>y</b>',
+        '<p title="a"dir="{{x}}">x</p>',
+        '<p title=a"{{x}}">x</p>',
+        "<p/title='{{x}}'>x</p>",
+        '<p title="{{x}}">x</p><p',
+        '<p title="{{x}}>x</p>',
+        "<!-->{{x}}<p>x</p>",
+        "<!-- a --!>{{x}}",
+        '<xmp><p title="</xmp><b {{x}}>">y</p>',
+        "<textarea>{{x}}</textarea>",
+        "<![CDATA[{{x}}]]>",
+        "<p>a < {{x}}</p>",
+        "<p>a <{{x}}</p>",
+        "<p>x</p {{x}}>",
+    ],
+)
+def test_html_a_browser_reads_otherwise_is_refused(client, src):
+    r = client.post("/api/templates", json=html_post(src, {"key": "x"}))
+    assert r.status_code == 422, (src, r.text)
+    assert client.get("/api/templates").json() == []
+
+
 def test_quoted_attributes_and_whole_link_fields_are_allowed(client):
     t = make(
         client,
@@ -205,6 +238,37 @@ def test_quoted_attributes_and_whole_link_fields_are_allowed(client):
         assert seen.attrs["p"] == {"title": hostile, "dir": "ltr"}, hostile
         assert seen.attrs["a"] == {"href": "tg://resolve?domain=durov"}
         assert "".join(seen.text) == hostile + " & x < yссылка"
+
+
+@pytest.mark.parametrize(
+    "src",
+    [
+        '<p title\n=\r\n"{{x}}">x</p>',
+        "<p\ttitle='{{x}}'/>",
+        "<!---->{{x}}<!-- <b> -- > --><br/>",
+        '<a href="#top" title="{{x}}">x</a> &amp; {{x}} > 1',
+    ],
+)
+def test_html_written_as_browsers_read_it_is_accepted(client, src):
+    assert client.post("/api/templates", json=html_post(src, {"key": "x"})).status_code == 200, src
+
+
+def test_a_link_field_takes_an_anchor_or_a_path_and_a_file_only_where_it_is_sent(client):
+    """As the preview's safeUrl: #anchor and /path are links too. upload:name works only in the post's JSON (media):
+    in an HTML attribute it would stay upload:name, the HTML way to a file is tg://photo?id= and rich_message.media."""
+    t = make(
+        client,
+        html_post('<a href="{{u}}">к разделу</a>', {"key": "u", "type": "url", "default": "#details"}),
+    )
+    for ok in ("#details", "/media/a.png", "https://example.com"):
+        r = fill(client, t, u=ok)
+        assert r.status_code == 200, (ok, r.text)
+    for bad in ("upload:a.png", "//evil.example/x"):
+        r = fill(client, t, u=bad)
+        assert r.status_code == 422, (bad, r.text)
+    body = html_post('<img src="{{u}}">', {"key": "u", "type": "url", "default": "upload:a.png"})
+    r = client.post("/api/templates", json=body)
+    assert r.status_code == 422 and "upload:" in r.json()["detail"]
 
 
 def test_values_are_checked_before_the_draft_is_made(client):
