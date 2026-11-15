@@ -248,22 +248,25 @@ def _span(cell, key: str) -> int:
 
 def table_columns(rows: list) -> tuple[int, int]:
     """Columns of a table: the widest row by colspan, and the width when a cell with rowspan also takes its columns in
-    the rows below, as in HTML (the documentation does not say whether Telegram counts them so)."""
+    the rows below, as in HTML (the documentation does not say whether Telegram counts them so). The second one is
+    followed only up to MAX_COLUMNS + 1: wider is over the limit anyway, and the count stays linear in the cells."""
+    edge = MAX_COLUMNS + 1
     widest = grid = 0
-    below: dict[int, int] = {}  # column -> rows below that a cell with rowspan still covers
+    below: dict[int, int] = {}  # column (< edge) -> rows below that a cell with rowspan still covers
     for row in rows:
         here, below = below, {k: n - 1 for k, n in below.items() if n > 1}
         col = 0
         for c in row:
             while col in here:
                 col += 1
-            # a span over the limit is too wide anyway; capped, a colspan of 10**9 cannot stall the loop
-            span, down = min(_span(c, "colspan"), MAX_COLUMNS + 1), _span(c, "rowspan")
+            if col >= edge:
+                break
+            span, down = _span(c, "colspan"), _span(c, "rowspan")
             if down > 1:
-                below.update(dict.fromkeys(range(col, col + span), down - 1))
+                below.update(dict.fromkeys(range(col, min(col + span, edge)), down - 1))
             col += span
         widest = max(widest, sum(_span(c, "colspan") for c in row))
-        grid = max(grid, col, *(k + 1 for k in here))
+        grid = max(grid, min(col, edge), *(k + 1 for k in here))
     return widest, grid
 
 
@@ -272,7 +275,7 @@ class _Count:
     this code is counted too. A block is an element of an Array of InputRichBlock, a list item (an object holding
     blocks) or a table row. `depth` is the strict reading of "levels of nested formatting and blocks": a block,
     a list item, a table row and a piece of formatted text (any RichText object) each add a level. `nest` counts
-    blocks inside blocks only, which every reading counts."""
+    blocks inside blocks only; every reading counts at least `nest` - 1 levels (the top block may not be one)."""
 
     def __init__(self, spec: Spec):
         self.spec = spec
@@ -382,29 +385,33 @@ def _block_limits(v: Validator, blocks: list) -> dict:
         v.errors.append(f"блоков вместе с пунктами списков и строками таблиц: {n.blocks}, лимит {MAX_BLOCKS}")
     if n.media > MAX_MEDIA:
         v.errors.append(f"медиа: {n.media}, лимит {MAX_MEDIA}")
-    if n.nest > MAX_DEPTH:
-        v.errors.append(f"{n.deepest_nest}: {n.nest} уровней блоков друг в друге, лимит {MAX_DEPTH}")
+    if n.nest - 1 > MAX_DEPTH:  # over the limit even if the top block is not a level of nesting
+        v.errors.append(
+            f"{n.deepest_nest}: {n.nest} блоков друг в друге, больше {MAX_DEPTH} уровней вложенности при любом счёте"
+        )
     elif n.depth > MAX_DEPTH:
         v.warnings.append(
-            f"{n.deepest}: {n.depth} уровней вложенности вместе с пунктами списков, строками таблиц и форматированием "
-            f"текста, лимит {MAX_DEPTH} (как именно Telegram считает уровни, документация не уточняет)"
+            f"{n.deepest}: {n.depth} уровней вложенности, если уровень — каждый блок (и верхний), пункт списка, "
+            f"строка таблицы и форматирование текста; лимит {MAX_DEPTH} (как Telegram считает уровни, "
+            "документация не уточняет)"
         )
     for where, widest, grid in n.tables:
         if widest > MAX_COLUMNS:
             v.errors.append(f"{where}: колонок в таблице {widest}, лимит {MAX_COLUMNS}")
         elif grid > MAX_COLUMNS:
             v.warnings.append(
-                f"{where}: колонок в таблице {grid}, если ячейка с rowspan занимает свои колонки и в строках ниже; "
-                f"лимит {MAX_COLUMNS}"
+                f"{where}: колонок в таблице больше {MAX_COLUMNS}, если ячейка с rowspan занимает свои колонки "
+                "и в строках ниже"
             )
     return {"blocks": n.blocks, "depth": n.depth, "chars": n.chars, "media": n.media}
 
 
 TAG_RE = re.compile(r"<[^>]+>")
 MD_TARGET_RE = re.compile(r"\]\([^)]*\)")  # where a link or an image points: [text](url "title")
-# surely not text in Markdown: footnote names, reference definitions, code fence lines, list numbers, checkboxes
+# surely not text in Markdown: footnote names, reference definitions, code fence lines, list numbers, checkboxes;
+# and any line with a "|": Telegram cuts table rows to the width of the header, which only a parser can tell
 MD_MARKUP_RE = re.compile(
-    r"\[\^[^\]]*\]|^[ \t]*\[[^\]]+\]:.*$|^[ \t]*(?:```|~~~).*$|^[ \t]*\d+[.)][ \t]|\[[ xX]\]", re.M
+    r"^.*\|.*$|\[\^[^\]]*\]|^[ \t]*\[[^\]]+\]:.*$|^[ \t]*(?:```|~~~).*$|^[ \t]*\d+[.)][ \t]|\[[ xX]\]", re.M
 )
 HTTP_MEDIA_RE = re.compile(
     r"<(?:img|video|audio|tg-document)\b[^>]*\bsrc\s*=\s*[\"']?https?://|!\[[^\]]*\]\(\s*<?https?://", re.I
@@ -413,7 +420,8 @@ HTTP_MEDIA_RE = re.compile(
 
 def source_chars(src: str, markdown: bool) -> tuple[int, int]:
     """Text characters of html or markdown as far as the source tells without Telegram's parser: about how many
-    (without tags and link addresses), and at least how many (also without spaces and, in Markdown, markup)."""
+    (without tags and link addresses), and at least how many (also without spaces and, in Markdown, markup and table
+    lines). tests/test_rich_limits.py keeps the second one under Telegram's own count for every captured parse."""
     text = TAG_RE.sub("", src)
     if markdown:
         text = MD_TARGET_RE.sub("]", text)

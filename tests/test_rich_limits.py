@@ -3,11 +3,17 @@
 Over a limit the documentation states plainly is an error (Telegram refuses the post); where it leaves the reading
 open (how levels of nesting are counted, rowspan, the text of html/markdown before Telegram parses it) a warning."""
 
+import json
+import time
+from pathlib import Path
+
 import pytest
 
 import spec
+from spec.validator import source_chars, table_columns
 
 CELL = {"text": "x", "align": "left", "valign": "top"}
+CAPTURED = json.loads((Path(__file__).parent / "telegram_parse" / "captured.json").read_text("utf-8"))
 
 
 @pytest.fixture(scope="module")
@@ -135,13 +141,18 @@ def quotes(levels):
     return block
 
 
-def test_16_levels_of_blocks_pass_and_17_is_an_error(current):
+def test_16_blocks_inside_one_another_pass_17_warn_and_18_are_an_error(current):
+    """If the top block is not a level of nesting yet, Telegram takes 17 blocks inside one another: only from 18
+    is the limit surely over."""
     r = check(current, [quotes(15)])
     assert r["ok"] and not r["warnings"] and r["stats"]["depth"] == 16, r
     r = check(current, [quotes(16)])
+    assert r["ok"], r["errors"]
+    assert has(r["warnings"], "rich_message.blocks[0]" + ".blocks[0]" * 16 + ": 17 уровней вложенности"), r
+    r = check(current, [quotes(17)])
     assert not r["ok"], r
-    (err,) = [e for e in r["errors"] if "уровней" in e]
-    assert err.startswith("rich_message.blocks[0]" + ".blocks[0]" * 16 + ":") and "лимит 16" in err
+    (err,) = [e for e in r["errors"] if "вложенности" in e]
+    assert err.startswith("rich_message.blocks[0]" + ".blocks[0]" * 17 + ": 18 блоков друг в друге"), err
 
 
 def test_nested_formatting_counts_as_levels_but_only_warns(current):
@@ -198,7 +209,16 @@ def test_rowspan_that_widens_a_row_below_only_warns(current):
     assert r["ok"] and not r["warnings"], r
     r = check(current, [{"type": "table", "cells": [[tall] + [CELL] * 19, [CELL] * 20]}])
     assert r["ok"], r["errors"]
-    assert has(r["warnings"], "rich_message.blocks[0]: колонок в таблице 21, если ячейка с rowspan"), r["warnings"]
+    assert has(r["warnings"], "rich_message.blocks[0]: колонок в таблице больше 20, если ячейка с rowspan"), r
+
+
+def test_rowspan_width_is_followed_only_to_the_limit(current):
+    """Before, every column of every tall cell was followed: 500 rows of 100 cells with rowspan took a second."""
+    tall = {**CELL, "rowspan": 10**6}
+    started = time.perf_counter()
+    assert table_columns([[tall] * 100] * 1000) == (100, 21)
+    assert time.perf_counter() - started < 0.5
+    assert table_columns([[tall] * 3, [CELL] * 2, [{**CELL, "colspan": 30}]]) == (30, 21)
 
 
 # ---------- html and markdown ----------
@@ -234,6 +254,23 @@ def test_markdown_markup_is_not_counted_for_the_error(current):
     r = check(current, markdown="**" + "я" * 32760 + "**\n" + "- [x] **a**\n" * 4)
     assert r["ok"], r["errors"]
     assert has(r["warnings"], "текст около"), r["warnings"]
+
+
+def test_markdown_cells_past_the_header_are_not_an_error(current):
+    """Telegram cuts a table row to the width of its header: the third cell here is dropped, not sent."""
+    r = check(current, markdown="| a | b |\n|---|---|\n| x | y | " + "я" * 32800 + " |")
+    assert r["ok"], r["errors"]
+    assert has(r["warnings"], "текст около"), r["warnings"]
+
+
+@pytest.mark.parametrize("name", [k for k, v in CAPTURED.items() if v.get("blocks") and v.get("source")])
+def test_the_at_least_count_is_never_over_telegrams_own(current, name):
+    """The error for html/markdown rests on the lower estimate: on every real parse it is at most what Telegram made."""
+    case = CAPTURED[name]
+    blocks = spec.to_input_blocks(current, case["blocks"])
+    exact = check(current, blocks)["stats"]["chars"]
+    about, at_least = source_chars(case["source"], markdown=case["format"] == "markdown")
+    assert at_least <= exact, (at_least, exact, about)
 
 
 # ---------- the whole post ----------
