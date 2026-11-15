@@ -1,8 +1,10 @@
 """A post the owner forwards to the bot becomes a draft with the same formatting; nothing goes to a channel.
 
-Updates in tests/forward_import/ are Message objects as getUpdates returns them. rich_channel_post.json is built
-from app/bundled/api.json (the test below checks it against the spec). A real one is added by dropping the
-getUpdates answer into that folder: every file there must become a draft without validation errors.
+Each file in tests/forward_import/ is exactly one update: the owner's forward of a post from a public channel, with
+the owner's own id, name and username replaced by made-up ones. Never a whole getUpdates answer: the repository is
+public, and that answer also holds other people's clicks, joins, comments and private messages.
+rich_channel_post.json is built from app/bundled/api.json (a test checks it against the spec); a real forward is
+recorded by the steps in PR #120. Every file there must become a draft without validation errors.
 """
 
 import asyncio
@@ -29,11 +31,15 @@ FROM_CHANNEL = {
 
 
 def _update(path: Path) -> dict:
-    """A saved update, or a whole getUpdates answer (its first message)."""
-    data = json.loads(path.read_text("utf-8"))
-    if "result" in data:
-        data = next(u for u in data["result"] if "message" in u)
-    return data
+    """One saved update: the owner's forward and nothing else (see the docstring above)."""
+    u = json.loads(path.read_text("utf-8"))
+    assert set(u) <= {"update_id", "message"}, (
+        f"{path.name}: one update with a message per file, not a getUpdates answer"
+    )
+    m = u["message"]
+    assert m["chat"]["type"] == "private" and m["chat"]["id"] == m["from"]["id"], f"{path.name}: the owner's own chat"
+    assert (m.get("forward_origin") or {"type": "channel"})["type"] == "channel", f"{path.name}: forward from a channel"
+    return u
 
 
 def _forward(message_id=10, **content) -> dict:
