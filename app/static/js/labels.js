@@ -20,7 +20,7 @@ export const RT_LABELS = {
   bold: 'Жирный', italic: 'Курсив', underline: 'Подчёркнутый', strikethrough: 'Зачёркнутый', spoiler: 'Спойлер',
   date_time: 'Дата и время', text_mention: 'Упоминание по id', subscript: 'Нижний индекс', superscript: 'Верхний индекс',
   marked: 'Маркер', code: 'Код', custom_emoji: 'Кастомный эмодзи', mathematical_expression: 'Формула', url: 'Ссылка',
-  email_address: 'E-mail', phone_number: 'Телефон', bank_card_number: 'Номер карты', mention: '@упоминание',
+  email_address: 'E-mail', phone_number: 'Телефон', bank_card_number: 'Номер карты', ton_address: 'Адрес TON', mention: '@упоминание',
   hashtag: '#хэштег', cashtag: '$кэштег', bot_command: '/команда', button: 'Кнопка в тексте', anchor: 'Якорь',
   anchor_link: 'Ссылка на якорь', reference: 'Сноска', reference_link: 'Ссылка на сноску',
 };
@@ -33,7 +33,7 @@ export const FIELD_LABELS = {
   has_checkbox: 'Чекбокс', is_checked: 'Отмечен', value: 'Номер', latitude: 'Широта', longitude: 'Долгота',
   media: 'Файл', has_spoiler: 'Под спойлером', unix_time: 'Unix-время', date_time_format: 'Формат',
   custom_emoji_id: 'id эмодзи', alternative_text: 'Замена', user: 'Пользователь', anchor_name: 'Якорь',
-  reference_name: 'Сноска', username: 'username', hashtag: 'Хэштег',
+  reference_name: 'Сноска', username: 'username', hashtag: 'Хэштег', address: 'Адрес',
   photo: 'Фото', video: 'Видео', animation: 'GIF', audio: 'Аудио', document: 'Файл', voice_note: 'Голосовое',
 };
 // Placeholders in Russian; the English description from the spec stays in the field's tooltip
