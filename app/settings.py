@@ -13,6 +13,9 @@ _OFF = ("off", "0", "false", "no")
 _ON = ("on", "1", "true", "yes")
 MODES = ("local", "server")
 LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR")
+# STUDIO_API_KEY on a server: failed tries are not counted, so only length keeps it from being guessed
+# (named tokens are rs_ + 32 random bytes, cli.py)
+SERVER_KEY_MIN = 32
 
 
 class SettingsError(ValueError):
@@ -60,7 +63,8 @@ def _number(env, name: str, default: float, problems: list[str], *, whole: bool 
 @dataclass
 class Settings:
     # local: a tool on this computer (127.0.0.1); server: reachable from the internet behind HTTPS, so the studio
-    # refuses to start without a token or key, without an https STUDIO_URL, and keeps the spec pinned
+    # refuses to start without a token or key, with a key shorter than SERVER_KEY_MIN, without an https STUDIO_URL,
+    # and keeps the spec pinned
     mode: str = "local"
     data_dir: Path = Path("/data")
     bot_token: str = ""
@@ -181,6 +185,13 @@ class Settings:
             self.allowed_hosts.add(self.public_url.split("://", 1)[1].split("/", 1)[0].lower())
         if not self.bot_token:
             out.append("STUDIO_MODE=server: не задан TG_BOT_TOKEN (или TG_BOT_TOKEN_FILE)")
+        if self.api_key and len(self.api_key) < SERVER_KEY_MIN:
+            out.append(
+                f"STUDIO_MODE=server: STUDIO_API_KEY короче {SERVER_KEY_MIN} символов, его можно подобрать. "
+                "Новый ключ: python -c 'import secrets;print(secrets.token_urlsafe(32))'; замените им "
+                "STUDIO_API_KEY (или файл STUDIO_API_KEY_FILE) в deploy/.env и у клиентов MCP, редактор спросит "
+                "ключ заново. Или уберите ключ и входите по именным токенам (cli.py token add)"
+            )
         return out
 
 
