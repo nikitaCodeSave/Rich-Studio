@@ -652,3 +652,24 @@ def test_get_draft_hides_the_editors_json_buffer(client):
     _, got, _ = call(client, "get_draft", draft_id=saved["id"])
     assert got["payload"]["_studio"] == {"source": {"link": "t.me/c/1"}}
     assert store.get_draft(saved["id"])["payload"]["_studio"] == studio  # the stored draft is untouched
+
+
+FORWARDED = {
+    "source": {"link": "https://t.me/c/1/2"},
+    "warnings": ["кнопки"],
+    "format": "html",
+    "buffers": {"html": "<p>старый</p>"},
+    "json": {"text": "{"},
+}
+
+
+def test_agent_save_keeps_studio_notes_and_drops_editor_buffers(client):
+    d = client.post("/api/drafts", json={"title": "Из пересылки", "post": {**BLOCKS_POST, "_studio": FORWARDED}}).json()
+    new = {"rich_message": {"markdown": "# Новый"}}
+    call(client, "save_draft", post=new, draft_id=d["id"], version=d["version"])
+    saved = store.get_draft(d["id"])["payload"]
+    assert saved["rich_message"] == new["rich_message"]
+    assert saved["_studio"] == {"source": FORWARDED["source"], "warnings": FORWARDED["warnings"]}
+    d2 = client.post("/api/drafts", json={"title": "x", "post": BLOCKS_POST}).json()
+    call(client, "save_draft", post=new, draft_id=d2["id"])
+    assert "_studio" not in store.get_draft(d2["id"])["payload"]

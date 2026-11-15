@@ -1,8 +1,7 @@
 // a poll goes right after the post from the draft; history shows what changed; quick times for scheduling
 /** @param {import('./harness.mjs').Ctx} ctx */
-export default async function ({ page, check, mockLog, setChat, applyJson }) {
+export default async function ({ page, check, mockLog, setChat, applyJson, until }) {
   await page.click('#btn-new');
-  await page.waitForTimeout(300);
   await page.fill('#title', 'Анонс с опросом');
   await setChat('@poll_after');
   await applyJson({ rich_message: { markdown: 'Эфир в четверг\n\nТемы: Bot API' } });
@@ -11,21 +10,24 @@ export default async function ({ page, check, mockLog, setChat, applyJson }) {
   await page.fill('#after input[aria-label="Вопрос опроса"]', 'Придёте?');
   await page.fill('#after input[aria-label="Вариант 1"]', 'Да');
   await page.fill('#after input[aria-label="Вариант 2"]', 'Нет');
-  await page.waitForTimeout(400);
+  // the preview redraws after a pause in typing
+  await page.waitForFunction(() => /Нет/.test(document.querySelector('#preview').shadowRoot.querySelector('.tg-poll')?.textContent || ''), null, { timeout: 8000 }).catch(() => {});
   const pollPreview = await page.evaluate(() => document.querySelector('#preview').shadowRoot.querySelector('.tg-poll')?.textContent || '');
   const before = (await mockLog()).length;
   await page.click('#btn-publish');
-  await page.waitForTimeout(900);
+  await until(async () => (await mockLog()).slice(before).some((c) => c.method === 'sendPoll'));
   const sends = (await mockLog()).slice(before).map((c) => c.method).filter((m) => /^send/.test(m));
   const poll = (await mockLog()).filter((c) => c.method === 'sendPoll').pop()?.body;
   // «Править» keeps the draft's name; the update shows up in the history as lines removed and added
   await page.click('#side-tabs [data-tab=posts]');
   await page.locator('#posts li', { hasText: '@poll_after' }).filter({ hasText: 'Эфир в четверг' }).getByRole('button', { name: 'Править' }).click();
-  await page.waitForTimeout(500);
+  await page.waitForSelector('#edit-bar >> text=Правите пост', { timeout: 8000 }).catch(() => {});
   const title = await page.inputValue('#title');
   await applyJson({ rich_message: { markdown: 'Эфир в пятницу\n\nТемы: Bot API' } });
+  await page.evaluate(() => document.querySelector('#toasts').replaceChildren()); // so the toast waited for below is this update's
   await page.click('#edit-bar >> text=Обновить пост');
-  await page.waitForTimeout(600);
+  // the history is read once the editor got Telegram's answer to the update
+  await page.waitForSelector('#toasts >> text=Пост обновлён', { timeout: 8000 }).catch(() => {});
   await page.click('#edit-bar >> text=История');
   await page.waitForSelector('dialog[open] >> text=История поста');
   const added = await page.locator('dialog[open] .diff .add').allTextContents();
@@ -38,7 +40,6 @@ export default async function ({ page, check, mockLog, setChat, applyJson }) {
   const badge = await page.locator('#drafts li', { hasText: /^Анонс с опросом/ }).first().locator('.badge').textContent().catch(() => '');
   // the schedule dialog: quick choices fill the time, the time zone and the channel are named
   await page.click('#btn-new');
-  await page.waitForTimeout(300);
   await setChat('@later');
   await page.click('#btn-more');
   await page.click('#btn-schedule');
