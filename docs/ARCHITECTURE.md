@@ -37,7 +37,7 @@
 
 ## Сервер
 
-`deploy/`: студия в образе из GHCR (uid 10001, read-only), Caddy с HTTPS, Litestream с копией базы в S3. Образ собирает `.github/workflows/image.yml` по ручному запуску или тегу `v*`, пакеты из `requirements.lock` с хэшами. Восстановление из реплики проверяет `scripts/restore_check.sh` (CI `restore.yml`, ежедневно). Решение: [0010](decisions/0010-server-image-and-pinned-spec.md).
+`deploy/`: студия в образе из GHCR (uid 10001, read-only), Caddy с HTTPS, Litestream с копией базы в S3. Образ собирает `.github/workflows/image.yml` по ручному запуску или тегу `v*`, пакеты из `requirements.lock` с хэшами. Что образ стартует без сети, останавливается по `docker stop` с кодом 0 в пределах `stop_grace_period` и сохраняет данные после перезапуска, проверяет `scripts/image_smoke.sh` (CI `ci.yml`, job `docker`). Восстановление из реплики проверяет `scripts/restore_check.sh` (CI `restore.yml`, ежедневно). Решение: [0010](decisions/0010-server-image-and-pinned-spec.md).
 
 ## Политика ошибок при отправке
 
