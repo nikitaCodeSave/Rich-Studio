@@ -44,7 +44,7 @@ export async function loadPosts() {
       h('span', { class: 'meta' }, h('span', { class: 'status ' + p.status, text: STATUS_LABELS[p.status] || p.status }), kind.badge ? h('b', { text: kind.badge }) : null, p.actor && p.actor !== 'ui' ? h('span', { class: 'actor', title: 'Кто отправил: не редактор, а API или агент', text: p.actor }) : null, h('span', { class: 'chan', title: 'Канал', text: chatLabel(p.chat_id) }),
         p.link ? h('a', { href: p.link, target: '_blank', rel: 'noopener', title: 'Открыть в Telegram', text: num }) : num),
       h('span', { class: 'meta', text: new Date(when * 1000).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' }) }),
-      p.error ? h('span', { class: 'small post-error', text: (p.status === 'failed' ? 'Не вышел: ' : '') + p.error }) : null,
+      p.error ? h('span', { class: 'small post-error', text: (p.status === 'failed' ? (p.outcome_unknown ? 'Исход неизвестен: ' : 'Не вышел: ') : '') + p.error }) : null,
       stats.length ? h('span', { class: 'meta stats', text: stats.join(' · ') }) : null,
       h('span', { class: 'acts' },
         !own && ['sent', 'scheduled', 'missed'].includes(p.status) ? h('button', { class: 'ghost small-btn', text: 'Править', title: 'Открыть пост в редакторе; «Обновить пост» над редактором заменит его', onclick: () => editPost(p).catch((e) => toast(e.message, 'err')) }) : null,
@@ -58,7 +58,7 @@ export async function loadPosts() {
         } }) : null,
         sent ? h('button', { class: 'ghost small-btn', text: p.pinned ? 'Открепить' : 'Закрепить', onclick: () => p.pinned ? call('DELETE', `/api/posts/${p.id}/pin`, undefined, 'Откреплено') : call('POST', `/api/posts/${p.id}/pin`, { disable_notification: true }, 'Закреплено без уведомления') }) : null,
         kind.stoppable && sent && !(pr && pr.is_closed) ? h('button', { class: 'ghost small-btn', text: 'Закрыть опрос', onclick: () => { if (confirm('Закрыть опрос? Голосовать больше будет нельзя.')) call('POST', `/api/posts/${p.id}/stop-poll`, undefined, 'Опрос закрыт'); } }) : null,
-        p.status === 'failed' ? h('button', { class: 'ghost small-btn', text: 'Убрать', title: 'Убрать запись из списка; в канале этого поста нет', onclick: () => call('DELETE', '/api/posts/' + p.id, undefined, 'Убрано из списка') }) : null,
+        p.status === 'failed' ? h('button', { class: 'ghost small-btn', text: 'Убрать', title: p.outcome_unknown ? 'Пост мог уйти: сначала проверьте канал, потом уберите запись. Повторная отправка её не убирает' : 'Убрать запись из списка; в канале этого поста нет', onclick: () => call('DELETE', '/api/posts/' + p.id, undefined, 'Убрано из списка') }) : null,
         ['sent', 'scheduled', 'missed'].includes(p.status) ? h('button', { class: 'danger small-btn', text: p.status === 'sent' ? 'Удалить' : 'Отменить', onclick: async () => {
           if (!confirm(p.status === 'sent' ? 'Удалить пост из канала? Это нельзя отменить.' : 'Отменить отложенную публикацию?')) return;
           try { await api('DELETE', '/api/posts/' + p.id); toast('Готово', 'ok'); } catch (e) { toast(e.message, 'err'); }
