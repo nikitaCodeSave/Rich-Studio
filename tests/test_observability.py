@@ -341,7 +341,7 @@ def test_cleanup_removes_service_data_always_and_user_data_only_when_asked(clien
     cfg = settings.get()
     store.idempotency.claim("old", "send", "fp")
     with store.conn() as c:
-        c.execute("update idempotency set created_at=0")
+        c.execute("update idempotency set created_at=0, status='done'")
     pid = client.post("/api/send", json={"post": BLOCKS_POST}).json()["post"]["id"]
     for i in range(4):
         store.add_version(pid, {"v": i}, "ui")

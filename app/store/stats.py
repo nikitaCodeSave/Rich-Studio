@@ -55,7 +55,9 @@ def problem_posts(
 
 
 def uncertain_sends(since: int) -> list[dict]:
-    """Idempotency keys whose request ended with "the post may have gone": someone has to look at the channel."""
+    """Idempotency keys whose request ended with "the post may have gone": someone has to look at the channel.
+    The keys themselves stay for good (store.idempotency), the report shows only those since `since`: it asks to
+    look at the channel now, and a key cannot be cleared, so one network error would keep the report in warn."""
     with conn() as c:
         return _brief(
             c.execute(
