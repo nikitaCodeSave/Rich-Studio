@@ -28,8 +28,22 @@ MAX_BYTES = 1 << 20  # a template, and a post filled from it, as JSON
 MAX_DEPTH = 200  # as the validator's MAX_JSON_DEPTH: deeper is a broken post, not a template
 # what a url field may hold: the links the preview opens (render.js safeUrl) and an uploaded file
 URL_SCHEMES = ("http", "https", "tg", "mailto", "tel")
-# HTML attributes that hold a link (render.js URL_ATTRS): only a whole url field goes there
-URL_ATTRS = {"href", "src", "url", "poster"}
+# HTML attributes that hold a link (render.js URL_ATTRS and the other link attributes of HTML and SVG): only a
+# whole url field goes there, checked like safeUrl
+URL_ATTRS = {
+    "href",
+    "src",
+    "url",
+    "poster",
+    "srcset",
+    "xlink:href",
+    "cite",
+    "data",
+    "action",
+    "formaction",
+    "background",
+    "ping",
+}
 MARKDOWN = (
     "{{…}} в Markdown пока не подставляется: переведите пост в визуальный режим или в HTML и сохраните шаблон снова"
 )

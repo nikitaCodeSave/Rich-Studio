@@ -253,6 +253,23 @@ def test_html_written_as_browsers_read_it_is_accepted(client, src):
     assert client.post("/api/templates", json=html_post(src, {"key": "x"})).status_code == 200, src
 
 
+@pytest.mark.parametrize(
+    "attr",
+    ["href", "src", "srcset", "xlink:href", "cite", "data", "action", "formaction", "poster", "background", "ping"],
+)
+def test_every_attribute_that_holds_a_link_takes_only_a_whole_link_field(client, attr):
+    """A text field would put javascript: or any other scheme there as it is; a url field is checked like safeUrl."""
+    r = client.post("/api/templates", json=html_post(f'<p {attr}="{{{{x}}}}">a</p>', {"key": "x"}))
+    assert r.status_code == 422 and attr in r.json()["detail"], r.text
+    r = client.post(
+        "/api/templates", json=html_post(f'<p {attr}="https://e.example/{{{{x}}}}">a</p>', {"key": "x", "type": "url"})
+    )
+    assert r.status_code == 422, r.text
+    t = make(client, html_post(f'<p {attr}="{{{{x}}}}">a</p>', {"key": "x", "type": "url", "default": "#a"}))
+    assert fill(client, t, x="javascript:alert(1)").status_code == 422
+    assert fill(client, t, x="https://example.com/a.png").status_code == 200
+
+
 def test_a_link_field_takes_an_anchor_or_a_path_and_a_file_only_where_it_is_sent(client):
     """As the preview's safeUrl: #anchor and /path are links too. upload:name works only in the post's JSON (media):
     in an HTML attribute it would stay upload:name, the HTML way to a file is tg://photo?id= and rich_message.media."""
