@@ -90,8 +90,6 @@ const ACTION_FIELDS = {
 export const NO_HTML = {};
 // found in the text by Telegram itself: in HTML they exist only as this text. A TON address has no tag, but Telegram
 // finds one in HTML text (Bot API 10.4, tests/telegram_parse/captured.json: html-detected-card-ton)
-// the TON addresses Telegram finds in text: user-friendly EQ…/UQ… of 48 characters; a raw «0:83df…» stays text
-const TON_FOUND = /^[EU]Q[A-Za-z0-9_-]{46}$/;
 const DETECTED = { mention: ['@', 'username'], hashtag: ['#', 'hashtag'], cashtag: ['$', 'cashtag'], bot_command: ['/', 'bot_command'], bank_card_number: ['', 'bank_card_number'], ton_address: ['', 'address'] };
 // <a href> Telegram reads as an e-mail, a phone, a mention or a link inside the post, not as a plain link
 /** @type {[RegExp, string][]} */
@@ -126,9 +124,10 @@ export function blocksToHtml(blocks, opts = {}) {
   if (tight.problems.length) return { ok: false, problems: tight.problems };
   const warnings = [...tight.squeezed];
   if (tight.html) {
-    const theirs = lookOf({ blocks });
-    // with detection off the preview, like Telegram, finds no TON address in the HTML text
-    const mine = lookOf({ html: tight.html, media: tight.media, ...(opts.skipEntities ? { skip_entity_detection: true } : {}) });
+    // Telegram finds TON addresses in the text of blocks and HTML alike, and with detection off in neither
+    const detection = opts.skipEntities ? { skip_entity_detection: true } : {};
+    const theirs = lookOf({ blocks, ...detection });
+    const mine = lookOf({ html: tight.html, media: tight.media, ...detection });
     if (mine !== theirs) return { ok: false, problems: ['В предпросмотре HTML выглядит иначе, чем визуальный пост'], diff: firstDifference(theirs, mine) };
   }
   const out = opts.layout === false ? tight : write(blocks, opts, true);
@@ -215,7 +214,9 @@ function write(blocks, opts, pretty) {
         const same = t === 'bank_card_number' ? shown.replace(/\D/g, '') === String(v[key] ?? '').replace(/\D/g, '') : shown === prefix + v[key];
         if (opts.skipEntities) say(here, 'при «Не распознавать ссылки, @, #…» (skip_entity_detection) Telegram не найдёт его в HTML');
         else if (!same) say(here, `текст «${shown}» не совпадает с ${prefix}${v[key]}: в HTML Telegram находит такие элементы только по тексту`);
-        else if (t === 'ton_address' && !TON_FOUND.test(shown)) say(here, `адрес «${shown}» Telegram в тексте не найдёт: он находит только адреса EQ… и UQ… из 48 символов`);
+        // the TON addresses Telegram finds in text are the preview's: user-friendly EQ…/UQ… of 48 characters with a right
+        // checksum (RichRender.isTonAddress); a raw «0:83df…» or a mistyped address stays text
+        else if (t === 'ton_address' && !RichRender.isTonAddress(shown)) say(here, `адрес «${shown}» Telegram в тексте не найдёт: он находит только адреса EQ… и UQ… из 48 символов с верной контрольной суммой`);
         // the text stays as the author wrote it; written without the spaces it would read otherwise than the blocks
         else if (t === 'bank_card_number' && /\D/.test(shown)) notes.push(`${here}: «${shown}» в HTML останется текстом, номером карты Telegram делает только цифры без пробелов`);
         return inner();

@@ -125,6 +125,11 @@
   "source": "<p>Карта 4242 4242 4242 4242, адрес TON EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c и UQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAJKZ</p>"
  },
  {
+  "name": "html-ton-checksum",
+  "format": "html",
+  "source": "<p>Неверная сумма EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9d и EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2X, верная EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2N. Base64 EQAAW7YRbMcifdgzjulEn/pVsAtmwRx30i2I4z6Z9E+qBcnt и base64url EQAAW7YRbMcifdgzjulEn_pVsAtmwRx30i2I4z6Z9E-qBcnt. Masterchain Ef8AW7YRbMcifdgzjulEn_pVsAtmwRx30i2I4z6Z9E-qBTal, testnet kQAAW7YRbMcifdgzjulEn_pVsAtmwRx30i2I4z6Z9E-qBXJn.</p>"
+ },
+ {
   "name": "html-href-quot",
   "format": "html",
   "source": "<p><a href=\"https://example.com/?q=&quot;x&quot;\">ссылка</a></p>"

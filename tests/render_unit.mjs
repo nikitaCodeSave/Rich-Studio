@@ -129,6 +129,19 @@ for (const [name, url] of Object.entries(URLS)) {
   check('html: no TON address in code, links, formulas, glued to other letters, of another length or prefix', not.length === 0, JSON.stringify(not));
   const off = await found({ html: `<p>${eq}</p>`, skip_entity_detection: true });
   check('html: skip_entity_detection leaves a TON address as text', off.length === 0, JSON.stringify(off));
+  // in the strings of blocks too (measured: a plain «адрес EQAA…AM9c конец» comes back as ton_address), not in code
+  const blocks = await found({ blocks: [{ type: 'paragraph', text: ['адрес ', eq, ' конец ', { type: 'code', text: uq }] }, { type: 'pre', text: uq }, { type: 'table', cells: [[{ text: uq }]] }] });
+  check('blocks: a TON address in a plain string is found, not in code', JSON.stringify(blocks) === JSON.stringify([eq, uq]), JSON.stringify(blocks));
+  const blocksOff = await found({ blocks: [{ type: 'paragraph', text: eq }], skip_entity_detection: true });
+  check('blocks: skip_entity_detection leaves a TON address as text', blocksOff.length === 0, JSON.stringify(blocksOff));
+  // only with a right checksum (measured: …AM9d and EQCD39…qB2X stay text); base64 and base64url are the same address
+  const b64 = 'EQAAW7YRbMcifdgzjulEn/pVsAtmwRx30i2I4z6Z9E+qBcnt';
+  const b64url = 'EQAAW7YRbMcifdgzjulEn_pVsAtmwRx30i2I4z6Z9E-qBcnt';
+  const sums = await found({ html: `<p>${eq.slice(0, -1)}d EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2X EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2N ${b64} ${b64url} EQAAW7YRbMcifdgzjulEn/pVsAtmwRx30i2I4z6Z9E-qBcnt</p>` });
+  check('html: only addresses with a right checksum are found, in base64 and base64url, not in a mix of both',
+    JSON.stringify(sums) === JSON.stringify(['EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2N', b64, b64url]), JSON.stringify(sums));
+  const table = await page.evaluate(([eq, uq, b64, b64url]) => [eq, uq, b64, b64url, eq.slice(0, -1) + 'd', eq.toLowerCase(), eq + 'A', 'EQ', null, 42].map((s) => RichRender.isTonAddress(s)).join(), [eq, uq, b64, b64url]);
+  check('isTonAddress table', table === 'true,true,true,true,false,false,false,false,false,false', table);
   const [mine, theirs] = await page.evaluate(([eq]) => [RichRender.outline({ rich_message: { html: `<p>TON ${eq}</p>` } }),
     RichRender.outline({ rich_message: { blocks: [{ type: 'paragraph', text: ['TON ', { type: 'ton_address', text: eq, address: eq }] }] } })], [eq]);
   check('outline: a found TON address and a ton_address element read the same', mine === theirs && mine.includes('<ton>'), mine + ' | ' + theirs);
@@ -287,11 +300,11 @@ for (const [name, rm] of Object.entries(SLIDESHOWS)) {
   }));
   const want = JSON.stringify([
     { lang: 'python', copy: true, text: 'def f():\n    return 1', label: '"python"', bar: '3px', pre: 'python' },
-    { lang: null, copy: true, text: 'без языка', label: 'none', bar: '3px', pre: null },
+    { lang: null, copy: true, text: 'без языка', label: '"копировать"', bar: '3px', pre: null },
   ]);
   await render({ html: '<pre><code class="language-python">def f():\n    return 1</code></pre><pre>без языка</pre>' });
   const html = JSON.stringify(await look());
-  check('html: a code block has a header with its language and a copy icon, and a bar', html === want, html);
+  check('html: a code block has a header with its language (or «копировать») and a copy icon, and a bar', html === want, html);
   await render({ blocks: [{ type: 'pre', language: 'python', text: 'def f():\n    return 1' }, { type: 'pre', text: 'без языка' }] });
   // from blocks a line break is a <br>, so textContent has no \n there
   const blocks = JSON.stringify(await look()).replace('def f():    return 1', 'def f():\\n    return 1');

@@ -215,8 +215,9 @@
     }
   }
 
-  // A code block as Telegram Desktop draws it: a header with the language and a copy icon, a bar on the left. CSS
-  // writes the language from data-lang, so the post's text (outline, history, reply dialog) stays only the code.
+  // A code block as Telegram Desktop draws it: a bar on the left, a header with the language (without one, «копировать»)
+  // and a copy icon. CSS writes the header from data-lang, so the post's text (outline, history, reply dialog) stays
+  // only the code.
   // No syntax highlighting: docs/decisions/0022-code-block-without-highlighting.md
   function codeBox(pre, lang) {
     const copy = el('span', { class: 'tg-pre-copy', role: 'button', tabindex: 0, title: 'Копировать', 'aria-label': 'Копировать код' });
@@ -545,11 +546,33 @@
     return n > 0 && n <= 0x10ffff && !(n >= 0xd800 && n <= 0xdfff) ? String.fromCodePoint(n) : m[0];
   }
 
-  // A TON address Telegram finds in HTML and Markdown text by itself, unless skip_entity_detection is on
-  // (tests/telegram_parse/captured.json: html-detected-card-ton): EQ…/UQ… of 48 characters, as TON_FOUND in
-  // js/html-export.js. A card number with spaces it does not find, and the preview finds no card numbers at all.
-  // Not inside code, links, formulas and other elements that already are something else.
-  const TON = /(?<![\w-])[EU]Q[\w-]{46}(?![\w-])/g;
+  // ---------- TON addresses Telegram finds in the text ----------
+  // A user-friendly TON address: 48 characters of base64url or base64 for 36 bytes, that is flags, workchain, a 32-byte
+  // hash and the CRC16-XMODEM of those 34 bytes, big-endian. Telegram finds one in the text of a post by itself, in
+  // html, markdown and the strings of blocks alike, and only with a right checksum (measured for #172; captured
+  // html-detected-card-ton and html-ton-checksum). js/html-export.js checks ton_address texts with the same function.
+  const TON_START = '[EU]Q';
+  const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  const TON_FORM = new RegExp(`^${TON_START}(?:[\\w-]{46}|[A-Za-z0-9+/]{46})$`); // one alphabet, not a mix of both
+  function isTonAddress(s) {
+    if (typeof s !== 'string' || !TON_FORM.test(s)) return false;
+    const six = (c) => (c === '-' || c === '+' ? 62 : c === '_' || c === '/' ? 63 : B64.indexOf(c));
+    const bytes = [];
+    for (let i = 0; i < 48; i += 4) {
+      const n = (six(s[i]) << 18) | (six(s[i + 1]) << 12) | (six(s[i + 2]) << 6) | six(s[i + 3]);
+      bytes.push(n >> 16, (n >> 8) & 255, n & 255);
+    }
+    let crc = 0;
+    for (const b of bytes.slice(0, 34)) {
+      crc ^= b << 8;
+      for (let k = 0; k < 8; k++) crc = crc & 0x8000 ? ((crc << 1) ^ 0x1021) & 0xffff : (crc << 1) & 0xffff;
+    }
+    return crc === bytes[34] * 256 + bytes[35];
+  }
+
+  // Unless skip_entity_detection is on. Not inside code, links, formulas and other elements that already are something
+  // else. A card number with spaces Telegram does not find, and the preview finds no card numbers at all.
+  const TON_IN_TEXT = new RegExp(`(?<![\\w+/-])${TON_START}[\\w+/-]{46}(?![\\w+/-])`, 'g');
   const NO_DETECTION = 'a, code, pre, .tg-link, .tg-math, .tg-math-block, .tg-time, .tg-emoji, .tg-btn, .tg-media, .tg-unknown-block';
   function findTon(root) {
     /** @type {Text[]} */
@@ -561,7 +584,11 @@
       /** @type {(string | Node)[]} */
       const parts = [];
       let at = 0;
-      for (const m of s.matchAll(TON)) { parts.push(s.slice(at, m.index), tonEl(m[0], m[0])); at = (m.index || 0) + m[0].length; }
+      for (const m of s.matchAll(TON_IN_TEXT)) {
+        if (!isTonAddress(m[0])) continue;
+        parts.push(s.slice(at, m.index), tonEl(m[0], m[0]));
+        at = (m.index || 0) + m[0].length;
+      }
       if (at) n.replaceWith(...[...parts, s.slice(at)].filter((p) => p !== ''));
     });
   }
@@ -572,7 +599,6 @@
     tpl.innerHTML = '<div>' + src + '</div>';
     const root = /** @type {HTMLElement} */ (tpl.content.firstChild);
     transformHtml(root, ctx);
-    if (ctx.detect) findTon(root);
     const frag = document.createDocumentFragment();
     while (root.firstChild) frag.append(root.firstChild);
     return frag;
@@ -777,13 +803,14 @@
   function render(post, opts) {
     opts = opts || {};
     const rm = (post && post.rich_message) || {};
-    const ctx = { mediaBase: opts.mediaBase || '', mediaList: rm.media || [], detect: !rm.skip_entity_detection };
+    const ctx = { mediaBase: opts.mediaBase || '', mediaList: rm.media || [] };
     const body = el('div', { class: 'tg-body', dir: rm.is_rtl ? 'rtl' : null });
     try {
       if (rm.blocks) body.append(renderBlocks(rm.blocks, ctx));
       else if (rm.html) body.append(renderHtml(tgEntities(rm.html), ctx));
       else if (rm.markdown) body.append(renderMarkdown(rm.markdown, ctx));
       else body.append(el('p', { class: 'tg-empty', text: 'Пустой пост' }));
+      if (!rm.skip_entity_detection) findTon(body);
     } catch (e) {
       body.append(el('pre', { class: 'tg-error', text: 'Ошибка рендера: ' + e.message }));
     }
@@ -854,5 +881,5 @@
     return out.join('').replace(/ +/g, ' ').replace(/<br> /g, '<br>').replace(/ <\/pre>/g, '</pre>').replace(/ ?(<math-block:[^>]*>|<hr>|<anchor>) ?/g, '$1').trim().replace(/ ?(<\/?(?:p|h\d|li[^>]*|ul|ol|blockquote|tr|t[hd][^>]*|table[^>]*|footer|summary|details[^>]*|pre[^>]*|caption|cite|pullquote|expandable)>) ?/g, '$1');
   }
 
-  global.RichRender = { render, renderRT, renderBlocks, formatTime, mediaSrc, safeUrl, outline };
+  global.RichRender = { render, renderRT, renderBlocks, formatTime, mediaSrc, safeUrl, outline, isTonAddress };
 })(window);
