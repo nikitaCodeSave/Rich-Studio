@@ -49,8 +49,9 @@ addopts = "-q --strict-markers"
 markers = [
   "e2e: браузерные проверки (Playwright), запускаются отдельно",
 ]
-# незакрытые соединения SQLite и другие ошибки в __del__ роняют тест, чтобы утечка не вернулась
-filterwarnings = ["error::pytest.PytestUnraisableExceptionWarning"]
+# незакрытые соединения SQLite и другие ошибки в __del__ роняют тест, чтобы утечка не вернулась;
+# устаревший вызов (DeprecationWarning) тоже: его видно в PR Dependabot до того, как новая версия его уберёт
+filterwarnings = ["error::pytest.PytestUnraisableExceptionWarning", "error::DeprecationWarning"]
 
 [tool.coverage.run]
 source = ["app"]
