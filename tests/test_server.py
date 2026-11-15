@@ -46,13 +46,27 @@ def test_server_mode_needs_https_and_a_bot_token():
     assert not settings.Settings.from_env({}).spec_pinned
 
 
+def test_server_mode_refuses_a_short_key(tmp_path):
+    """The admin key behind Caddy is open to guessing (failed tries are not counted): it must be long."""
+    key = "a1b2c3d4" * 4  # 32 characters: the shortest one a server takes
+    found = problems({**SERVER, "STUDIO_API_KEY": key[:-1]})
+    assert len(found) == 1 and found[0].startswith("STUDIO_MODE=server: STUDIO_API_KEY")
+    assert "secrets.token_urlsafe(32)" in found[0]  # what to run, right in the message
+    assert key[:-1] not in found[0]  # the key itself is not echoed
+    (tmp_path / "key").write_text(key[:-1] + "\n")  # a Docker secret is held to the same rule
+    assert len(problems({**SERVER, "STUDIO_API_KEY_FILE": str(tmp_path / "key")})) == 1
+    assert settings.Settings.from_env({**SERVER, "STUDIO_API_KEY": key}).api_key == key
+    assert settings.Settings.from_env(SERVER).api_key == ""  # no key, tokens only: as before
+    assert settings.Settings.from_env({"STUDIO_API_KEY": "k"}).api_key == "k"  # local mode takes any key
+
+
 def test_server_mode_refuses_to_start_without_a_token(tmp_path):
     cfg = settings.Settings.from_env({**SERVER, "DATA_DIR": str(tmp_path), "STUDIO_BACKGROUND": "off"})
     old = settings.get()
     try:
         with pytest.raises(settings.SettingsError, match="нет ни токена"), TestClient(main.create_app(cfg)):
             pass
-        cfg.api_key = "k"
+        cfg.api_key = "k" * 32
         with TestClient(main.create_app(cfg), base_url="https://studio.example.com") as c:
             assert c.get("/healthz").status_code == 200
     finally:

@@ -61,9 +61,12 @@ def mcp_tools() -> str:
     cfg = settings.get()
     publish, cfg.mcp_publish = cfg.mcp_publish, True  # the full list, whatever MCP_PUBLISH the shell has
     try:
-        tools = asyncio.run(mcp_tools.build().list_tools())
+        server = mcp_tools.build()
+        tools = asyncio.run(server.list_tools())
     finally:
         cfg.mcp_publish = publish
+    resources = asyncio.run(server.list_resources())
+    prompts = asyncio.run(server.list_prompts())
     out = [
         HEADER,
         "",
@@ -78,6 +81,12 @@ def mcp_tools() -> str:
         ann = t.annotations.model_dump(by_alias=True, exclude_none=True) if t.annotations else {}
         kind = next(k for k, test in KINDS if test(ann))
         out.append(f"| `{t.name}` | {_cell(t.description or '')} | {kind} |")
+    out += ["", "## Ресурсы и prompts", "", "| Ресурс | Что это | Тип |", "|---|---|---|"]
+    for r in sorted(resources, key=lambda r: str(r.uri)):
+        out.append(f"| `{r.uri}` | {_cell(f'{r.title}. {r.description}')} | `{r.mime_type}` |")
+    out += ["", "| Prompt | Что даёт |", "|---|---|"]
+    for p in sorted(prompts, key=lambda p: p.name):
+        out.append(f"| `{p.name}` | {_cell(f'{p.title}. {p.description}')} |")
     return "\n".join(out) + "\n"
 
 
@@ -101,5 +110,5 @@ def test_every_route_says_what_it_does():
 
 
 def documented_tools() -> set[str]:
-    text = (REF / "mcp-tools.md").read_text("utf-8")
+    text = (REF / "mcp-tools.md").read_text("utf-8").split("\n## ")[0]  # the tools table, not resources and prompts
     return {line.split("`")[1] for line in text.splitlines() if line.startswith("| `")}

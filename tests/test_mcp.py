@@ -413,6 +413,57 @@ def test_preview_app(client, tg):
     assert not tg.calls
 
 
+SKILL_URI = "skill://telegram-rich-posts/SKILL.md"
+
+
+def skill_file() -> bytes:
+    from pathlib import Path
+
+    return (Path(__file__).resolve().parent.parent / ".claude/skills/telegram-rich-posts/SKILL.md").read_bytes()
+
+
+def test_skill_over_mcp_is_the_file_claude_code_reads(client):
+    """An agent that reaches the studio only over MCP (a server studio) gets the same SKILL.md byte for byte: as a
+    resource under the skill:// convention (MCP skills extension, SEP-2640) and as a prompt, not a copy that drifts."""
+    original = skill_file()
+    init = rpc(
+        client,
+        "initialize",
+        {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "pytest", "version": "1"}},
+    )
+    assert SKILL_URI in init["result"]["instructions"]
+    assert {"resources", "prompts"} <= set(init["result"]["capabilities"])
+
+    listed = {r["uri"]: r for r in rpc(client, "resources/list")["result"]["resources"]}
+    assert listed[SKILL_URI]["name"] == "telegram-rich-posts" and listed[SKILL_URI]["mimeType"] == "text/markdown"
+    # name and description come from the skill's own frontmatter (the URI ends in its name, as SEP-2640 asks)
+    assert b"\nname: telegram-rich-posts\n" in original
+    assert f"\ndescription: {listed[SKILL_URI]['description']}\n".encode() in original
+    [content] = rpc(client, "resources/read", {"uri": SKILL_URI})["result"]["contents"]
+    assert content["mimeType"] == "text/markdown" and content["text"].encode("utf-8") == original
+
+    prompts = {p["name"]: p for p in rpc(client, "prompts/list")["result"]["prompts"]}
+    assert prompts["telegram-rich-posts"]["arguments"] == []
+    [message] = rpc(client, "prompts/get", {"name": "telegram-rich-posts"})["result"]["messages"]
+    assert message["role"] == "user" and message["content"]["text"].encode("utf-8") == original
+
+
+def test_skill_over_mcp_needs_a_token_like_the_tools(client, monkeypatch):
+    import settings
+
+    store.add_token("reader", "rs_test_reader", "read")
+    read = {"jsonrpc": "2.0", "id": 1, "method": "resources/read", "params": {"uri": SKILL_URI}}
+    get = {"jsonrpc": "2.0", "id": 2, "method": "prompts/get", "params": {"name": "telegram-rich-posts"}}
+    for body in (read, get):
+        assert client.post("/mcp", json=body, headers=HEADERS).status_code == 401
+        assert client.post("/mcp", json=body, headers={**HEADERS, "X-API-Key": "wrong"}).status_code == 401
+    # reading the skill changes nothing: the lowest level is enough
+    res = rpc(client, "resources/read", read["params"], headers={"Authorization": "Bearer rs_test_reader"})
+    assert res["result"]["contents"][0]["text"].encode("utf-8") == skill_file()
+    monkeypatch.setattr(settings.get(), "api_key", "secret")
+    assert rpc(client, "prompts/get", get["params"], headers={"X-API-Key": "secret"})["result"]["messages"]
+
+
 def test_readme_points_at_the_tool_reference():
     """README is where a person learns what agents can do: it links the generated list instead of keeping one."""
     from pathlib import Path
