@@ -129,6 +129,14 @@ dialog .ok { color: var(--ok); } dialog .w { color: var(--warn); }
 .uploads .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
 
 .pane { margin-top: 10px; }
+/* above the blocks: «В HTML» (js/html-export.js) */
+.pane-tools { display: flex; justify-content: flex-end; gap: 6px; margin-top: 8px; }
+.pane-tools[hidden] { display: none; }
+.pane-tools + .pane { margin-top: 6px; }
+.export-problems { margin: 0; padding-left: 18px; font-size: 13px; }
+.export-problems li { margin-bottom: 3px; overflow-wrap: anywhere; }
+.export-diff { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; font-size: 12px; }
+.export-diff code { overflow-wrap: anywhere; }
 textarea.code { width: 100%; min-height: 380px; font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; tab-size: 2; resize: vertical; }
 /* the JSON tab holds text not applied yet: a dot on the tab, and a bar when the post changed after it */
 .mode-tabs button.pending::after { content: " •"; color: var(--warn); }

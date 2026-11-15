@@ -55,7 +55,7 @@ def main() -> int:
     print(
         "\nЧего не хватает редактору (tests/test_spec_coverage.py):"
         if missing
-        else "\nПодписи и предпросмотр уже знают всё новое."
+        else "\nПодписи, предпросмотр и экспорт «В HTML» уже знают всё новое."
     )
     for g in missing:
         print(f"- {g['kind']} {g['name']} ({g['type']}): {g['where']} в app/static/{g['file']}")
