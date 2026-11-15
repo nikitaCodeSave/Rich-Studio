@@ -96,3 +96,21 @@ def test_poll_is_checked_like_a_poll_after_a_post(client, tg):
         assert r.status_code == 422 and "больше 12 вариантов" in str(r.json()["detail"])
     assert store.list_posts() == []
     assert not [c for c in tg.calls if c["method"] == "sendPoll"]
+
+
+def test_error_inside_rich_text_array_names_the_missing_field():
+    import spec
+
+    spec.current.load_initial()
+
+    def errors(text):
+        post = {"blocks": [{"type": "paragraph", "text": text}]}
+        return spec.validate_rich_message(spec.current, post)["errors"]
+
+    # a link without url inside mixed text: the error names the field, not "expected a string"
+    (err,) = errors(["Адрес ", {"type": "url", "text": "x"}])
+    assert "text[1]" in err and "нет обязательного поля url" in err
+    assert "ожидалась строка" not in err
+    # the same element alone, and a plain wrong value, keep their messages
+    assert "нет обязательного поля url" in errors({"type": "url", "text": "x"})[0]
+    assert "ожидалась строка" in errors(5)[0]

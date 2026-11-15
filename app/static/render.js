@@ -128,6 +128,7 @@
     else if (t === 'email_address') frag.append(el('a', { href: 'mailto:' + rt.email_address }, inner()));
     else if (t === 'phone_number') frag.append(el('a', { href: 'tel:' + rt.phone_number }, inner()));
     else if (['mention', 'hashtag', 'cashtag', 'bot_command', 'bank_card_number'].includes(t)) frag.append(el('span', { class: 'tg-link' }, inner()));
+    else if (t === 'ton_address') frag.append(el('span', { class: 'tg-link', title: 'Адрес TON: ' + (rt.address || '') }, inner())); // Bot API 10.4
     else if (t === 'date_time') frag.append(el('span', { class: 'tg-time', title: formatTime(rt.unix_time, 'wDT') + ' (у читателя: его часовой пояс)' }, rt.text ? inner() : formatTime(rt.unix_time, rt.date_time_format)));
     else if (t === 'custom_emoji') frag.append(el('span', { class: 'tg-emoji', title: 'custom emoji ' + rt.custom_emoji_id }, rt.alternative_text || '⭐'));
     else if (t === 'mathematical_expression') frag.append(math(rt.expression || '', false));
