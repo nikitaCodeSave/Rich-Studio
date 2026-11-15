@@ -6,7 +6,6 @@ import string
 from collections import Counter
 from dataclasses import dataclass
 from html.parser import HTMLParser
-from typing import NamedTuple
 from urllib.parse import urlsplit
 
 from .parse import enum_values
@@ -239,22 +238,25 @@ MAX_DEPTH = 16
 MAX_MEDIA = 50
 MAX_COLUMNS = 20
 # Not in the documentation, measured as above: a longer text is not refused but cut, without a word, by its size in
-# UTF-8 (a Cyrillic letter takes 2 bytes, an emoji 4), in html, markdown and blocks alike and for the post as a whole;
-# only what is left is then held to MAX_CHARS. One paragraph kept 34 993-34 996 bytes, two and three paragraphs kept
-# 34 986. The limit is the least of them: over it the end of the post surely does not reach the reader.
-MAX_TEXT_BYTES = 34986
-# Two paragraphs already lost a few bytes more than one, and posts of many paragraphs were not measured: from here on
-# a warning that the cut may come before MAX_TEXT_BYTES
-NEAR_CUT_BYTES = 32768
+# UTF-8 (a Cyrillic letter takes 2 bytes, an emoji 4); only what is left is then held to MAX_CHARS. html and markdown
+# are cut as the source, markup and link addresses included, before they are parsed: what Telegram kept was always
+# about 34 996-34 997 bytes of source (one paragraph of Cyrillic, 100-500 short paragraphs, a 16 KB link address, a
+# cut in the middle of a tag that left a literal «<b» in the text). In blocks each string of text is cut by itself:
+# 20 000 «ж» in one paragraph kept 34 996 bytes, two paragraphs of 16 000 «ж» (64 000 bytes) went out whole. The
+# limit is a few bytes under the least of them: over it the end surely does not reach the reader.
+MAX_BYTES = 34990
 # String fields (not RichText) that the character limit counts: custom emoji alternative text and formula source
 COUNTED_STRINGS = frozenset({"alternative_text", "expression"})
 FOLD_CHARS = 8000  # not a limit: clients fold a longer post under «Показать ещё»
 FOLDED = f"больше ~{FOLD_CHARS} символов: клиент свернёт пост под «Показать ещё»"
 CUT = (
-    f"Telegram без ошибки обрежет всё, что дальше ~{MAX_TEXT_BYTES} байт, и конец поста не дойдёт до читателя "
-    "(буква кириллицы — 2 байта, эмодзи — 4)"
+    f"Telegram без ошибки обрежет её после ~{MAX_BYTES} байт, и конец не дойдёт до читателя (буква кириллицы — 2 байта, "
+    "эмодзи — 4); разбейте её на несколько абзацев"
 )
-EXACT_LATER = "точно его посчитает Telegram, когда разберёт разметку"
+CUT_SOURCE = (
+    f"Telegram без ошибки обрежет исходник после ~{MAX_BYTES} байт (теги и адреса ссылок тоже считаются, буква "
+    "кириллицы — 2 байта, эмодзи — 4), и конец поста не дойдёт до читателя; сократите пост или отправьте его блоками"
+)
 
 BLOCKS = "Array of InputRichBlock"
 TABLE = "Array of Array of "
@@ -275,27 +277,21 @@ def table_columns(rows: list) -> int:
     return max((sum(_colspan(c) for c in row) for row in rows), default=0)
 
 
-class TextSize(NamedTuple):
-    """The text of a post: about how many characters and UTF-8 bytes, and at least how many (in blocks the same)."""
-
-    chars: int
-    utf8: int
-    sure_chars: int
-    sure_utf8: int
-
-
 class _Count:
     """What the rich message limits count in blocks, walked by the spec types of the fields, so a block newer than
     this code is counted too. A block is an element of an Array of InputRichBlock, a list item (an object holding
     blocks) or a table row. `depth` is the levels of nesting as Telegram counts them in blocks (measured, issue #170):
     the blocks on the way to a piece of text, the one holding it included, plus every RichText object around it
-    (formatting, a link…). A list item and a table row are blocks for the count, but not levels."""
+    (formatting, a link…); a list item and a table row are blocks for the count, but not levels (a list > item >
+    paragraph is 2 levels, a table cell 1). `chars` is the whole text; the cut at MAX_BYTES is for each string of it."""
 
     def __init__(self, spec: Spec):
         self.spec = spec
-        self.blocks = self.chars = self.utf8 = self.media = self.depth = 0
+        self.blocks = self.chars = self.longest = self.media = self.depth = 0
         self.deepest = "rich_message.blocks"
         self.tables: list[tuple[str, int]] = []  # (path of the table, its columns)
+        self.cut: list[tuple[str, int]] = []  # (path of the block, UTF-8 bytes) of strings over MAX_BYTES
+        self.quoted: list[tuple[str, str, str]] = []  # (path, address, text) of links with a " in the address
         self._tags: dict[str, dict] = {}
         self._holders: dict[str, bool] = {}
 
@@ -348,7 +344,7 @@ class _Count:
         elif any(t.startswith("InputMedia") for t in types):
             self.media += 1
         elif name in COUNTED_STRINGS:
-            self.string(v)
+            self.string(v, where)
         elif one.startswith(TABLE) and isinstance(v, list):
             rows = [r for r in v if isinstance(r, list)]
             for ri, row in enumerate(rows):
@@ -371,54 +367,56 @@ class _Count:
             where = path
         self.fields(x, t, level, path, where)
 
-    def string(self, s):
+    def string(self, s, where: str):
         if isinstance(s, str):
             self.chars += len(s)
-            self.utf8 += utf8_size(s)
+            size = utf8_size(s)
+            self.longest = max(self.longest, size)
+            if size > MAX_BYTES:
+                self.cut.append((where, size))
 
     def text(self, rt, level: int, where: str):
         if isinstance(rt, str):
-            self.string(rt)
+            self.string(rt, where)
         elif isinstance(rt, list):
             for x in rt:
                 self.text(x, level, where)
         elif isinstance(rt, dict):
+            if rt.get("type") == "url" and isinstance(url := rt.get("url"), str) and '"' in url:
+                self.quoted.append((where, url, _plain(rt.get("text"))))
             self._reach(level + 1, where)
             self.fields(rt, self._tagged("RichText", rt), level + 1, where, where)
 
 
-def _text_limits(v: Validator, size: TextSize, exact: bool, what: str = "") -> None:
-    """The text against MAX_CHARS and the silent cut at MAX_TEXT_BYTES. `exact`: the count is Telegram's own
-    (blocks); otherwise only the sure part is an error, the rest a warning."""
-    sure = "" if exact else "не меньше "
-    about = "" if exact else "около "
-    if size.sure_chars > MAX_CHARS:
-        v.errors.append(f"текст {sure}{size.sure_chars} символов{what}, лимит {MAX_CHARS}")
-    elif size.sure_utf8 > MAX_TEXT_BYTES:
-        v.errors.append(f"текст {sure}{size.sure_utf8} байт в UTF-8{what}: {CUT}")
-    elif size.chars > MAX_CHARS:
-        v.warnings.append(f"текст около {size.chars} символов, лимит {MAX_CHARS}: {EXACT_LATER}")
-    elif size.utf8 > MAX_TEXT_BYTES:
-        v.warnings.append(
-            f"текст около {size.utf8} байт в UTF-8: если их больше ~{MAX_TEXT_BYTES}, Telegram без ошибки обрежет "
-            f"конец поста; {EXACT_LATER}"
-        )
-    elif size.utf8 > NEAR_CUT_BYTES:
-        v.warnings.append(
-            f"текст {about}{size.utf8} байт в UTF-8, а после ~{MAX_TEXT_BYTES} Telegram без ошибки обрезает пост; "
-            "с несколькими абзацами в замерах обрезка начиналась чуть раньше, а для постов из многих абзацев не "
-            "замерена: отправьте предпросмотр себе и проверьте конец поста"
-        )
-    elif size.chars > FOLD_CHARS:
-        v.warnings.append(FOLDED)
+def _plain(rt) -> str:
+    if isinstance(rt, str):
+        return rt
+    if isinstance(rt, list):
+        return "".join(_plain(x) for x in rt)
+    return _plain(rt.get("text")) if isinstance(rt, dict) else ""
+
+
+def _quoted_link(text: str, href: str) -> str:
+    return (
+        f'ссылка «{_short(" ".join(text.split()), 30)}»: в адресе {_short(href, 60)} есть кавычка ", а с ней Telegram '
+        "молча выбрасывает ссылку и оставляет только текст; запишите кавычку в адресе как %22"
+    )
 
 
 def _block_limits(v: Validator, blocks: list) -> dict:
     """Limits of a message in blocks: everything the documentation counts is in them, so the counts are exact and
-    going over is an error."""
+    going over is an error. stats["bytes"] is the longest string: the cut is for each one by itself."""
     n = _Count(v.spec)
     n.blocks_of(blocks, 1, "rich_message.blocks")
-    _text_limits(v, TextSize(n.chars, n.utf8, n.chars, n.utf8), True, " с alternative_text эмодзи и исходником формул")
+    if n.chars > MAX_CHARS:
+        v.errors.append(f"текст {n.chars} символов с alternative_text эмодзи и исходником формул, лимит {MAX_CHARS}")
+    elif n.cut:
+        for where, size in n.cut:
+            v.errors.append(f"{where}: строка текста {size} байт в UTF-8: {CUT}")
+    elif n.chars > FOLD_CHARS:
+        v.warnings.append(FOLDED)
+    for where, url, text in n.quoted:
+        v.errors.append(f"{where}: {_quoted_link(text, url)}")
     if n.blocks > MAX_BLOCKS:
         v.errors.append(f"блоков вместе с пунктами списков и строками таблиц: {n.blocks}, лимит {MAX_BLOCKS}")
     if n.media > MAX_MEDIA:
@@ -431,7 +429,7 @@ def _block_limits(v: Validator, blocks: list) -> dict:
     for where, columns in n.tables:
         if columns > MAX_COLUMNS:
             v.errors.append(f"{where}: колонок в таблице {columns}, лимит {MAX_COLUMNS}")
-    return {"blocks": n.blocks, "depth": n.depth, "chars": n.chars, "bytes": n.utf8, "media": n.media}
+    return {"blocks": n.blocks, "depth": n.depth, "chars": n.chars, "bytes": n.longest, "media": n.media}
 
 
 # Levels of nesting in html, measured on the real Telegram (issue #170): the elements on the way to a piece of text,
@@ -481,7 +479,7 @@ class _Open:
     li: int = -1
     cell: int = -1
     row: int = -1
-    link: tuple[str, list] | None = None  # (address, text) of an <a> whose address has a "
+    link: tuple[str, str, list] | None = None  # (tag, address, text) of an <a> or <tg-button> with a " in it
 
 
 class _HtmlWalk(HTMLParser):
@@ -491,8 +489,8 @@ class _HtmlWalk(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.stack = [_Open("", 0, 0, True)]
         self.open: Counter[str] = Counter()
-        self.links: list[tuple[str, list]] = []
-        self.quoted: list[tuple[str, str]] = []  # (address, text) of links with a " in the address
+        self.links: list[tuple[str, str, list]] = []
+        self.quoted: list[tuple[str, str, str]] = []  # (tag, address, text) of links and buttons with a " in it
         self.sure = self.about = 0
         self.sure_path = self.about_path = ""
 
@@ -502,7 +500,7 @@ class _HtmlWalk(HTMLParser):
             self.open[e.tag] -= 1
             if e.link is not None:
                 self.links.pop()
-                self.quoted.append((e.link[0], "".join(e.link[1]).strip()))
+                self.quoted.append((e.link[0], e.link[1], "".join(e.link[2])))
 
     def _path(self, text: str = "") -> str:
         """Where the text is, short: «<blockquote> ×15 › <ul> › форматирование ×2 › «текст»»."""
@@ -554,9 +552,10 @@ class _HtmlWalk(HTMLParser):
             i if tag in ("td", "th") else -1 if tag in ("tr", "table") else top.cell,
             i if tag == "tr" else -1 if tag == "table" else top.row,
         )
-        href = next((v for k, v in attrs if k == "href"), None) if tag == "a" else None
-        if href and '"' in href:
-            e.link = (href, [])
+        # an address with a " (&quot;): Telegram drops such a link and refuses such a button
+        address = dict(attrs).get("href" if tag == "a" else "url") if tag in ("a", "tg-button") else None
+        if address and '"' in address:
+            e.link = (tag, address, [])
             self.links.append(e.link)
         self.stack.append(e)
         self.open[tag] += 1
@@ -571,7 +570,7 @@ class _HtmlWalk(HTMLParser):
 
     def handle_data(self, data):
         if self.links:
-            self.links[-1][1].append(data)
+            self.links[-1][2].append(data)
         if data.strip():
             top = self.stack[-1]
             self._reach(top.sure + top.bare, top.about + top.bare, data)
@@ -591,11 +590,14 @@ def _html_shape(v: Validator, src: str) -> int:
     walk = _HtmlWalk()
     walk.feed(src)
     walk.close()
-    for href, text in walk.quoted:
-        v.errors.append(
-            f'ссылка «{_short(text, 30)}»: в адресе {_short(href, 60)} есть кавычка " (в HTML — &quot;), а с ней '
-            "Telegram молча выбрасывает ссылку и оставляет только текст; запишите кавычку в адресе как %22"
-        )
+    for tag, address, text in walk.quoted:
+        if tag == "a":
+            v.errors.append(_quoted_link(text, address))
+        else:
+            v.errors.append(
+                f'кнопка «{_short(" ".join(text.split()), 30)}»: в адресе {_short(address, 60)} есть кавычка ", а с '
+                "ней Telegram отклоняет весь пост (BUTTON_URL_INVALID); запишите кавычку как %22"
+            )
     if walk.sure > MAX_DEPTH:
         v.errors.append(
             f"{walk.sure} уровней вложенности, лимит {MAX_DEPTH}: {walk.sure_path} (уровень — каждый элемент на пути "
@@ -621,25 +623,25 @@ HTTP_MEDIA_RE = re.compile(
 )
 
 
-def source_size(src: str, markdown: bool) -> TextSize:
-    """Text of html or markdown as far as the source tells without Telegram's parser: about how many characters and
-    bytes (without tags and link addresses), and at least how many (also without spaces and, in Markdown, markup and
-    table lines). tests/test_rich_limits.py keeps the second under Telegram's own count for every captured parse."""
+def source_chars(src: str, markdown: bool) -> tuple[int, int]:
+    """Text characters of html or markdown as far as the source tells without Telegram's parser: about how many
+    (without tags and link addresses), and at least how many (also without spaces and, in Markdown, markup and table
+    lines). tests/test_rich_limits.py keeps the second one under Telegram's own count for every captured parse."""
     text = TAG_RE.sub("", src)
     if markdown:
         text = MD_TARGET_RE.sub("]", text)
     text = html.unescape(text)
-    if markdown:
-        sure = [ch for ch in MD_MARKUP_RE.sub("", text) if not ch.isspace() and ch not in string.punctuation]
-    else:
-        sure = [ch for ch in text if not ch.isspace()]
-    return TextSize(len(text), utf8_size(text), len(sure), utf8_size("".join(sure)))
+    if not markdown:
+        return len(text), sum(not ch.isspace() for ch in text)
+    sure = MD_MARKUP_RE.sub("", text)
+    return len(text), sum(not ch.isspace() and ch not in string.punctuation for ch in sure)
 
 
 def _source_limits(v: Validator, rm: dict) -> dict:
     """Limits of a message in html or markdown: Telegram makes the blocks itself, so blocks and table columns are not
     counted here, characters only as far as the source tells (an error only when surely over), nesting in html by the
-    measured reading and in markdown not at all (no measurement)."""
+    measured reading and in markdown not at all (no measurement). The cut at MAX_BYTES is of the source as it is, so
+    that count is exact (stats["bytes"])."""
     src = rm.get("html") or rm.get("markdown") or ""
     src = src if isinstance(src, str) else ""
     media = [m for m in rm["media"] if isinstance(m, dict)] if isinstance(rm.get("media"), list) else []
@@ -651,12 +653,22 @@ def _source_limits(v: Validator, rm: dict) -> dict:
     for mid in sorted(x for x in media_ids - {mid for _, mid in refs} if x):
         v.warnings.append(f"media id={mid!r} нигде не используется в тексте")
     is_html = bool(rm.get("html"))
-    size = source_size(src, markdown=not is_html)
-    _text_limits(v, size, False)
+    chars, at_least = source_chars(src, markdown=not is_html)
+    size = utf8_size(src)
+    if at_least > MAX_CHARS:
+        v.errors.append(f"текст не меньше {at_least} символов, лимит {MAX_CHARS}")
+    elif size > MAX_BYTES:
+        v.errors.append(f"{'HTML' if is_html else 'Markdown'} {size} байт в UTF-8 вместе с разметкой: {CUT_SOURCE}")
+    elif chars > MAX_CHARS:
+        v.warnings.append(
+            f"текст около {chars} символов, лимит {MAX_CHARS}: точно его посчитает Telegram, когда разберёт разметку"
+        )
+    elif chars > FOLD_CHARS:
+        v.warnings.append(FOLDED)
     count = max(len(media), len(refs) + len(HTTP_MEDIA_RE.findall(src)))
     if count > MAX_MEDIA:
         v.warnings.append(f"медиа около {count}, лимит {MAX_MEDIA}")
-    stats = {"chars": size.chars, "bytes": size.utf8, "media": count}
+    stats = {"chars": chars, "bytes": size, "media": count}
     if is_html:
         stats["depth"] = _html_shape(v, src)
     return stats

@@ -250,6 +250,19 @@ check('Every type HTML cannot say is refused by name in this file (none now)', n
   const quoted = [{ type: 'paragraph', text: ['Поиск ', { type: 'url', text: 'по фразе', url: 'https://example.com/?q="x y"' }] }];
   const { ok, r, info } = await exportsAs(quoted, await look({ blocks: quoted }));
   check('A " in a link address is written as %22, not &quot;', ok && r.html === '<p>Поиск <a href="https://example.com/?q=%22x y%22">по фразе</a></p>', info);
+  // in a button Telegram refuses the whole post for it (BUTTON_URL_INVALID)
+  const b = await toHtml([{ type: 'buttons', buttons: [btn('кнопка', { url: 'https://t.me/?q="x"' }), btn('приложение', { web_app: { url: 'https://telegram.org/?q="y"' } })] }]);
+  check('A " in a button address is written as %22 too', b.ok && b.html.includes('url="https://t.me/?q=%22x%22"') && b.html.includes('url="https://telegram.org/?q=%22y%22"') && !b.html.includes('&quot;'), JSON.stringify(b));
+}
+{
+  // Telegram finds a card number in HTML text only without spaces (4242424242424242 yes, 4242 4242 4242 4242 no):
+  // the export keeps the author's text and says so, written without the spaces it would read otherwise than the blocks
+  const card = (text) => toHtml([{ type: 'paragraph', text: ['Карта ', { type: 'bank_card_number', text, bank_card_number: '4242424242424242' }] }]);
+  const spaced = await card('4242 4242 4242 4242');
+  const bare = await card('4242424242424242');
+  check('A card number with spaces exports as written, with a note that Telegram will not find it',
+    spaced.ok && spaced.html === '<p>Карта 4242 4242 4242 4242</p>' && spaced.notes.length === 1 && /без пробелов/.test(spaced.notes[0]) && /блок 1/.test(spaced.notes[0])
+      && bare.ok && bare.html === '<p>Карта 4242424242424242</p>' && bare.notes.length === 0, JSON.stringify({ spaced, bare }));
 }
 await refused('A map size has no HTML: refused, not dropped', [{ type: 'map', location: { latitude: 1, longitude: 2, heading: 90 }, width: 300 }], [/поле width/, /поле heading/]);
 await refused('A login button with bot_username has no HTML attribute: refused', [{ type: 'buttons', buttons: [btn('вход', { login_url: { url: 'https://t.me', bot_username: 'other_bot' } })] }], [/кнопка 1.*поле bot_username/]);

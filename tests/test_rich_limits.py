@@ -1,9 +1,9 @@
 """Rich Message Limits (https://core.telegram.org/bots/api#rich-message-limits): each limit right at the edge and one over.
 
 How Telegram reads them was measured on the real Bot API 10.4 (issue #170); every measurement of the issue is a case
-here with the answer Telegram gave. Over a limit is an error: Telegram refuses the post, or (the length in bytes)
-cuts it without a word. A warning only where the studio cannot count exactly: the text of html/markdown before
-Telegram parses it, html tags no measurement had, posts of many paragraphs near the cut."""
+here with the answer Telegram gave (issue #170 and the follow-up probes on its PR). Over a limit is an error:
+Telegram refuses the post, or (the length in bytes) cuts it without a word. A warning only where the studio cannot
+count exactly: the characters of html/markdown before Telegram parses them, html tags no measurement had."""
 
 import json
 import time
@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 import spec
-from spec.validator import MAX_TEXT_BYTES, source_size, table_columns
+from spec.validator import MAX_BYTES, source_chars, table_columns
 
 CELL = {"text": "x", "align": "left", "valign": "top"}
 CAPTURED = json.loads((Path(__file__).parent / "telegram_parse" / "captured.json").read_text("utf-8"))
@@ -82,44 +82,42 @@ def test_characters_are_unicode_characters_not_utf16_units(current):
 
 # ---------- the silent cut by bytes ----------
 CUT = "без ошибки обрежет"
-ROOM = "ж" * (MAX_TEXT_BYTES // 2)  # 34 986 bytes of Cyrillic, two a letter
+ROOM = "ж" * (MAX_BYTES // 2)  # 34 990 bytes of Cyrillic, two a letter
 
 
-def test_the_cut_is_the_least_telegram_kept_in_the_measurements():
-    """One paragraph kept 34 993-34 996 bytes, two and three paragraphs 34 986: the least of them."""
-    assert MAX_TEXT_BYTES == 34986 and len(ROOM.encode()) == MAX_TEXT_BYTES
+def test_the_cut_is_a_few_bytes_under_what_telegram_kept():
+    """Kept: 34 996-34 997 bytes of html and markdown source, 34 996 bytes of one string in blocks."""
+    assert MAX_BYTES == 34990 and len(ROOM.encode()) == MAX_BYTES
 
 
-def test_cyrillic_over_the_cut_is_an_error_in_blocks(current):
-    """Measured: a paragraph of 32 769…100 000 «ж» went out as 17 497 of them, without an error."""
+def test_one_string_over_the_cut_is_an_error_in_blocks(current):
+    """Measured: a paragraph of 20 000 «ж» went out as 17 498 of them (34 996 bytes), without an error."""
     r = check(current, [para(ROOM)])
-    assert r["ok"] and r["stats"]["bytes"] == MAX_TEXT_BYTES and r["stats"]["chars"] == len(ROOM), r["errors"]
-    r = check(current, [para(ROOM + "a")])
-    assert not r["ok"] and has(
-        r["errors"], f"текст 34987 байт в UTF-8 с alternative_text эмодзи и исходником формул: Telegram {CUT}"
-    ), r
+    assert r["ok"] and r["stats"]["bytes"] == MAX_BYTES and r["stats"]["chars"] == len(ROOM), r["errors"]
+    r = check(current, [para(), para(ROOM + "a")])
+    assert not r["ok"] and has(r["errors"], f"rich_message.blocks[1]: строка текста 34991 байт в UTF-8: Telegram {CUT}")
 
 
-def test_the_cut_is_for_the_whole_post_not_a_paragraph(current):
-    """Measured: two paragraphs of 10 000 «ж» went out as 10 000 + 7 493."""
-    r = check(current, [para("ж" * 10000), para("ж" * 10000)])
-    assert not r["ok"] and has(r["errors"], "текст 40000 байт"), r
+def test_in_blocks_the_cut_is_for_each_string_not_the_post(current):
+    """Measured: two paragraphs of 16 000 «ж» (64 000 bytes) and 300 of 60 «ж» (36 000 bytes) went out whole."""
+    for blocks in ([para("ж" * 16000)] * 2, [para("ж" * 60)] * 300):
+        r = check(current, blocks)
+        assert r["ok"] and not has(r["warnings"], "байт"), r
 
 
-def test_emoji_and_mixed_text_are_counted_in_bytes(current):
-    """Measured: 20 000 emoji went out as 8 749 (34 996 bytes); 20 000 «a» + 10 000 «ж» as 27 497 characters."""
-    r = check(current, [para("😀" * 8746 + "aa")])
-    assert r["ok"] and r["stats"]["bytes"] == MAX_TEXT_BYTES, r["errors"]
-    assert not check(current, [para("😀" * 8746 + "aaa")])["ok"]
-    r = check(current, [para("a" * 20000 + "ж" * 10000)])
-    assert not r["ok"] and has(r["errors"], CUT), r
+def test_in_blocks_the_characters_of_the_whole_post_still_count(current):
+    """Measured: 300 paragraphs of 110 «ж» (33 000 characters) are RICH_MESSAGE_TEXT_TOO_LONG."""
+    r = check(current, [para("ж" * 110)] * 300)
+    assert not r["ok"] and has(r["errors"], "текст 33000 символов"), r
 
 
-def test_alternative_text_and_formulas_count_in_bytes_too(current):
-    emoji = {"type": "custom_emoji", "custom_emoji_id": "5368324170671202286", "alternative_text": "👍"}
-    assert check(current, [para([ROOM[:-2], emoji])])["ok"]
-    r = check(current, [para([ROOM[:-2], emoji, emoji])])
-    assert not r["ok"] and has(r["errors"], CUT), r
+def test_emoji_and_formula_source_are_strings_of_their_own(current):
+    r = check(current, [para("😀" * 8747 + "aa")])
+    assert r["ok"] and r["stats"]["bytes"] == MAX_BYTES, r["errors"]
+    assert not check(current, [para("😀" * 8747 + "aaa")])["ok"]
+    formula = {"type": "mathematical_expression", "expression": "ж" * 17496}
+    r = check(current, [para(), formula])
+    assert has(r["errors"], "rich_message.blocks[1]: строка текста 34992 байт"), r["errors"]
 
 
 def test_latin_text_over_both_limits_is_refused_not_cut(current):
@@ -128,32 +126,39 @@ def test_latin_text_over_both_limits_is_refused_not_cut(current):
     assert has(r["errors"], "лимит 32768") and not has(r["errors"], CUT), r["errors"]
 
 
-def test_the_cut_in_html_and_markdown(current):
-    """Measured: the same cut in html, markdown and blocks (markdown of 20 000 «ж» went out as 17 498)."""
-    for rm in ({"html": "<p>" + ROOM + "</p>"}, {"markdown": ROOM}):
+def test_html_and_markdown_are_cut_as_their_source_at_the_edge(current):
+    """Measured: html and markdown are cut by the bytes of the source, markup included."""
+    html = "<p>" + "ж" * 17491 + "a</p>"  # 34 990 bytes
+    for rm in ({"html": html}, {"markdown": ROOM}):
         r = check(current, **rm)
-        assert r["ok"] and r["stats"]["bytes"] == MAX_TEXT_BYTES, (rm.keys(), r["errors"])
-    for rm in ({"html": "<p>" + ROOM + "a</p>"}, {"markdown": ROOM + "a"}):
-        r = check(current, **rm)
-        assert not r["ok"] and has(r["errors"], f"текст не меньше 34987 байт в UTF-8: Telegram {CUT}"), r
+        assert r["ok"] and r["stats"]["bytes"] == MAX_BYTES, (rm.keys(), r["errors"])
+    r = check(current, html=html.replace("a<", "aa<"))
+    assert not r["ok"] and has(r["errors"], f"HTML 34991 байт в UTF-8 вместе с разметкой: Telegram {CUT}"), r
+    r = check(current, markdown=ROOM + "a")
+    assert not r["ok"] and has(r["errors"], "Markdown 34991 байт в UTF-8 вместе с разметкой"), r
 
 
-def test_html_layout_and_markup_over_the_cut_only_warn(current):
-    """Spaces between tags and Markdown markup may not be text: over the cut only with them is a warning."""
-    r = check(current, html="<p>" + ROOM[:-500] + "</p>" + "\n      <p>я</p>" * 100)
-    assert r["ok"] and has(r["warnings"], "текст около"), r
-    r = check(current, markdown="**" + ROOM[:-10] + "**\n" + "- [x] **я**\n" * 10)
-    assert r["ok"] and has(r["warnings"], "текст около"), r
+@pytest.mark.parametrize(
+    "rm",
+    [
+        {"html": ("<p>" + "ж" * 40 + "</p>") * 500},
+        {"html": "<p>" + "ж" * 10000 + '</p><p><a href="https://example.com/' + "a" * 16000 + '">ссылка</a> КОНЕЦ</p>'},
+        {"html": "<p>" + "ж" * 10000 + "</p><p>" + "<b>x</b>" * 2000 + " КОНЕЦ</p>"},
+        {"markdown": "ж" * 10000 + "\n\n" + "**x** " * 2600 + "КОНЕЦ"},
+    ],
+    ids=["500 paragraphs of 40 «ж»", "a 16 KB link address", "2000 <b>x</b>", "markdown with 2600 **x**"],
+)
+def test_markup_takes_its_share_of_the_cut(current, rm):
+    """Measured: 500 paragraphs of 40 «ж» (20 000 bytes of text, 43 500 of source) went out as 403; the link address
+    was cut and «КОНЕЦ» lost; the <b> tags were cut in the middle, a literal «<b» left in the text."""
+    r = check(current, **rm)
+    assert not r["ok"] and has(r["errors"], "байт в UTF-8 вместе с разметкой"), r
 
 
-def test_near_the_cut_a_warning_to_check_the_end(current):
-    """Two paragraphs already lost a few bytes more than one, many paragraphs were not measured."""
-    r = check(current, [para("ж" * 16384)])  # 32 768 bytes
-    assert r["ok"] and not has(r["warnings"], "проверьте конец поста"), r["warnings"]
-    r = check(current, [para("ж" * 8000)] * 2 + [para("ж" * 385)])
-    assert r["ok"] and has(r["warnings"], "текст 32770 байт в UTF-8, а после ~34986 Telegram"), r["warnings"]
-    r = check(current, html="<p>" + "ж" * 16385 + "</p>")
-    assert r["ok"] and has(r["warnings"], "текст около 32770 байт"), r["warnings"]
+def test_the_cut_counts_the_source_as_sent(current):
+    """Entities and tags are bytes of the source: what Telegram cuts, before it parses anything."""
+    r = check(current, html="<p>" + "&amp;" * 7000 + "</p>")  # 7 000 characters of text, 35 007 bytes of source
+    assert not r["ok"] and r["stats"]["chars"] == 7000 and r["stats"]["bytes"] == 35007, r
 
 
 # ---------- blocks ----------
@@ -239,6 +244,11 @@ def fmt(levels, text="a"):
         ([quotes(1, para(fmt(15)))], False),
         ([quotes(15)], True),
         ([quotes(16)], False),
+        ([{"type": "list", "items": [{"blocks": [para(fmt(14))]}]}], True),
+        ([{"type": "list", "items": [{"blocks": [para(fmt(15))]}]}], False),
+        ([{"type": "details", "summary": "s", "blocks": [para(fmt(14))]}], True),
+        ([{"type": "table", "cells": [[{"text": fmt(15)}]]}], True),
+        ([{"type": "table", "cells": [[{"text": fmt(16)}]]}], False),
     ],
     ids=[
         "paragraph+fmt15",
@@ -247,11 +257,17 @@ def fmt(levels, text="a"):
         "blockquote>paragraph+fmt15",
         "15 blockquotes>paragraph",
         "16 blockquotes>paragraph",
+        "list>item>paragraph+fmt14",
+        "list>item>paragraph+fmt15",
+        "details>paragraph+fmt14",
+        "table cell+fmt15",
+        "table cell+fmt16",
     ],
 )
 def test_nesting_in_blocks_as_measured(current, blocks, passes):
     """Measured: the blocks on the way to the text, the paragraph included, plus the levels of formatting, at most
-    16; over it is RICH_MESSAGE_DEPTH_INVALID."""
+    16; over it is RICH_MESSAGE_DEPTH_INVALID. A list item is not a level (list > item > paragraph is 2), the text of
+    a table cell has no paragraph (a table is 1)."""
     r = check(current, blocks)
     errors = [e for e in r["errors"] if "вложенности" in e]
     assert (not errors) == passes and not has(r["warnings"], "вложенности"), r
@@ -265,7 +281,6 @@ def test_the_nesting_error_names_the_deepest_block(current):
 
 
 def test_list_items_and_table_rows_are_not_levels(current):
-    """In html a list (ul with li) and a table (table, tr, td) are one level each (measured)."""
     item = {"type": "list", "items": [{"blocks": [para()]}]}  # list, paragraph
     assert check(current, [item])["stats"]["depth"] == 2
     table = {"type": "table", "cells": [[{**CELL, "text": {"type": "bold", "text": "x"}}]]}  # table, bold
@@ -382,7 +397,7 @@ def test_markdown_nesting_is_left_to_telegram(current):
     assert r["ok"] and not has(r["warnings"], "вложенности") and "depth" not in r["stats"], r
 
 
-# ---------- links in html ----------
+# ---------- a quote in an address ----------
 @pytest.mark.parametrize(
     "href",
     ["https://example.com/?q=&quot;x&quot;", "https://example.com/?q=&#34;x", "https://example.com/?q=&#x22;x"],
@@ -404,6 +419,28 @@ def test_an_apostrophe_or_percent_22_in_a_link_address_is_fine(current, href):
     """Measured: with &#x27; or %22 in href the link stays (html-href-apos, html-href-pct22)."""
     r = check(current, html=f'<p><a href="{href}">ссылка</a></p>')
     assert r["ok"] and not r["warnings"], r
+
+
+def test_a_quote_in_a_link_address_in_blocks_is_an_error(current):
+    """Measured: in blocks too, a url with a " goes out as its text only."""
+    link = {"type": "url", "text": "ссылка", "url": 'https://example.com/?q="x"'}
+    r = check(current, [para(), para(["до ", {"type": "bold", "text": link}])])
+    assert not r["ok"], r
+    (err,) = r["errors"]
+    assert err.startswith('rich_message.blocks[1]: ссылка «ссылка»: в адресе https://example.com/?q="x"'), err
+    assert check(current, [para({**link, "url": "https://example.com/?q=%22x%22"})])["ok"]
+
+
+def test_a_quote_in_a_button_address_in_html_is_an_error(current):
+    """Measured: <tg-button url="…&quot;…"> is BUTTON_URL_INVALID for the whole post, %22 goes through."""
+    row = '<p>x</p><tg-button-row><tg-button url="https://example.com/?q={}x{}">Кнопка</tg-button></tg-button-row>'
+    r = check(current, html=row.format("&quot;", "&quot;"))
+    assert (
+        not r["ok"]
+        and has(r["errors"], 'кнопка «Кнопка»: в адресе https://example.com/?q="x"')
+        and has(r["errors"], "BUTTON_URL_INVALID")
+    ), r
+    assert check(current, html=row.format("%22", "%22"))["ok"]
 
 
 def test_captured_parses_agree_with_the_link_check(current):
@@ -455,12 +492,12 @@ def test_html_text_over_the_limit_is_an_error(current):
 
 def test_html_entities_are_one_character(current):
     r = check(current, html="<p>a&amp;b&#x1F600;</p>")
-    assert r["stats"]["chars"] == 4 and r["stats"]["bytes"] == 7
+    assert r["stats"]["chars"] == 4 and r["stats"]["bytes"] == 23  # the cut is of the source as sent
 
 
 def test_spaces_of_html_layout_make_only_a_warning(current):
     """Indentation between tags may not be text for Telegram: over the limit only with it, the post is not refused."""
-    html = "<p>" + "a" * 30000 + "</p>" + "\n    <p>а</p>" * 600
+    html = "<p>" + "a" * 30000 + "</p>" + ("\n" + " " * 40 + "<p>а</p>") * 80  # 34 007 bytes of source
     r = check(current, html=html)
     assert r["ok"], r["errors"]
     assert has(r["warnings"], "лимит 32768"), r["warnings"]
@@ -468,7 +505,7 @@ def test_spaces_of_html_layout_make_only_a_warning(current):
 
 def test_markdown_link_addresses_are_not_text(current):
     link = "[link](https://example.com/a/very/long/address/that/is/not/text)"
-    r = check(current, markdown=f"{'a' * 31000} {link * 100}")  # the source is over 37 000
+    r = check(current, markdown=f"{'a' * 28000} {link * 100}")  # the source is 34 501 bytes, the text 28 601
     assert r["ok"] and not has(r["warnings"], "лимит 32768"), r
 
 
@@ -483,20 +520,19 @@ def test_markdown_markup_is_not_counted_for_the_error(current):
 
 def test_markdown_cells_past_the_header_are_not_an_error(current):
     """Telegram cuts a table row to the width of its header: the third cell here is dropped, not sent."""
-    r = check(current, markdown="| a | b |\n|---|---|\n| x | y | " + "я" * 32800 + " |")
+    r = check(current, markdown="| a | b |\n|---|---|\n| x | y | " + "a" * 32800 + " |")
     assert r["ok"], r["errors"]
     assert has(r["warnings"], "текст около"), r["warnings"]
 
 
 @pytest.mark.parametrize("name", [k for k, v in CAPTURED.items() if v.get("blocks") and v.get("source")])
 def test_the_at_least_count_is_never_over_telegrams_own(current, name):
-    """The error for html/markdown rests on the lower estimate: on every real parse it is at most what Telegram made,
-    in characters and in bytes."""
+    """The error for html/markdown rests on the lower estimate: on every real parse it is at most what Telegram made."""
     case = CAPTURED[name]
     blocks = spec.to_input_blocks(current, case["blocks"])
-    exact = check(current, blocks)["stats"]
-    size = source_size(case["source"], markdown=case["format"] == "markdown")
-    assert size.sure_chars <= exact["chars"] and size.sure_utf8 <= exact["bytes"], (size, exact)
+    exact = check(current, blocks)["stats"]["chars"]
+    about, at_least = source_chars(case["source"], markdown=case["format"] == "markdown")
+    assert at_least <= exact, (at_least, exact, about)
 
 
 # ---------- the whole post ----------
