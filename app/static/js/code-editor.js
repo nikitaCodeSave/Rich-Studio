@@ -76,7 +76,7 @@ export function insertSource(/** @type {HTMLTextAreaElement} */ ta, /** @type {s
   if (!view) return false;
   const { from, to } = view.state.selection.main;
   const selected = view.state.sliceDoc(from, to);
-  const text = snip.replace('$SEL$', selected);
+  const text = snip.replace('$SEL$', () => selected); // a function: "$$" in the selection is text, not a pattern
   const caret = snip.includes('$SEL$') && !selected ? from + snip.indexOf('$SEL$') : from + text.length;
   view.dispatch({ changes: { from, to, insert: text }, selection: { anchor: caret }, userEvent: 'input', scrollIntoView: true });
   view.focus();
@@ -126,8 +126,12 @@ function detach(/** @type {Source} */ s) {
 function stateFor(s, cm, doc, cursor) {
   const { view: v, commands: c, language: l, autocomplete: a, search: f } = cm;
   const language = s.lang === 'json' ? cm.langJson.json()
-    : s.lang === 'html' ? cm.langHtml.html()
-      : cm.langMarkdown.markdown({ base: cm.langMarkdown.markdownLanguage, completeHTMLTags: false });
+    // no autoCloseTags: a closing tag typed by hand would come out twice (<p>текст</p></p>) and go to Telegram
+    : s.lang === 'html' ? cm.langHtml.html({ autoCloseTags: false })
+      : cm.langMarkdown.markdown({
+        base: cm.langMarkdown.markdownLanguage, completeHTMLTags: false,
+        htmlTagLanguage: cm.langHtml.html({ matchClosingTags: false, autoCloseTags: false }),
+      });
   // the studio's own suggestions instead of the languages' (lang-html would offer every HTML5 tag)
   const source = s.lang === 'json' ? jsonSource(l.syntaxTree, () => S.spec) : htmlSource(() => (catalog ??= htmlCatalog(/** @type {any} */ (window.SNIPPETS.html))));
   return cm.state.EditorState.create({
@@ -191,7 +195,11 @@ function theme(/** @type {CM} */ cm) {
       '.cm-tooltip.cm-completionInfo': { boxSizing: 'border-box', whiteSpace: 'pre-line' },
       '.cm-tooltip.cm-completionInfo.cm-completionInfo-under': { left: '0' },
       '.cm-panel input, .cm-panel button, .cm-textfield, .cm-button': { color: 'var(--text)', backgroundColor: 'var(--panel)', backgroundImage: 'none', border: '1px solid var(--border)', borderRadius: '6px' },
+      // the search panel's fields at the panel's size (CodeMirror makes them 70%); 16px on a touch screen, or the
+      // phone zooms the page into a smaller field
       '.cm-panel.cm-search': { fontSize: '13px' },
+      '.cm-panel.cm-search .cm-textfield, .cm-panel.cm-search .cm-button, .cm-panel.cm-search label': { fontSize: 'inherit' },
+      '@media (pointer: coarse)': { '.cm-panel.cm-search': { fontSize: '16px' } },
     }),
     cm.language.syntaxHighlighting(cm.language.HighlightStyle.define([
       { tag: [t.tagName, t.heading], color: 'light-dark(#176b9d, #79c5ff)' },

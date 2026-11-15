@@ -10,7 +10,7 @@ export function insertAtCursor(ta, snip) {
   if (insertSource(ta, snip)) return;
   const [a, b] = [ta.selectionStart, ta.selectionEnd];
   const sel = ta.value.slice(a, b);
-  const text = snip.replace('$SEL$', sel);
+  const text = snip.replace('$SEL$', () => sel); // a function: "$$" in the selection is text, not a pattern
   const caret = snip.includes('$SEL$') && !sel ? a + snip.indexOf('$SEL$') : a + text.length;
   ta.setRangeText(text, a, b, 'end');
   ta.focus();
