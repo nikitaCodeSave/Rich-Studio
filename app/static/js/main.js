@@ -9,6 +9,7 @@
  */
 import { api, migrateStoredKey } from './api.js';
 import { bindCode, snippetBar } from './code.js';
+import { setupSource } from './code-editor.js';
 import { bindTarget, loadChannels, showTarget } from './channels.js';
 import { closeDialog, openDialog } from './dialogs.js';
 import { $, $$, act, debounce, h, sentReport, store, toast } from './dom.js';
@@ -92,8 +93,9 @@ function bindActions() {
     if (!(e.ctrlKey || e.metaKey)) return;
     const key = e.key.toLowerCase();
     if (key === 's') { e.preventDefault(); act(() => saveDraft()); return; }
-    // text fields keep their own undo; the post-wide one works everywhere else
-    if (isTextField(e.target)) return;
+    // text fields keep their own undo, CodeMirror's too; the post-wide one works everywhere else. composedPath: the
+    // target as it was, not the host a shadow root would make of it
+    if (isTextField(e.composedPath()[0])) return;
     if (key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); } else if ((key === 'z' && e.shiftKey) || key === 'y') { e.preventDefault(); redo(); }
   });
   addEventListener('beforeunload', (e) => { if (dirty.value) { if (S.draftId) saveDraft(true).catch(() => {}); e.preventDefault(); e.returnValue = ''; } });
@@ -199,6 +201,7 @@ async function boot() {
   if (!S.config.token_set) toast('TG_BOT_TOKEN не задан: редактор и предпросмотр работают, отправка нет. Добавьте токен в .env и перезапустите.', 'err');
   updateBadge();
   snippetBar('html'); snippetBar('markdown'); bindCode('html'); bindCode('markdown');
+  for (const lang of /** @type {const} */ (['html', 'markdown', 'json'])) setupSource(/** @type {HTMLTextAreaElement} */ ($('#src-' + lang)), lang);
   bindEffects();
   bindActions();
   document.addEventListener('rs-uploads-changed', () => loadUploads().catch(() => {}));

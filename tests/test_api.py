@@ -35,6 +35,54 @@ def test_spec_summary_has_all_rich_blocks(client):
     assert s["types"]["RichMessageButton"]["fields"][1]["enum"] == ["danger", "success", "primary", "link"]
 
 
+def test_spec_describes_the_post_for_json_completion(client):
+    import models
+
+    s = client.get("/api/spec").json()
+    post = s["post"]
+    assert post["root"] == "Post"
+    # every field of the post says what it holds, and the OpenAPI schema shows it to agents
+    assert all(
+        isinstance(f.json_schema_extra, dict) and f.json_schema_extra["bot_api"]
+        for f in models.Post.model_fields.values()
+    )
+    assert [f["name"] for f in post["types"]["Post"]["fields"]] == list(models.Post.model_fields)
+    assert next(f for f in post["types"]["Post"]["fields"] if f["name"] == "rich_message")["types"] == [
+        "InputRichMessage"
+    ]
+    schema = client.get("/openapi.json").json()["components"]["schemas"]["Post"]["properties"]
+    assert schema["poll_after"]["bot_api"] == ["PollAfter"]
+    options = {f["name"] for f in post["types"]["PostOptions"]["fields"]}
+    assert "disable_notification" in options and not options & {"chat_id", "rich_message", "reply_markup"}
+    poll = {f["name"] for f in post["types"]["PollAfter"]["fields"]}
+    assert {"question", "options", "type"} <= poll and "chat_id" not in poll
+    # every type a field names is described too, so completion walks the post to any depth
+    shapes = {**s["types"], **post["types"]}
+    named = {
+        x.removeprefix("Array of ").removeprefix("Array of ")
+        for t in shapes.values()
+        for f in t["fields"]
+        for x in f["types"]
+    }
+    named |= {x for t in s["types"].values() for x in t["subtypes"]}
+    assert named - set(shapes) <= {
+        "String",
+        "Integer",
+        "Float",
+        "Boolean",
+        "True",
+        "Object",
+        "InputFile",
+        "Array of RichText",
+    }
+    # a union member says which field tells it apart; the list item's "type" is an enum of markers, not that
+    assert (s["types"]["InputRichBlockParagraph"]["const_field"], s["types"]["InputRichBlockParagraph"]["const"]) == (
+        "type",
+        "paragraph",
+    )
+    assert s["types"]["InputRichBlockListItem"]["const_field"] is None
+
+
 def test_spec_type_lookup(client):
     assert client.get("/api/spec/type/sendRichMessage").json()["fields"]
     assert client.get("/api/spec/type/NoSuchType").status_code == 404

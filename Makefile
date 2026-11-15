@@ -32,6 +32,7 @@ check-js:
 	npx tsc -p .
 	node scripts/vendor_codemirror.mjs --check
 	npm run --silent test:codemirror
+	PYTHON=$(PY) npm run --silent test:completion
 	npm run --silent test:render
 	npm run --silent test:parity
 	npm run --silent test:shots

@@ -564,6 +564,9 @@
     "properties": {
      "callbacks": {
       "additionalProperties": true,
+      "bot_api": [
+       "Object"
+      ],
       "description": "Ответы на callback-кнопки: {callback_data: текст или {text, show_alert}}",
       "title": "Callbacks",
       "type": "object"
@@ -578,16 +581,25 @@
         "type": "null"
        }
       ],
+      "bot_api": [
+       "InputRichMessage"
+      ],
       "description": "InputRichMessage первого комментария: студия ответит им на пересылку поста в группу обсуждения",
       "title": "Comment"
      },
      "options": {
       "additionalProperties": true,
+      "bot_api": [
+       "PostOptions"
+      ],
       "description": "Любые другие параметры sendRichMessage: disable_notification, protect_content…",
       "title": "Options",
       "type": "object"
      },
      "pin": {
+      "bot_api": [
+       "Boolean"
+      ],
       "default": false,
       "description": "Закрепить пост после публикации",
       "title": "Pin",
@@ -603,6 +615,9 @@
         "type": "null"
        }
       ],
+      "bot_api": [
+       "PollAfter"
+      ],
       "description": "Параметры sendPoll (question, options…): опрос уйдёт в тот же чат сразу после поста; тема форума и disable_notification берутся из options поста, если в опросе их нет",
       "title": "Poll After"
      },
@@ -616,11 +631,17 @@
         "type": "null"
        }
       ],
+      "bot_api": [
+       "InlineKeyboardMarkup"
+      ],
       "description": "InlineKeyboardMarkup под постом",
       "title": "Reply Markup"
      },
      "rich_message": {
       "additionalProperties": true,
+      "bot_api": [
+       "InputRichMessage"
+      ],
       "description": "InputRichMessage: ровно одно из html / markdown / blocks, плюс media",
       "title": "Rich Message",
       "type": "object"
@@ -2994,7 +3015,7 @@
       "description": "Successful Response"
      }
     },
-    "summary": "Сводка спецификации для редактора (rich-типы, методы, изменения)",
+    "summary": "Сводка спецификации для редактора (rich-типы, методы, изменения, поля поста для подсказок)",
     "tags": [
      "spec"
     ]

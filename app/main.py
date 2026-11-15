@@ -49,6 +49,23 @@ STATIC = Path(__file__).parent / "static"
 SPEC_CHECK_INTERVAL = 1800  # seconds; Spec.refresh itself skips while the copy is fresh
 
 log = logging.getLogger("rich-studio")
+
+
+class Static(StaticFiles):
+    """The editor's files. The vendored CodeMirror (docs/decisions/0017) says how to cache it: its directory is named
+    after its content and never changes, and the module that points at it is checked on every load, so a cached copy
+    never leads to a directory that went away with an update. The rest keeps the browser's own heuristics."""
+
+    async def get_response(self, path: str, scope) -> Response:
+        response = await super().get_response(path, scope)
+        name = Path(path).as_posix()
+        if name == "vendor/codemirror.js":
+            response.headers["Cache-Control"] = "no-cache"
+        elif name.startswith("vendor/codemirror-"):
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
+
+
 access = logging.getLogger("rich-studio.http")
 # polled by Docker and by agents; a line per call would bury everything else
 PATH_LOGGED = 200
@@ -244,7 +261,7 @@ def create_app(cfg: settings.Settings | None = None) -> FastAPI:
     def favicon():  # browsers ask on every page; a 404 shows up as a console error in the preview
         return Response(status_code=204)
 
-    app.mount("/static", StaticFiles(directory=STATIC), name="static")
+    app.mount("/static", Static(directory=STATIC), name="static")
 
     # MCP for agents at /mcp, behind the same guard (Host, CSRF, X-API-Key) as the REST API
     @app.get("/mcp", include_in_schema=False)

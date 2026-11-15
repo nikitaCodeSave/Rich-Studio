@@ -138,6 +138,10 @@ dialog .ok { color: var(--ok); } dialog .w { color: var(--warn); }
 .export-diff { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; font-size: 12px; }
 .export-diff code { overflow-wrap: anywhere; }
 textarea.code { width: 100%; min-height: 380px; font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; tab-size: 2; resize: vertical; }
+/* CodeMirror over the source textareas (code-editor.js); its own theme is in the script */
+.cm-box .cm-editor { width: 100%; }
+.source-tools { margin: 4px 0 6px; gap: 4px 12px; }
+.source-tools label { margin: 0; gap: 4px; }
 /* the JSON tab holds text not applied yet: a dot on the tab, and a bar when the post changed after it */
 .mode-tabs button.pending::after { content: " •"; color: var(--warn); }
 .json-stale { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-bottom: 6px; padding: 6px 10px; font-size: 13px;

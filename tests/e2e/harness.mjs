@@ -52,6 +52,9 @@ export async function start() {
     else if (m.type() === 'error' && !/Failed to load resource|tile\.openstreetmap/.test(t)) errors.push(t);
   });
   page.on('dialog', (d) => { if (d.type() === 'alert') alerts++; d.accept(); });
+  // the shared page keeps the plain textareas of the source tabs, which page.fill types into; CodeMirror over them
+  // is checked on a page of its own (e2e/43-code-editor.mjs)
+  await page.addInitScript(() => { localStorage.setItem('rs.plainSource', 'true'); });
   await page.goto(BASE);
   await page.waitForSelector('.block');
 
