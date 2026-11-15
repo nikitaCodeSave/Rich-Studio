@@ -39,12 +39,10 @@ async def _send_claimed(queued: dict, now: float) -> None:
             store.update_post(p["id"], status="failed", error=e.description)
         return
     except Exception as e:  # noqa: BLE001 - network errors mid-send, a 5xx: never kill the scheduler
-        store.update_post(p["id"], status="failed", error=f"{type(e).__name__}: {e}. {publisher.MAY_HAVE_GONE}")
+        store.mark_outcome_unknown(p["id"], f"{type(e).__name__}: {e}. {publisher.MAY_HAVE_GONE}")
         return
     except asyncio.CancelledError:  # stopped mid-send after the grace period: the post may be out
-        store.update_post(
-            p["id"], status="failed", error=f"студия остановилась во время отправки. {publisher.MAY_HAVE_GONE}"
-        )
+        store.mark_outcome_unknown(p["id"], f"студия остановилась во время отправки. {publisher.MAY_HAVE_GONE}")
         raise
     # the post is in the channel now: whatever happens next must not mark it failed
     store.update_post(

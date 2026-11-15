@@ -131,7 +131,9 @@ async def set_buttons(pid: str, req: ButtonsReq, who: str = Depends(actor)):
 @router.get("/api/posts", summary="Опубликованные, отложенные и неудачные посты: первая строка, миниатюра, ссылка")
 def list_posts(status: str | None = None, chat: str | None = None, limit: int = Query(100, ge=1, le=500)):
     """Для каждого поста: `title`, `thumb`, `link`, нажатия (`clicks`) и текст кнопки каждого `callback_data`
-    (`buttons`). Отправка, которой Telegram отказал, — статус `failed` с ошибкой."""
+    (`buttons`). Отправка, которой Telegram отказал, — статус `failed` с ошибкой. `outcome_unknown: true` у `failed`:
+    исход неизвестен (Telegram не ответил, студия остановилась или упала посреди отправки), пост мог уйти. Такая
+    запись не уходит после успешной отправки того же черновика и видна в `/api/health`, пока её не уберут `DELETE`."""
     return listing.list_posts(limit, status=status, chat=chat)
 
 

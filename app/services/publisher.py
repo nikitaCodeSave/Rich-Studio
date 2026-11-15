@@ -216,25 +216,32 @@ async def _send_poll_after(pid: str, post: dict, res: dict, actor: str) -> list[
         return [f"опрос после поста не отправлен: {e.description}"]
     except Exception as e:  # noqa: BLE001 - never resent on its own, like any send that may have gone
         err = f"{type(e).__name__}: {e}. {POLL_MAY_HAVE_GONE}"
-        _record_failure(chat, sent, rec.get("draft_id"), err, kinds.POLL, actor)
+        _record_failure(chat, sent, rec.get("draft_id"), err, kinds.POLL, actor, unknown=True)
         return [f"опрос после поста: {err}"]
     poll_rec = store.add_post(chat, sent, rec.get("draft_id"), "sent", r["message_id"], kind=kinds.POLL, actor=actor)
     store.update_post(poll_rec["id"], chat_num=(r.get("chat") or {}).get("id"), poll_id=(r.get("poll") or {}).get("id"))
     return []
 
 
-def _record_failure(chat, post: dict, draft_id: str | None, error: str, kind: str, actor: str) -> None:
-    """A failed send as a row in the list of posts; never hides Telegram's own error behind a database one."""
+def _record_failure(
+    chat, post: dict, draft_id: str | None, error: str, kind: str, actor: str, unknown: bool = False
+) -> None:
+    """A failed send as a row in the list of posts; never hides Telegram's own error behind a database one.
+    `unknown`: it may have gone all the same (store.mark_outcome_unknown)."""
     try:
-        store.add_post(chat, post, draft_id, "failed", error=error, kind=kind, actor=actor)
+        store.add_post(chat, post, draft_id, "failed", error=error, kind=kind, actor=actor, outcome_unknown=unknown)
     except Exception:
         log.exception("could not record the failed send to %s", chat)
 
 
-def _mark_failed(pid: str, error: str) -> None:
-    """The row written before the send gets the outcome; never hides Telegram's own error behind a database one."""
+def _mark_failed(pid: str, error: str, unknown: bool = False) -> None:
+    """The row written before the send gets the outcome; never hides Telegram's own error behind a database one.
+    `unknown`: the post may be in the channel all the same (store.mark_outcome_unknown)."""
     try:
-        store.update_post(pid, status="failed", error=error)
+        if unknown:
+            store.mark_outcome_unknown(pid, error)
+        else:
+            store.update_post(pid, status="failed", error=error)
     except Exception:
         log.exception("could not record the failed send %s", pid)
 
@@ -263,19 +270,19 @@ async def publish(chats: list, post: dict, draft_id: str | None = None, kind: st
             raise
         except Exception as e:
             err = f"{type(e).__name__}: {e}. {MAY_HAVE_GONE}"
-            _mark_failed(rec["id"], err)
+            _mark_failed(rec["id"], err, unknown=True)
             if len(chats) == 1:
                 raise MayHaveGone(err) from e
             out.append({"chat_id": chat, "ok": False, "error": err})
             continue
         except asyncio.CancelledError:  # shutdown mid-send: the request may have reached Telegram
-            _mark_failed(rec["id"], f"студия остановилась во время отправки. {MAY_HAVE_GONE}")
+            _mark_failed(rec["id"], f"студия остановилась во время отправки. {MAY_HAVE_GONE}", unknown=True)
             raise
         finally:
             in_flight.discard(rec["id"])
         store.update_post(rec["id"], status="sent", message_id=res["message_id"], sent_at=int(time.time()))
         if draft_id:
-            store.drop_refused(chat, draft_id, MAY_HAVE_GONE, POLL_MAY_HAVE_GONE)
+            store.drop_refused(chat, draft_id)
         w = await after_send(rec["id"], post, res, actor, kind)
         warnings += [f"{chat}: {x}" for x in w] if len(chats) > 1 else w
         out.append({"chat_id": chat, "ok": True, "post": store.get_post(rec["id"]), "message": res})

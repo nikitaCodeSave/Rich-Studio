@@ -193,6 +193,8 @@ interface PostRow {
   /** +1 on every replacement of the content or the buttons: «Обновить пост» sends it as post_version */
   version: number;
   pinned: boolean;
+  /** a failed send that may be in the channel all the same (no answer, a stop or a crash mid-send): stays until removed */
+  outcome_unknown: boolean;
   comment_status: string | null;
   reactions: Json | null;
   clicks: Json | null;

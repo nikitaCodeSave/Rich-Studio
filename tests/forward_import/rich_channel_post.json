@@ -1,0 +1,84 @@
+{
+  "update_id": 900001,
+  "message": {
+    "message_id": 501,
+    "from": {"id": 777, "is_bot": false, "first_name": "Владелец"},
+    "chat": {"id": 777, "type": "private", "first_name": "Владелец"},
+    "date": 1763200000,
+    "forward_origin": {
+      "type": "channel",
+      "date": 1763100000,
+      "chat": {"id": -1001234567890, "type": "channel", "title": "Чужой канал", "username": "other_channel"},
+      "message_id": 42,
+      "author_signature": "Редакция"
+    },
+    "rich_message": {
+      "blocks": [
+        {"type": "heading", "size": 1, "text": ["Итоги ", {"type": "bold", "text": "недели"}]},
+        {
+          "type": "paragraph",
+          "text": [
+            "Текст с ",
+            {"type": "italic", "text": "курсивом"},
+            ", ",
+            {"type": "url", "text": "ссылкой", "url": "https://example.com/a"},
+            " и ",
+            {"type": "custom_emoji", "custom_emoji_id": "5368324170671202286", "alternative_text": "👍"}
+          ]
+        },
+        {
+          "type": "photo",
+          "photo": [
+            {"file_id": "AgAC-small", "file_unique_id": "u-small", "width": 90, "height": 60, "file_size": 1200},
+            {"file_id": "AgAC-big", "file_unique_id": "u-big", "width": 1280, "height": 853, "file_size": 98000}
+          ],
+          "has_spoiler": true,
+          "caption": {"text": "Подпись", "credit": "Фото: автор"}
+        },
+        {
+          "type": "list",
+          "items": [
+            {"label": "•", "blocks": [{"type": "paragraph", "text": "первый"}]},
+            {"label": "•", "blocks": [{"type": "paragraph", "text": "второй"}], "has_checkbox": true, "is_checked": true}
+          ]
+        },
+        {"type": "blockquote", "blocks": [{"type": "paragraph", "text": "Цитата"}], "credit": "Автор"},
+        {
+          "type": "video",
+          "video": {
+            "file_id": "BAAC-video",
+            "file_unique_id": "u-video",
+            "width": 1920,
+            "height": 1080,
+            "duration": 12,
+            "mime_type": "video/mp4"
+          }
+        },
+        {
+          "type": "buttons",
+          "buttons": [
+            {"text": "Читать", "url": "https://example.com/read"},
+            {"text": "Голосовать", "callback_data": "vote:1"}
+          ]
+        },
+        {"type": "buttons", "buttons": [{"text": "Ещё", "callback_data": "more"}]},
+        {
+          "type": "paragraph",
+          "text": [
+            "Нажмите ",
+            {"type": "button", "button": {"text": "тут", "callback_data": "here"}},
+            " или ",
+            {"type": "button", "button": {"text": "здесь", "url": "https://example.com/here"}}
+          ]
+        },
+        {"type": "footer", "text": "Подвал"}
+      ]
+    },
+    "reply_markup": {
+      "inline_keyboard": [
+        [{"text": "Сайт", "url": "https://example.com"}],
+        [{"text": "Лайк", "callback_data": "like"}, {"text": "Скопировать", "copy_text": {"text": "промокод"}}]
+      ]
+    }
+  }
+}

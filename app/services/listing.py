@@ -132,5 +132,6 @@ def list_posts(limit: int = 100, status: str | None = None, chat: str | None = N
         p["buttons"] = button_texts(payload, p.get("kind"))
         p["link"] = link(p["chat_id"], p["message_id"])
         p["pinned"] = bool(p.get("pinned"))
+        p["outcome_unknown"] = bool(p.get("outcome_unknown"))
         out.append(p)
     return out
