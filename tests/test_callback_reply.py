@@ -113,11 +113,11 @@ def test_a_reply_that_may_have_gone_is_not_sent_again(client, tg, monkeypatch):
     real = telegram.call
     asked: list[str] = []
 
-    async def broken_mid_request(method, params=None, timeout=60):
+    async def broken_mid_request(method, params=None, timeout=60, **kw):
         asked.append(method)
         if method == "sendRichMessage":
             raise httpx.ReadError(f"broken {settings.get().api_base}/bot{settings.get().bot_token}/sendRichMessage")
-        return await real(method, params, timeout)
+        return await real(method, params, timeout, **kw)
 
     monkeypatch.setattr(telegram, "call", broken_mid_request)
     _press(sent)
@@ -128,22 +128,92 @@ def test_a_reply_that_may_have_gone_is_not_sent_again(client, tg, monkeypatch):
     assert line["outcome"] == "may_have_gone" and settings.get().bot_token not in line["msg"]
 
 
-def test_a_reply_waits_no_longer_than_the_window(client, tg, monkeypatch):
-    sent = _publish(client, {"text": "ок", "reply": REPLY})
+def _hanging(monkeypatch, seconds: float = 30) -> list[tuple[str, float]]:
+    """sendRichMessage that Telegram never answers; returns when each method was asked."""
     real = telegram.call
+    asked: list[tuple[str, float]] = []
 
-    async def silent(method, params=None, timeout=60):
+    async def hang(method, params=None, timeout=60, **kw):
+        asked.append((method, time.monotonic()))
         if method == "sendRichMessage":
-            await asyncio.sleep(5)  # this coroutine only: the fake Telegram's thread keeps running
-        return await real(method, params, timeout)
+            await asyncio.sleep(seconds)  # this coroutine only: the fake Telegram's thread keeps running
+        return await real(method, params, timeout, **kw)
 
-    monkeypatch.setattr(telegram, "call", silent)
+    monkeypatch.setattr(telegram, "call", hang)
+    return asked
+
+
+def test_a_hanging_reply_holds_the_answer_no_longer_than_reply_wait(client, tg, monkeypatch):
+    sent = _publish(client, {"text": "ок", "reply": REPLY})
+    monkeypatch.setattr(callbacks, "REPLY_WAIT", 0.5)
+    asked = _hanging(monkeypatch)
     started = time.monotonic()
-    _press(sent, received=time.monotonic() - (callbacks.WINDOW - 1.5))  # 1.5 s left of the window
-    assert time.monotonic() - started < 4
-    assert tg.last("answerCallbackQuery")["body"]["callback_query_id"] == "cq1"
+    _press(sent)
+    answered = dict(asked)["answerCallbackQuery"] - started
+    assert 0.4 < answered < 1.5  # the popup goes after REPLY_WAIT, not after the whole window
+    assert tg.last("answerCallbackQuery")["body"] == {"callback_query_id": "cq1", "text": "ок"}
     err = client.get(f"/api/posts/{sent['post']['id']}").json()["reply_errors"]["like"]["error"]
     assert "не ответил" in err and "мог дойти" in err
+
+
+def test_a_reply_waits_no_longer_than_what_is_left_of_the_window(client, tg, monkeypatch):
+    sent = _publish(client, {"text": "ок", "reply": REPLY})
+    asked = _hanging(monkeypatch)
+    started = time.monotonic()
+    _press(sent, received=time.monotonic() - (callbacks.WINDOW - 1.5))  # 1.5 s left, less than REPLY_WAIT
+    assert dict(asked)["answerCallbackQuery"] - started < 2.5
+
+
+def test_a_hanging_reply_does_not_make_the_next_presses_of_the_batch_late(client, tg, monkeypatch):
+    """getUpdates handles a batch in order: the presses after a hanging reply wait only REPLY_WAIT for it."""
+    sent = _publish(client, {"text": "ок", "reply": REPLY})
+    # the same proportions as WINDOW 15 / REPLY_WAIT 4, three times faster
+    monkeypatch.setattr(callbacks, "WINDOW", 5.0)
+    monkeypatch.setattr(callbacks, "MIN_LEFT", 0.3)
+    monkeypatch.setattr(callbacks, "REPLY_WAIT", 1.3)
+    real = telegram.call
+    replies: list[str] = []
+
+    async def first_hangs(method, params=None, timeout=60, **kw):
+        if method == "sendRichMessage":
+            replies.append(params["ephemeral_message_parameters"]["callback_query_id"])
+            if len(replies) == 1:
+                await asyncio.sleep(30)
+        return await real(method, params, timeout, **kw)
+
+    monkeypatch.setattr(telegram, "call", first_hangs)
+    batch = time.monotonic()  # both presses came in one getUpdates answer
+    _press(sent, "cq1", received=batch)
+    _press(sent, "cq2", received=batch)
+    assert replies == ["cq1", "cq2"]  # the second press still got its reply tried, it is not «late»
+    outcomes = [x["outcome"] for x in logs.read("WARNING", text="callback.reply_failed")]
+    assert outcomes == ["may_have_gone"]
+
+
+def test_a_429_on_the_reply_is_not_waited_out(client, tg, monkeypatch):
+    """Telegram did not run the request: «not sent», at once, not a sleep through the window and «may have gone»."""
+    from telegram import client as tgc
+
+    sent = _publish(client, {"text": "ок", "reply": REPLY})
+    slept: list[float] = []
+
+    async def no_sleep(sec):
+        slept.append(sec)
+
+    monkeypatch.setattr(tgc, "_sleep", no_sleep)
+    busy = {
+        "ok": False,
+        "error_code": 429,
+        "description": "Too Many Requests: retry after 5",
+        "parameters": {"retry_after": 5},
+    }
+    tg.queue["sendRichMessage"] = [busy, busy]
+    start = len(tg.calls)
+    _press(sent)
+    assert _methods(tg, start) == ["sendRichMessage", "answerCallbackQuery"] and slept == []
+    tg.queue.clear()
+    line = next(x for x in logs.read("WARNING", text="callback.reply_failed"))
+    assert line["outcome"] == "not_sent" and line["code"] == 429
 
 
 def test_a_press_that_waited_past_the_window_gets_only_the_answer(client, tg):
@@ -153,7 +223,7 @@ def test_a_press_that_waited_past_the_window_gets_only_the_answer(client, tg):
     _press(sent, received=time.monotonic() - 20)
     assert _methods(tg, start) == ["answerCallbackQuery"]
     err = client.get(f"/api/posts/{sent['post']['id']}").json()["reply_errors"]["like"]
-    assert err["n"] == 1 and "15 с" in err["error"]
+    assert err["n"] == 1 and "ждало в студии 20 с" in err["error"] and "меньше 1 с" in err["error"]
     assert next(x for x in logs.read("WARNING", text="callback.reply_failed"))["outcome"] == "late"
 
 
@@ -167,6 +237,48 @@ def test_a_broken_stored_reply_never_stops_the_answer(client, tg):
     _press(sent)
     assert _methods(tg, start) == ["answerCallbackQuery"]
     assert client.get(f"/api/posts/{pid}").json()["reply_errors"]["like"]["n"] == 1
+
+
+@pytest.mark.parametrize(
+    "smuggled",
+    [
+        {"chat_id": "@public_channel"},
+        {"business_connection_id": "biz"},
+        {"allow_paid_broadcast": True},
+        {"ephemeral_message_parameters": {"receiver_user_id": 5}},
+        {"ephemeral_message_parameters": {"callback_query_id": "someone-else"}},
+    ],
+)
+def test_a_stored_reply_with_a_forbidden_field_is_not_sent_at_the_press(client, tg, smuggled):
+    """The check refuses these at a save; one written into the database past it still never goes: fail closed,
+    nothing is cut out of it, nothing reaches a chat."""
+    sent = _publish(client, "Спасибо")
+    pid = sent["post"]["id"]
+    answer = {"text": "ок", "reply": {**REPLY, **smuggled}}
+    store.update_post(pid, payload={**store.get_post(pid)["payload"], "callbacks": {"like": answer}})
+    start = len(tg.calls)
+    _press(sent)
+    assert _methods(tg, start) == ["answerCallbackQuery"]  # no sendRichMessage at all
+    [field] = smuggled.get("ephemeral_message_parameters", smuggled)
+    err = client.get(f"/api/posts/{pid}").json()["reply_errors"]["like"]["error"]
+    assert field in err and "не отправлен" in err
+    assert next(x for x in logs.read("WARNING", text="callback.reply_failed"))["outcome"] == "not_sent"
+
+
+# #171: a press is answered whatever fails while it is read or counted (test_regressions.py has the data)
+def test_a_failure_to_read_or_count_a_press_never_stops_its_answer(client, tg, monkeypatch):
+    sent = _publish(client, "Спасибо")
+
+    def broken(*a, **kw):
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(store, "bump_click", broken)
+    _press(sent, "cq1")
+    assert tg.last("answerCallbackQuery")["body"] == {"callback_query_id": "cq1", "text": "Спасибо"}
+    monkeypatch.setattr(store, "find_post", broken)
+    _press(sent, "cq2")  # the post cannot be read: an empty answer, the button still stops spinning
+    assert tg.last("answerCallbackQuery")["body"] == {"callback_query_id": "cq2"}
+    assert len([x for x in logs.read("ERROR") if "button press" in x["msg"]]) == 2
 
 
 def test_the_buttons_of_a_preview_send_its_reply_too(client, tg):
@@ -214,6 +326,44 @@ def test_what_a_reply_must_not_hold(client):
     assert "replace_callback_query_message: ожидалось true/false" in typed
     [blocks] = errors({"rich_message": {"blocks": [{"type": "paragraph"}]}})
     assert blocks.startswith("ответ на кнопку «👍»: reply.rich_message.blocks[0]")
+    # who pays and on whose behalf a reply goes are the studio's too
+    [biz] = errors({"rich_message": rm, "business_connection_id": "b"})
+    assert biz.startswith("ответ на кнопку «👍»: reply.business_connection_id:")
+    [paid] = errors({"rich_message": rm, "allow_paid_broadcast": True})
+    assert "reply.allow_paid_broadcast: платная рассылка" in paid
+
+
+def test_the_query_id_in_an_old_answer_is_a_warning_and_the_press_gets_its_own(client, tg):
+    sent = _publish(client, {"text": "ок", "callback_query_id": "stale"})
+    assert any("callback_query_id задаёт студия" in w for w in sent["warnings"])
+    _press(sent, "cq-real")
+    assert tg.last("answerCallbackQuery")["body"] == {"callback_query_id": "cq-real", "text": "ок"}
+
+
+def test_a_refused_reply_keeps_its_own_warnings_in_the_422(client, tg):
+    reply = {"rich_message": {"html": ""}, "future_param": 1}
+    post = {**BLOCKS_POST, "reply_markup": LIKE, "callbacks": {"like": {"reply": reply}}}
+    r = client.post("/api/send", json={"post": post})
+    assert r.status_code == 422
+    assert any("reply.future_param: поля нет в sendRichMessage" in w for w in r.json()["detail"]["warnings"])
+
+
+def test_a_template_fills_the_reply_as_text(client):
+    """A {{key}} in the reply's HTML is filled like one in the post: the value stays text (services/templates.py)."""
+    reply = {"rich_message": {"html": "<p>Для вас, {{guest}}</p>"}}
+    post = {**BLOCKS_POST, "reply_markup": LIKE, "callbacks": {"like": {"text": "Привет, {{guest}}", "reply": reply}}}
+    _, t, _ = call(client, "save_post_template", title="С ответом", post=post, fields=[{"key": "guest"}])
+    values = {"guest": "<b>Ann</b> & Co"}
+    res, d, _ = call(client, "draft_from_template", template_id=t["id"], version=t["version"], values=values)
+    assert not res.get("isError"), res
+    answer = store.get_draft(d["id"])["payload"]["callbacks"]["like"]
+    assert answer["reply"]["rich_message"]["html"] == "<p>Для вас, &lt;b&gt;Ann&lt;/b&gt; &amp; Co</p>"
+    assert answer["text"] == "Привет, <b>Ann</b> & Co"  # a popup is plain text: Telegram shows it as it is
+    assert d["validation"]["ok"] is True
+    # a {{key}} where a value could become markup is refused in the reply as in the post
+    post["callbacks"] = {"like": {"reply": {"rich_message": {"html": "<p {{guest}}>x</p>"}}}}
+    res, _, text = call(client, "save_post_template", title="Плохой", post=post, fields=[{"key": "guest"}])
+    assert res["isError"] and "reply.rich_message.html" in text
 
 
 def test_unknown_fields_are_warnings_and_go_as_they_are(client, tg):

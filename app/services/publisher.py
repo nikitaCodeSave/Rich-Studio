@@ -182,9 +182,9 @@ def validate(post: dict) -> dict:
             raise Invalid({"message": "первый комментарий не прошёл проверку", **c})
         r = {**r, "warnings": r["warnings"] + c["warnings"]}
     cb = callbacks.check(post)
+    r = {**r, "warnings": r["warnings"] + cb["warnings"]}  # the reply's own warnings too, refused or not
     if cb["errors"]:
         raise Invalid({"message": "ответ на кнопку не прошёл проверку", **r, "ok": False, "errors": cb["errors"]})
-    r = {**r, "warnings": r["warnings"] + cb["warnings"]}
     if post.get("poll_after") is not None and (bad := kinds.poll_error(post["poll_after"])):
         raise Invalid({"message": "опрос после поста не прошёл проверку", **r, "ok": False, "errors": [bad]})
     return r

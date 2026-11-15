@@ -4,10 +4,12 @@ import asyncio
 import time
 
 import httpx
+import pytest
 
 import settings
-from services import scheduler
+from services import scheduler, updates
 from test_api import BLOCKS_POST
+from test_callback_reply import REPLY
 
 
 def test_preview_never_falls_back_to_the_channel(client, tg, monkeypatch):
@@ -114,3 +116,25 @@ def test_error_inside_rich_text_array_names_the_missing_field():
     # the same element alone, and a plain wrong value, keep their messages
     assert "нет обязательного поля url" in errors({"type": "url", "text": "x"})[0]
     assert "ожидалась строка" in errors(5)[0]
+
+
+# #171: a " in callback_data made a bad JSON path in SQLite (bump_click), and the press failed before it was answered
+@pytest.mark.parametrize("ch", ['"', "\\", ".", "[", "$"])
+def test_a_press_is_counted_and_answered_whatever_its_callback_data_holds(client, tg, ch):
+    data = f"a{ch}b"
+    kb = {"inline_keyboard": [[{"text": "Кнопка", "callback_data": data}]]}
+    post = {**BLOCKS_POST, "reply_markup": kb, "callbacks": {data: {"text": "Принято", "reply": REPLY}}}
+    sent = client.post("/api/send", json={"post": post}).json()
+    refused = {"ok": False, "error_code": 400, "description": "Bad Request: query is too old"}
+    tg.queue["sendRichMessage"] = [refused, refused]
+    for cq in ("cq1", "cq2"):
+        click = {
+            "id": cq,
+            "data": data,
+            "message": {"message_id": sent["message"]["message_id"], "chat": {"id": -1001}},
+        }
+        asyncio.run(updates.handle_update({"update_id": 1, "callback_query": click}))
+        assert tg.last("answerCallbackQuery")["body"] == {"callback_query_id": cq, "text": "Принято"}
+    p = client.get(f"/api/posts/{sent['post']['id']}").json()
+    assert p["clicks"] == {data: 2}
+    assert p["reply_errors"][data]["n"] == 2 and p["reply_errors"][data]["error"] == "Bad Request: query is too old"

@@ -86,13 +86,23 @@ async def handle_update(u: dict, received: float | None = None) -> str | None:
     """React to one Telegram update. Unknown updates are ignored. Returns what was handled.
     `received`: time.monotonic() when getUpdates brought it (a rich reply to a button has 15 seconds)."""
     if cq := u.get("callback_query"):
+        # whatever the studio fails to read or count, the press is still answered: otherwise the button spins
         msg = cq.get("message") or {}
-        p = store.find_post((msg.get("chat") or {}).get("id"), msg.get("message_id")) if msg else None
+        p: dict | None = None
+        answers: dict = {}
+        try:
+            p = store.find_post((msg.get("chat") or {}).get("id"), msg.get("message_id")) if msg else None
+            if p:
+                answers = (p["payload"] or {}).get("callbacks") or {}
+            elif msg:
+                answers = _preview_callbacks((msg.get("chat") or {}).get("id"), msg.get("message_id"))
+        except Exception:
+            log.exception("button press: its post could not be read, it gets an empty answer")
         if p:
-            store.bump_click(p["id"], cq.get("data") or "")
-            answers = (p["payload"] or {}).get("callbacks") or {}
-        else:
-            answers = _preview_callbacks((msg.get("chat") or {}).get("id"), msg.get("message_id")) if msg else {}
+            try:
+                store.bump_click(p["id"], cq.get("data") or "")
+            except Exception:
+                log.exception("button press on post %s was not counted", p["id"])
         await callbacks.answer(cq, answers, p["id"] if p else None, received)
         return "callback"
     if (m := u.get("message") or u.get("edited_message")) and suggested_posts.on_message(m):

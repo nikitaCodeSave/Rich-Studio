@@ -68,7 +68,7 @@ export function openReplyDialog({ label, answer, onChange, issues }) {
   const remove = h('button', { class: 'ghost', value: 'ok', text: 'Убрать rich-ответ', onclick: () => { const next = { ...a }; delete next.reply; onChange(next); } });
   openDialog([
     h('h3', { text: `Rich-ответ на «${label}»` }),
-    h('p', { class: 'muted small', text: 'Сообщение, которое увидит только нажавший: студия отправит его сразу после нажатия (sendRichMessage с ephemeral_message_parameters), затем ответит на нажатие, как обычно. Telegram принимает такой ответ в течение 15 секунд после нажатия и не обещает доставку; повторов нет, сбой виден в журнале и у нажатий поста.' }),
+    h('p', { class: 'muted small', text: 'Сообщение, которое увидит только нажавший: студия отправит его сразу после нажатия (sendRichMessage с ephemeral_message_parameters), затем ответит на нажатие, как обычно (ответ ждёт не дольше 4 секунд, чтобы кнопка не крутилась). Telegram принимает такой ответ в течение 15 секунд после нажатия и не обещает доставку; повторов нет, сбой виден в журнале и у нажатий поста.' }),
     h('p', { class: 'w small', text: 'Под постом канала это ещё не проверено: ответ может не дойти. Проверьте кнопкой «Мне в личку», а потом на тестовом канале.' }),
     src, flag,
     h('div', { class: 'small muted', text: 'Предпросмотр' }), preview, list,

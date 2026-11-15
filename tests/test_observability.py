@@ -715,7 +715,7 @@ def test_telegram_check_ignores_a_rejected_post_but_not_a_setup_problem(client, 
 
     from telegram import client as tgc
 
-    async def refuse(method, params, timeout):
+    async def refuse(method, params, timeout, retries=None):
         raise tgc.TelegramError(refusal, 400)
 
     monkeypatch.setattr(tgc, "_call", refuse)

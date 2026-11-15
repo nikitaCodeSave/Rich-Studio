@@ -6,9 +6,10 @@ ephemeral rich reply that only the person who pressed sees (Bot API 10.4), in pl
 `reply.ephemeral_message_parameters.replace_callback_query_message` is true. The studio adds what is known only at
 the press, `callback_query_id`; everything else goes to Telegram as it is (docs/decisions/0021-ephemeral-callback-reply.md).
 
-A press: the reply first, then answerCallbackQuery, always (or the button keeps spinning), whatever the reply did.
-A reply is not a post: nothing is written before it goes, and it is never sent again. A reply that did not go is a
-line in the log (`callback.reply_failed`) and, for a post, a count next to its clicks (`posts.reply_errors`).
+A press: the reply first, waited for no longer than REPLY_WAIT, then answerCallbackQuery, always (or the button keeps
+spinning), whatever the reply did. A reply is not a post: nothing is written before it goes, and it is never sent
+again. A reply that did not go is a line in the log (`callback.reply_failed`) and, for a post, a count next to its
+clicks (`posts.reply_errors`).
 """
 
 import asyncio
@@ -27,9 +28,27 @@ REPLY = "reply"
 # Commands" in the Bot API docs; api.json has no number for it). CallbackQuery has no date, so the studio counts
 # from the moment getUpdates brought the press: the press itself was no later than that
 WINDOW = 15.0
-# less than this left of the window: the reply would come too late to be taken, so it is not tried
+# less than this left of the window: the reply would come too late to be taken, so it is not tried. A press is
+# "late" once it waited in the studio more than WINDOW - MIN_LEFT = 14 s
 MIN_LEFT = 1.0
+# the longest the studio waits for Telegram to take a reply before it answers the press anyway. Telegram answers a
+# send in well under a second; past this the button has spun long enough, the popup text of the answer must still
+# come while the press is fresh, and the next presses in the same getUpdates batch wait behind this one (three
+# replies that hang one after another still leave the fourth press its window)
+REPLY_WAIT = 4.0
 TOO_LATE = "query is too old"  # answerCallbackQuery for a press that came while the studio was off
+# never in a reply, at a save and at a press alike: where a reply goes and who pays for it are the studio's. A reply
+# goes only to the person who pressed: no chat, no business account, no paid broadcast, no fixed receiver; the query
+# is the press's own
+FORBIDDEN = {
+    "chat_id": "ответ уходит только нажавшему, чат не задаётся",
+    "business_connection_id": "ответ уходит от бота, не от бизнес-аккаунта",
+    "allow_paid_broadcast": "платная рассылка в ответе на нажатие не включается: каждое нажатие стоило бы звёзд",
+}
+FORBIDDEN_EPHEMERAL = {
+    "callback_query_id": "его задаёт студия при нажатии",
+    "receiver_user_id": "кто нажмёт, заранее не известно, а Telegram примет ответ только нажавшему",
+}
 
 
 def _labels(markup) -> dict[str, str]:
@@ -40,6 +59,17 @@ def _labels(markup) -> dict[str, str]:
         for b in row if isinstance(row, list) else []:
             if isinstance(b, dict) and isinstance(b.get("callback_data"), str) and isinstance(b.get("text"), str):
                 out.setdefault(b["callback_data"], b["text"])
+    return out
+
+
+def forbidden(reply: dict) -> list[str]:
+    """What a reply must never hold (FORBIDDEN), as «reply.field: why»."""
+    out = [f"{REPLY}.{k}: {why}" for k, why in FORBIDDEN.items() if k in reply]
+    eph = reply.get("ephemeral_message_parameters")
+    if isinstance(eph, dict):
+        out += [
+            f"{REPLY}.ephemeral_message_parameters.{k}: {why}" for k, why in FORBIDDEN_EPHEMERAL.items() if k in eph
+        ]
     return out
 
 
@@ -75,8 +105,8 @@ def _check_answer(answer) -> tuple[list[str], list[str]]:
     for k, value in answer.items():
         if k == REPLY:
             continue
-        if k == "callback_query_id":
-            errors.append("callback_query_id задаёт студия при нажатии")
+        if k == "callback_query_id":  # the press's own id always replaces it: worked like this before, so no error
+            v.warnings.append("callback_query_id задаёт студия при нажатии, это значение не уйдёт")
         elif (f := fields.get(k)) is None:
             v.warnings.append(f"{k}: поля нет в answerCallbackQuery (спецификация {spec.current.version})")
         else:
@@ -94,7 +124,7 @@ def _check_answer(answer) -> tuple[list[str], list[str]]:
 
 def _check_reply(reply) -> tuple[list[str], list[str]]:
     """The reply is a sendRichMessage request without its chat and its query: rich_message like a post, the other
-    parameters by the spec, fields the spec does not know as warnings."""
+    parameters by the spec, fields the spec does not know as warnings, FORBIDDEN as errors."""
     if not isinstance(reply, dict):
         return [f"{REPLY}: нужен объект с параметрами sendRichMessage: {{rich_message: {{html|markdown|blocks}}}}"], []
     if "rich_message" not in reply:
@@ -105,29 +135,19 @@ def _check_reply(reply) -> tuple[list[str], list[str]]:
         )
         return [f"{REPLY}: нет обязательного поля rich_message{hint}"], []
     r = spec.validate_rich_message(spec.current, reply["rich_message"])
-    errors, warnings = [_in_reply(m) for m in r["errors"]], [_in_reply(m) for m in r["warnings"]]
+    errors = [_in_reply(m) for m in r["errors"]] + forbidden(reply)
+    warnings = [_in_reply(m) for m in r["warnings"]]
     v = spec.Validator(spec.current)
     method = spec.current.methods.get("sendRichMessage") or {}
     fields = {f["name"]: f for f in method.get("fields", [])}
     for k, value in reply.items():
-        if k == "rich_message":
+        if k == "rich_message" or k in FORBIDDEN:
             continue
-        if k == "chat_id":  # the reply goes to the person who pressed, never to a chat: nothing can go public
-            errors.append(f"{REPLY}.chat_id: ответ уходит только нажавшему, чат не задаётся")
-        elif (f := fields.get(k)) is None:
+        if (f := fields.get(k)) is None:
             v.warnings.append(f"{REPLY}.{k}: поля нет в sendRichMessage (спецификация {spec.current.version})")
         elif k == "ephemeral_message_parameters" and isinstance(value, dict):
-            for own, why in (
-                ("callback_query_id", "его задаёт студия при нажатии"),
-                ("receiver_user_id", "кто нажмёт, заранее не известно, а Telegram примет ответ только нажавшему"),
-            ):
-                if own in value:
-                    errors.append(f"{REPLY}.{k}.{own}: {why}")
-            v.check(
-                {x: y for x, y in value.items() if x not in ("callback_query_id", "receiver_user_id")},
-                f["types"],
-                f"{REPLY}.{k}",
-            )
+            rest = {x: y for x, y in value.items() if x not in FORBIDDEN_EPHEMERAL}
+            v.check(rest, f["types"], f"{REPLY}.{k}")
         else:
             v.check(value, f["types"], f"{REPLY}.{k}")
     errors += v.errors + spec.keyboard_errors(reply.get("reply_markup"))
@@ -150,7 +170,7 @@ async def answer(cq: dict, callbacks: dict, post_id: str | None, received: float
     if isinstance(ans, str):
         ans = {"text": ans}
     params = {k: v for k, v in ans.items() if k != REPLY} if isinstance(ans, dict) else {}
-    params["callback_query_id"] = cq["id"]
+    params["callback_query_id"] = cq["id"]  # the press's own, whatever the answer held
     reply = ans.get(REPLY) if isinstance(ans, dict) else None
     if isinstance(reply, dict):
         chat = ((cq.get("message") or {}).get("chat") or {}).get("id")
@@ -175,25 +195,33 @@ async def _reply(cq_id: str, data: str, reply: dict, post_id: str | None, chat, 
             chat,
             data,
             "late",
-            f"нажатие ждало в студии {waited:.0f} с, а Telegram принимает ответ "
-            f"{WINDOW:.0f} с после нажатия: rich-ответ не отправлен",
+            f"нажатие ждало в студии {waited:.0f} с, а Telegram принимает ответ {WINDOW:.0f} с после нажатия "
+            f"(студия не пробует, когда остаётся меньше {MIN_LEFT:.0f} с): rich-ответ не отправлен",
         )
         return
+    # the check refuses all of these at a save; a payload stored before it, or written by hand, must not get past
+    # at the press either: nothing is cut out silently, the reply is not sent
     own = reply.get("ephemeral_message_parameters") or {}
-    if not isinstance(own, dict):  # the check refuses it; a payload stored before the check must not stop the answer
-        _failed(post_id, chat, data, "not_sent", "ephemeral_message_parameters не объект: rich-ответ не отправлен")
+    bad = forbidden(reply) if isinstance(own, dict) else ["ephemeral_message_parameters: не объект"]
+    if bad:
+        _failed(post_id, chat, data, "not_sent", "; ".join(bad) + ": rich-ответ не отправлен")
         return
     params = {**reply, "ephemeral_message_parameters": {**own, "callback_query_id": cq_id}}
+    wait = min(REPLY_WAIT, left)
     try:
-        await asyncio.wait_for(tg.call("sendRichMessage", params, timeout=left), left)
+        # no wait on a 429 inside: Telegram did not run the request, and sleeping would cost the window
+        await asyncio.wait_for(tg.call("sendRichMessage", params, timeout=wait, retries=0), wait)
     except tg.Unreachable as e:  # no connection was made: nothing went
         _failed(post_id, chat, data, "not_sent", e.description, e.code)
-    except tg.TelegramError as e:  # refused: a late press, a chat where Telegram does not take it, a wrong field
-        _failed(post_id, chat, data, "refused", e.description, e.code)
+    except tg.TelegramError as e:
+        if e.code == 429:  # too many requests: Telegram did not run it
+            _failed(post_id, chat, data, "not_sent", e.description, e.code)
+        else:  # refused: a late press, a chat where Telegram does not take it, a wrong field
+            _failed(post_id, chat, data, "refused", e.description, e.code)
     except StudioError as e:  # the request itself is wrong (a missing upload): nothing went
         _failed(post_id, chat, data, "not_sent", str(e))
     except TimeoutError:
-        _failed(post_id, chat, data, "may_have_gone", f"Telegram не ответил за {left:.0f} с: ответ мог дойти")
+        _failed(post_id, chat, data, "may_have_gone", f"Telegram не ответил за {wait:.0f} с: ответ мог дойти")
     except Exception as e:  # noqa: BLE001 - mid-request: it may have reached the person, so it is not sent again
         _failed(post_id, chat, data, "may_have_gone", f"{type(e).__name__}: {e}. Ответ мог дойти")
     else:
