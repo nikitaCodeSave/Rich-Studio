@@ -1,0 +1,9 @@
+# 0014. Swagger UI для `/docs` вендорен, ReDoc убран
+
+2026-11-15, issue #85.
+
+**Решение.** `/docs` отдаёт своя страница (`app/api/docs.py`): Swagger UI одной точной версии из `app/static/vendor/swagger-ui/` (файлы из `npm pack swagger-ui-dist@<версия>`, версия и порядок обновления в `README.md` рядом), настройки во внешнем `app/static/api-docs.js`. На странице тот же CSP, что у редактора (`script-src 'self'`, `connect-src 'self'`). Внешний валидатор выключен (`validatorUrl: null`), чужая спецификация по `?url=` не грузится, ключ из «Authorize» не сохраняется в `localStorage`. `/redoc` нет. Схема OpenAPI описывает, как передать ключ (`Bearer` и `X-API-Key`), чтобы «Authorize» и «Try it out» работали; проверяет ключ по-прежнему guard, а не FastAPI.
+
+**Почему.** Встроенные `/docs` и `/redoc` FastAPI грузят `swagger-ui-dist@5` и `redoc@2` с jsDelivr: мажорная версия плавает, SRI нет, инициализация inline-скриптом. Скрипт с CDN исполняется в origin студии с cookie сессии редактора, у владельца это `admin` (публикация, `/api/raw`, бэкап). Без интернета страницы пустые. Так же, как Lit и KaTeX ([0002](0002-lit-and-signals.md)), сторонний код лежит в студии готовыми файлами, без сборки ([0001](0001-no-bundler.md)) и без рантайм-зависимости в `package.json`.
+
+**Отказались.** От CDN с SRI: не работает офлайн, и CSP пришлось бы открыть для чужого домена. От ReDoc вторым инструментом: Swagger UI покрывает и чтение, и «Try it out», второй бандл только добавил бы чужого кода. От `swagger-ui-dist` в `package.json`: файлы нужны браузеру как есть, а не Node, и `npm install` запустил бы его postinstall.
