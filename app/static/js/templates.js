@@ -12,8 +12,12 @@ import './components/rs-template-form.js';
 
 const list = () => /** @type {any} */ ($('#templates'));
 
+let shown = '';
+/** The list as the server has it; redrawn only when a template was added, saved or deleted. */
 export async function loadTemplates() {
-  list().templates = await api('GET', '/api/templates');
+  const rows = await api('GET', '/api/templates');
+  const key = JSON.stringify(rows.map((t) => [t.id, t.version]));
+  if (key !== shown) { shown = key; list().templates = rows; }
 }
 
 /** "name=value" pairs the spec fixes (a block's or an entity's type, an enum value): never a template field. */
@@ -83,4 +87,6 @@ export function bindTemplates() {
   on('template-fill', fillTemplate);
   on('template-delete', deleteTemplate);
   loadTemplates().catch(() => {});
+  // a template an agent or another tab saved shows up by itself, as new drafts do (watchDrafts)
+  setInterval(() => { if (document.visibilityState === 'visible') loadTemplates().catch(() => {}); }, 5000);
 }
