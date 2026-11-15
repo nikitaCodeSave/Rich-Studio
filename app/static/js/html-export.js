@@ -99,8 +99,6 @@ const SPECIAL_HREF = [[/^#/, 'ссылку на якорь или сноску']
 // block → [tag, tg:// link]: the spec gives the tag (InputRichBlockAnimation «<video>», VoiceNote «<audio>»), the docs
 // only tg://photo, video, document and audio links; what kind the file is, its entry in media says
 const MEDIA_TAGS = { photo: ['img', 'photo'], video: ['video', 'video'], animation: ['video', 'video'], audio: ['audio', 'audio'], voice_note: ['audio', 'audio'], document: ['tg-document', 'document'] };
-// the preview names the kind of a tg:// file by its link, so it draws such an animation as a video
-const LINKED_AS = { animation: 'video', voice_note: 'audio' };
 const DEFAULT_ALIGN = { th: 'center', td: 'left' }; // Telegram's own, as tests/telegram_parse/captured.json shows
 const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
 // a type is looked up only among the table's own keys: «constructor» or «__proto__» are not types
@@ -129,7 +127,8 @@ export function blocksToHtml(blocks, opts = {}) {
   const warnings = [...tight.squeezed];
   if (tight.html) {
     const theirs = lookOf({ blocks });
-    const mine = lookOf({ html: tight.html, media: tight.media });
+    // with detection off the preview, like Telegram, finds no TON address in the HTML text
+    const mine = lookOf({ html: tight.html, media: tight.media, ...(opts.skipEntities ? { skip_entity_detection: true } : {}) });
     if (mine !== theirs) return { ok: false, problems: ['В предпросмотре HTML выглядит иначе, чем визуальный пост'], diff: firstDifference(theirs, mine) };
   }
   const out = opts.layout === false ? tight : write(blocks, opts, true);
@@ -139,22 +138,10 @@ export function blocksToHtml(blocks, opts = {}) {
 /** The post as the preview reads it (RichRender.outline): structure and text, not the values of attributes (links,
  * rowspan, map points, tg-time, emoji ids), which tests/html_export.mjs checks by themselves. In code a line break
  * is a line break: from blocks the preview draws it as <br>, from HTML source as the text's own newline, which the
- * outline turns into a space. An animation and a voice note are compared as the video and audio their links say. */
+ * outline turns into a space. The kind of a tg:// file the preview takes from its entry in media, as Telegram does. */
 export function lookOf(richMessage) {
-  const rm = richMessage.blocks ? { ...richMessage, blocks: linkedKinds(richMessage.blocks) } : richMessage;
-  return RichRender.outline({ rich_message: rm })
+  return RichRender.outline({ rich_message: richMessage })
     .replace(/<pre[^>]*>.*?<\/pre>/gs, (p) => p.replace(/<br>/g, ' ').replace(/ +/g, ' ').replace(/(<pre[^>]*>) | (<\/pre>)/g, '$1$2'));
-}
-
-/** The blocks with an animation as a video and a voice note as an audio, as the preview draws their tg:// links:
- * the kind of the file is checked by the entry in media, not by the outline. */
-function linkedKinds(v) {
-  if (Array.isArray(v)) return v.map(linkedKinds);
-  if (!isObj(v)) return v;
-  const out = Object.fromEntries(Object.entries(v).map(([k, x]) => [k, linkedKinds(x)]));
-  const as = own(LINKED_AS, v.type);
-  if (as && v[v.type] !== undefined) { out.type = as; out[as] = out[v.type]; delete out[v.type]; }
-  return out;
 }
 
 function firstDifference(a, b) {

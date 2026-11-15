@@ -112,8 +112,26 @@ for (const [name, url] of Object.entries(URLS)) {
   const address = 'EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c" onclick="window.__xss=1';
   const r = await render({ blocks: [{ type: 'paragraph', text: ['TON ', { type: 'ton_address', text: 'EQAA…M9c', address }] }] });
   const clicked = await page.evaluate(async () => { document.querySelector('#out .tg-body .tg-link')?.click(); await new Promise((r) => setTimeout(r, 50)); return window.__xss; });
-  const ok = has(r.html, /<p>TON <span class="tg-link" title="Адрес TON: EQAA[^"]*">EQAA…M9c<\/span><\/p>/) && !has(r.html, /tg-unknown|\son\w+="/);
+  const ok = has(r.html, /<p>TON <span class="tg-link tg-ton" title="Адрес TON: EQAA[^"]*">EQAA…M9c<\/span><\/p>/) && !has(r.html, /tg-unknown|\son\w+="/);
   check('blocks: ton_address is link-coloured text with the address in its title, no handler', ok && !r.xss && !clicked, r.html);
+}
+{
+  // Telegram finds a TON address in HTML and Markdown text by itself: EQ…/UQ… of 48 characters, not a card number
+  // with spaces (tests/telegram_parse/captured.json: html-detected-card-ton); not in code, links and formulas
+  const eq = 'EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c';
+  const uq = 'UQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAJKZ';
+  const found = async (rm) => { await render(rm); return page.evaluate(() => [...document.querySelectorAll('#out .tg-ton')].map((n) => n.textContent)); };
+  const html = await found({ html: `<p>Карта 4242 4242 4242 4242, адрес TON ${eq} и <b>${uq}</b>.</p>` });
+  check('html: TON addresses in text are link-coloured, a card number with spaces stays text', JSON.stringify(html) === JSON.stringify([eq, uq]), JSON.stringify(html));
+  const md = await found({ markdown: `Адрес ${eq}, ещё **${uq}**` });
+  check('markdown: TON addresses in text are found the same way', JSON.stringify(md) === JSON.stringify([eq, uq]), JSON.stringify(md));
+  const not = await found({ html: `<p><code>${eq}</code> <a href="https://t.me/x">${eq}</a> <tg-math>${eq}</tg-math> x${eq} ${eq}x ${eq.slice(0, -1)} kQ${eq.slice(2)} 0:${'a'.repeat(64)}</p><pre>${uq}</pre>` });
+  check('html: no TON address in code, links, formulas, glued to other letters, of another length or prefix', not.length === 0, JSON.stringify(not));
+  const off = await found({ html: `<p>${eq}</p>`, skip_entity_detection: true });
+  check('html: skip_entity_detection leaves a TON address as text', off.length === 0, JSON.stringify(off));
+  const [mine, theirs] = await page.evaluate(([eq]) => [RichRender.outline({ rich_message: { html: `<p>TON ${eq}</p>` } }),
+    RichRender.outline({ rich_message: { blocks: [{ type: 'paragraph', text: ['TON ', { type: 'ton_address', text: eq, address: eq }] }] } })], [eq]);
+  check('outline: a found TON address and a ton_address element read the same', mine === theirs && mine.includes('<ton>'), mine + ' | ' + theirs);
 }
 {
   const r = await render({ html: '<p>x</p>' }, { reply_markup: { inline_keyboard: [[{ text: 'b', url: 'javascript:window.__xss=1' }]] } });
@@ -258,9 +276,63 @@ for (const [name, rm] of Object.entries(SLIDESHOWS)) {
   check('slideshow: a plain click still opens the spoiler', !await spoilered() && await clicks() === '0,1', await clicks());
 }
 
+// ---------- code block ----------
+{
+  // as in Telegram Desktop: a header with the language and a copy icon, a bar on the left; the language is drawn by
+  // CSS, so the post's text (outline, history, the reply dialog) is still only the code
+  const look = () => page.evaluate(() => [...document.querySelectorAll('#out .tg-pre')].map((box) => {
+    const head = box.querySelector(':scope > .tg-pre-head');
+    return { lang: head?.getAttribute('data-lang') ?? null, copy: !!head?.querySelector('.tg-pre-copy[role=button]'), text: box.textContent,
+      label: head ? getComputedStyle(head, '::before').content : '', bar: getComputedStyle(box).borderLeftWidth, pre: box.querySelector(':scope > pre')?.dataset.lang ?? null };
+  }));
+  const want = JSON.stringify([
+    { lang: 'python', copy: true, text: 'def f():\n    return 1', label: '"python"', bar: '3px', pre: 'python' },
+    { lang: null, copy: true, text: 'без языка', label: 'none', bar: '3px', pre: null },
+  ]);
+  await render({ html: '<pre><code class="language-python">def f():\n    return 1</code></pre><pre>без языка</pre>' });
+  const html = JSON.stringify(await look());
+  check('html: a code block has a header with its language and a copy icon, and a bar', html === want, html);
+  await render({ blocks: [{ type: 'pre', language: 'python', text: 'def f():\n    return 1' }, { type: 'pre', text: 'без языка' }] });
+  // from blocks a line break is a <br>, so textContent has no \n there
+  const blocks = JSON.stringify(await look()).replace('def f():    return 1', 'def f():\\n    return 1');
+  check('blocks: a code block looks the same', blocks === want, blocks);
+  await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (t) => { window.__copied = t; } } }));
+  await page.click('#out .tg-pre-copy');
+  const copied = await page.evaluate(() => window.__copied);
+  check('the copy icon copies the code with its line breaks', copied === 'def f():\n    return 1', JSON.stringify(copied));
+  const outline = await page.evaluate(() => [RichRender.outline({ rich_message: { html: '<pre><code class="language-python">x</code></pre>' } }), RichRender.outline({ rich_message: { blocks: [{ type: 'pre', language: 'python', text: 'x' }] } })]);
+  check('outline: a code block is still <pre:language> with its text', outline[0] === '<pre:python>x</pre>' && outline[1] === outline[0], outline.join(' | '));
+}
+
+// ---------- animation (GIF) ----------
+{
+  // what kind a tg:// file is, its entry in media says: InputMediaAnimation behind a tg://video link is a GIF. A GIF
+  // file plays only in <img>; an MP4 animation is a silent looping video. Neither has controls, both have the label.
+  const kinds = async (rm) => {
+    await render(rm);
+    return page.evaluate(() => [...document.querySelectorAll('#out .tg-media')].map((w) => {
+      const v = w.querySelector('video');
+      return [w.className, w.firstElementChild?.localName, v ? [v.controls, v.autoplay, v.loop, v.muted, v.defaultMuted, v.playsInline].join() : ''];
+    }));
+  };
+  const gif = ['tg-media tg-media-animation tg-gif', 'img', ''];
+  const mp4 = ['tg-media tg-media-animation tg-gif', 'video', 'false,true,true,true,true,true'];
+  const media = [{ id: 'g', media: { type: 'animation', media: 'upload:a.gif' } }, { id: 'm', media: { type: 'animation', media: 'upload:a.mp4' } },
+    { id: 'v', media: { type: 'video', media: 'upload:v.mp4' } }, { id: 'n', media: { type: 'voice_note', media: 'upload:n.ogg' } }];
+  const html = await kinds({ html: '<video src="tg://video?id=g"></video><video src="tg://video?id=m"></video><video src="tg://video?id=v"></video><audio src="tg://audio?id=n"></audio>', media });
+  check('html: an animation entry behind tg://video is a GIF without controls; a video stays a video, a voice note a voice note',
+    JSON.stringify(html) === JSON.stringify([gif, mp4, ['tg-media tg-media-video', 'video', 'true,false,false,true,true,true'], ['tg-media tg-media-voice_note', 'audio', '']]), JSON.stringify(html));
+  const blocks = await kinds({ blocks: [{ type: 'animation', animation: { type: 'animation', media: 'upload:a.gif' } }, { type: 'animation', animation: { type: 'animation', media: 'upload:a.mp4' } }] });
+  check('blocks: an animation is a GIF without controls too', JSON.stringify(blocks) === JSON.stringify([gif, mp4]), JSON.stringify(blocks));
+  const label = await page.evaluate(() => getComputedStyle(/** @type {Element} */ (document.querySelector('#out .tg-gif')), '::before').content);
+  check('an animation carries the GIF label', label === '"GIF"', label);
+  const ph = await kinds({ html: '<video src="tg://video?id=f"></video>', media: [{ id: 'f', media: { type: 'animation', media: 'CgACAgIAAxkBAAI' } }] });
+  check('an animation Telegram already has (file_id) is a GIF placeholder', ph.length === 1 && ph[0][0] === 'tg-media tg-media-animation' && /GIF/.test(await page.evaluate(() => document.querySelector('#out .tg-media-ph')?.textContent || '')), JSON.stringify(ph));
+}
+
 // ---------- video / animation muted ----------
 {
-  await render({ blocks: [{ type: 'animation', animation: { type: 'animation', media: 'upload:a.gif' } }, { type: 'video', video: { type: 'video', media: 'upload:v.mp4' } }] });
+  await render({ blocks: [{ type: 'animation', animation: { type: 'animation', media: 'upload:a.mp4' } }, { type: 'video', video: { type: 'video', media: 'upload:v.mp4' } }] });
   const m = await page.evaluate(() => [...document.querySelectorAll('#out video')].map((v) => [v.muted, v.defaultMuted]));
   check('video and animation are muted as a property, not only an attribute', m.length === 2 && m.every(([a, b]) => a === true && b === true), JSON.stringify(m));
   await render({ blocks: [{ type: 'slideshow', blocks: [photo('a.png')] }] });
