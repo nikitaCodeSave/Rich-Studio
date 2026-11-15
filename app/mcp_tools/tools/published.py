@@ -85,5 +85,6 @@ def register(tool: ToolDecorator) -> None:
         chat_id: Annotated[str | None, Field(description="только посты этого канала")] = None,
     ) -> list:
         """Посты студии, новые сверху: первая строка текста (title), ссылка t.me (link), статус и ошибка
-        (failed — Telegram отказал, пост не вышел), реакции, нажатия кнопок, итоги опросов, кто отправил."""
+        (failed — пост не вышел; с outcome_unknown: true исход неизвестен, пост мог уйти: проверьте канал вместе с
+        пользователем, прежде чем отправлять снова), реакции, нажатия кнопок, итоги опросов, кто отправил."""
         return listing.list_posts(limit, status=status, chat=chat_id)

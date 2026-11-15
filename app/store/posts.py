@@ -21,12 +21,14 @@ def _insert(
     error: str | None,
     kind: str,
     actor: str | None,
+    outcome_unknown: bool = False,
 ) -> str:
     pid = uuid.uuid4().hex[:12]
     now = int(time.time())
     c.execute(
-        """insert into posts(id,draft_id,chat_id,message_id,payload,status,scheduled_at,sent_at,error,created_at,kind,actor)
-                 values(?,?,?,?,?,?,?,?,?,?,?,?)""",
+        """insert into posts(id,draft_id,chat_id,message_id,payload,status,scheduled_at,sent_at,error,created_at,kind,actor,
+                             outcome_unknown)
+                 values(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (
             pid,
             draft_id,
@@ -40,6 +42,7 @@ def _insert(
             now,
             kind,
             actor,
+            int(outcome_unknown),
         ),
     )
     return pid
@@ -55,9 +58,13 @@ def add_post(
     error: str | None = None,
     kind: str = "rich",
     actor: str | None = None,
+    outcome_unknown: bool = False,
 ) -> dict:
+    """`outcome_unknown`: a failed send that may be in the channel all the same (see mark_outcome_unknown)."""
     with conn() as c:
-        pid = _insert(c, chat_id, payload, draft_id, status, message_id, scheduled_at, error, kind, actor)
+        pid = _insert(
+            c, chat_id, payload, draft_id, status, message_id, scheduled_at, error, kind, actor, outcome_unknown
+        )
     return get_post(pid)  # type: ignore[return-value]
 
 
@@ -102,6 +109,7 @@ def list_posts(limit: int = 100, status: str | None = None, chat: str | None = N
         rows = c.execute(
             f"""select id, draft_id, chat_id, message_id, status, scheduled_at, sent_at, error, created_at,
                                    kind, actor, version, pinned, comment_status, reactions, clicks, poll_results, payload,
+                                   outcome_unknown,
                                    json_extract(payload, '$.poll.question') as poll_question
                             from posts {cond} order by coalesce(scheduled_at, sent_at, created_at) desc, rowid desc limit ?""",  # noqa: S608 - fixed fragments
             (*args, limit),
@@ -109,17 +117,22 @@ def list_posts(limit: int = 100, status: str | None = None, chat: str | None = N
         return [row(r) for r in rows]  # type: ignore[misc]
 
 
-def drop_refused(chat_id, draft_id: str, *keep_with: str) -> int:
+def drop_refused(chat_id, draft_id: str) -> int:
     """After a successful send: earlier refusals of the same draft to the same chat are history, not a problem.
-    Rows whose error contains any of `keep_with` (the post or its poll may have gone) stay: the channel may hold
-    a duplicate."""
+    A send whose outcome is unknown stays, whatever its error says: the channel may hold a duplicate."""
     with conn() as c:
-        rows = c.execute(
-            "select id, error from posts where status='failed' and draft_id=? and chat_id=?", (draft_id, str(chat_id))
-        ).fetchall()
-        gone = [r["id"] for r in rows if not any(k in (r["error"] or "") for k in keep_with)]
-        c.executemany("delete from posts where id=?", [(i,) for i in gone])
-        return len(gone)
+        cur = c.execute(
+            "delete from posts where status='failed' and outcome_unknown=0 and draft_id=? and chat_id=?",
+            (draft_id, str(chat_id)),
+        )
+        return cur.rowcount
+
+
+def mark_outcome_unknown(pid: str, error: str) -> None:
+    """A send that may have gone out (no answer from Telegram, a stop mid-send): failed, and flagged, so that the row
+    never leaves the list on its own and the health report shows it until a person removes it."""
+    with conn() as c:
+        c.execute("update posts set status='failed', outcome_unknown=1, error=? where id=?", (error, pid))
 
 
 def delete_post(pid: str) -> None:
@@ -217,12 +230,13 @@ def list_versions(pid: str) -> list[dict]:
 
 
 def recover_stale_sending(keep: set[str] | frozenset[str] = frozenset()) -> int:
-    """Posts stuck in 'sending' after a crash: never retry blindly, they may already be in the channel.
-    `keep`: the ones this process is sending right now."""
+    """Posts stuck in 'sending' after a crash: never retry blindly, they may already be in the channel (flagged like
+    mark_outcome_unknown). `keep`: the ones this process is sending right now."""
     marks = ",".join("?" * len(keep))
     with conn() as c:
         cur = c.execute(
-            f"update posts set status='failed', error=? where status='sending' and id not in ({marks})",  # noqa: S608 - placeholders only
+            f"""update posts set status='failed', outcome_unknown=1, error=?
+                where status='sending' and id not in ({marks})""",  # noqa: S608 - placeholders only
             ("сервис остановился во время отправки; проверьте канал, пост мог уйти", *keep),
         )
         return cur.rowcount

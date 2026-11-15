@@ -185,8 +185,9 @@ def scheduler() -> dict:
 
 def posts() -> dict:
     since = int(time.time()) - DAY
-    # a missed post waits for the person however long the studio was off; a first comment fails at the latest when
-    # its wait ends, and a day from then is the window for it, not a day from the post
+    # a missed post waits for the person however long the studio was off, and so does a send that may have gone (only
+    # a person can look at the channel); a first comment fails at the latest when its wait ends, and a day from then
+    # is the window for it, not a day from the post
     # a post the scheduler is sending this second is "sending" in the table; only one left behind is a problem
     found, total = store.stats.problem_posts(since, since - updates.COMMENT_WAIT, frozenset(publisher.in_flight))
     if not total:
@@ -195,9 +196,12 @@ def posts() -> dict:
     return _check(
         "posts",
         "warn",
-        f"{total} постов требуют внимания (не ушли, пропущены или без первого комментария){shown}",
+        f"{total} постов требуют внимания (не ушли или могли уйти, пропущены, без первого комментария){shown}",
         "прочитайте error у каждого; пропущенный виден здесь, пока его не решат: отложить заново или отправить сейчас "
-        "(POST /api/posts/{id}/reschedule), а не нужен или уже опубликован копией — отменить (DELETE /api/posts/{id})",
+        "(POST /api/posts/{id}/reschedule), а не нужен или уже опубликован копией — отменить (DELETE /api/posts/{id}); "
+        "с outcome_unknown пост мог уйти, запись видна здесь, пока её не уберут: проверьте канал вместе с "
+        "пользователем, если поста нет — отправьте заново, затем уберите запись (DELETE /api/posts/{id}, "
+        "«Убрать» во вкладке «Посты»); повторная отправка её не убирает",
         details={"posts": found},
     )
 
