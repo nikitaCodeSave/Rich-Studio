@@ -294,8 +294,10 @@ def test_without_a_personal_preview_chat_nothing_is_imported(client, tg, monkeyp
         ({"text": "Секрет", "has_protected_content": True}, "защищ"),
         ({"sticker": {"file_id": "s", "file_unique_id": "s", "type": "regular", "width": 1, "height": 1,
                       "is_animated": False, "is_video": False}}, "нечего"),
+        ({"rich_message": {"blocks": [{"type": "buttons", "buttons": [{"text": "Да", "callback_data": "yes"}]}]}},
+         "только кнопки"),
     ],
-    ids=["protected", "nothing-to-take"],
+    ids=["protected", "nothing-to-take", "only-bot-buttons"],
 )  # fmt: skip
 def test_a_refusal_is_a_short_reply_to_the_owner(client, tg, content, reason):
     assert _handle(_forward(30, **content)) == "forward_refused"

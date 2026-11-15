@@ -14,6 +14,7 @@ own note (`_studio.source`), not part of the post. An album comes as one message
 
 import json
 import logging
+from dataclasses import dataclass
 
 import settings
 import spec
@@ -49,16 +50,29 @@ def wanted(m: dict) -> bool:
     )
 
 
+@dataclass
+class _Post:
+    """What a received message gives the draft."""
+
+    media: list  # its photo, video or file as a block
+    text: list  # the other blocks
+    rich: dict  # the rest of rich_message (is_rtl)
+    markup: dict | None  # the keyboard under it, without buttons only the original's bot works with
+    dropped: int  # how many such buttons were removed
+
+
 async def on_message(m: dict) -> str:
     """Save the draft and react to the message, or say in one line why there is no draft."""
     if m.get("has_protected_content"):
         return await _refuse(m, "у поста защищённое содержимое, его запрещено копировать")
     try:
         warnings: list[str] = []
-        media, text, rich = _content(m, warnings)
-        if not media and not text:
-            return await _refuse(m, "нечего перенести: в сообщении нет текста, фото, видео, файла или rich-блоков")
-        d = _save(m, media, text, rich, warnings)
+        post = _content(m, warnings)
+        if not post.media and not post.text:  # checked after the buttons are gone: a post of them alone is empty
+            why = "в посте только кнопки, которые работают у его бота" if post.dropped else ""
+            why = why or "в сообщении нет текста, фото, видео, файла или rich-блоков"
+            return await _refuse(m, f"нечего перенести: {why}")
+        d = _save(m, post, warnings)
     except Exception:
         log.exception("forwarded message %s was not imported", m.get("message_id"))
         return await _refuse(m, "ошибка студии, подробности в журнале")
@@ -74,8 +88,7 @@ async def on_message(m: dict) -> str:
     return "forward_import"
 
 
-def _content(m: dict, warnings: list[str]) -> tuple[list, list, dict]:
-    """The media block, the other blocks and the rest of rich_message (is_rtl) of a received message."""
+def _content(m: dict, warnings: list[str]) -> _Post:
     sp = spec.current
     rich = m.get("rich_message")
     if isinstance(rich, dict):
@@ -87,7 +100,14 @@ def _content(m: dict, warnings: list[str]) -> tuple[list, list, dict]:
         entities = m.get("entities") or m.get("caption_entities") or []
         text = spec.text_blocks(sp, m.get("text") or m.get("caption") or "", entities, warnings)
         media = _media(sp, m)
-    return media, text, extra
+    dropped: list = []
+    media, text = _without_bot_buttons(media, dropped), _without_bot_buttons(text, dropped)
+    markup = _keyboard(m.get("reply_markup"), dropped)
+    if dropped:
+        warnings.append(
+            f"убраны кнопки ({len(dropped)}), на которые отвечал бот исходного поста: студия на них не ответит"
+        )
+    return _Post(media, text, extra, markup, len(dropped))
 
 
 def _media(sp: spec.Spec, m: dict) -> list:
@@ -109,23 +129,17 @@ def _blocks(media: list, text: list, above: bool) -> list:
     return [*text, *media] if above else [*media, *text]
 
 
-def _save(m: dict, media: list, text: list, rich: dict, warnings: list[str]) -> dict:
-    dropped: list = []
-    media, text = _without_bot_buttons(media, dropped), _without_bot_buttons(text, dropped)
-    markup = _keyboard(m.get("reply_markup"), dropped)
-    if dropped:
-        warnings.append(
-            f"убраны кнопки ({len(dropped)}), на которые отвечал бот исходного поста: студия на них не ответит"
-        )
+def _save(m: dict, post: _Post, warnings: list[str]) -> dict:
+    media, text = post.media, post.text
     above = bool(m.get("show_caption_above_media"))
     group = m.get("media_group_id")
     albums = json.loads(store.get_meta(ALBUMS_KEY) or "{}")
     if group and (album := albums.get(group)) and (d := _add_to_album(album, media, text, warnings)):
         store.set_meta(ALBUMS_KEY, json.dumps(albums, ensure_ascii=False))
         return d
-    payload: dict = {"rich_message": {"blocks": _blocks(media, text, above), **rich}}
-    if markup:
-        payload["reply_markup"] = markup
+    payload: dict = {"rich_message": {"blocks": _blocks(media, text, above), **post.rich}}
+    if post.markup:
+        payload["reply_markup"] = post.markup
     payload["_studio"] = {"source": _source(m), "warnings": warnings}
     d = store.save_draft(None, _title(m, payload), payload)
     if d is None:  # only a save with a version can miss; this is a new draft
