@@ -15,7 +15,9 @@ const page = await browser.newPage();
 const pageErrors = [];
 page.on('pageerror', (e) => pageErrors.push(e.message));
 page.on('dialog', (d) => { pageErrors.push('dialog: ' + d.message()); d.dismiss(); });
-await page.setContent('<!doctype html><meta charset="utf-8"><body><div id="out"></div></body>');
+// tg.css gives the slideshow its layout, so scrolling and dragging it can be checked
+await page.setContent('<!doctype html><meta charset="utf-8"><body><div id="out" class="tg-preview"></div></body>');
+await page.addStyleTag({ path: stat('tg.css') });
 for (const f of ['vendor/markdown-it.min.js', 'vendor/katex/katex.min.js', 'render.js']) await page.addScriptTag({ path: stat(f) });
 
 // render a post into the live document, wait for image errors to fire, return the body's HTML
@@ -144,6 +146,79 @@ for (const [name, rm] of Object.entries({
 })) {
   const r = await render(rm);
   check('renders ' + name, !has(r.all, /Ошибка рендера/), r.all.slice(0, 300));
+}
+
+// ---------- slideshow ----------
+// the caption is not a slide: one dot per media, and the caption sits under the slides
+const photo = (name, more = {}) => ({ type: 'photo', photo: { type: 'photo', media: 'upload:' + name, ...more } });
+const SLIDESHOWS = {
+  blocks: { blocks: [{ type: 'slideshow', blocks: [photo('a.png'), photo('b.png')], caption: { text: 'Подпись' } }] },
+  html: { html: '<tg-slideshow>\n  <img src="tg://photo?id=a">\n  <img src="tg://photo?id=b">\n  <figcaption>Подпись</figcaption>\n</tg-slideshow>' },
+  'html, caption first': { html: '<tg-slideshow><figcaption>Подпись</figcaption><img src="tg://photo?id=a"><img src="tg://photo?id=b"></tg-slideshow>' },
+};
+for (const [name, rm] of Object.entries(SLIDESHOWS)) {
+  await render(rm);
+  const s = await page.evaluate(() => {
+    const show = document.querySelector('#out .tg-slideshow');
+    const track = show?.querySelector('.tg-slides');
+    const cap = show?.querySelector('figcaption');
+    return {
+      slides: track?.children.length,
+      dots: show?.querySelectorAll('.tg-dots span').length,
+      captionInTrack: !!track?.querySelector(':scope > figcaption'),
+      captionBelow: !!(track && cap) && !track.contains(cap) && cap.getBoundingClientRect().top >= track.getBoundingClientRect().bottom,
+      caption: cap?.textContent,
+    };
+  });
+  check(`slideshow (${name}): one dot per media, caption under the slides`,
+    s.slides === 2 && s.dots === 2 && !s.captionInTrack && s.captionBelow && s.caption === 'Подпись', JSON.stringify(s));
+}
+{
+  // a photo under a spoiler, a video and a photo
+  await render({ blocks: [{ type: 'slideshow', blocks: [photo('a.png', { has_spoiler: true }), { type: 'video', video: { type: 'video', media: 'upload:v.mp4' } }, photo('c.png')] }] });
+  // clicks that reach the video, and clicks that reach the page around the slideshow
+  await page.evaluate(() => {
+    document.querySelector('.tg-slides video').addEventListener('click', () => window.__videoClicks++);
+    document.getElementById('out').addEventListener('click', () => window.__clicks++);
+  });
+  const track = page.locator('.tg-slides');
+  // slide i is in view, snapped to its edge, and its dot is the lit one
+  const shows = (i) => page.waitForFunction((i) => {
+    const t = document.querySelector('.tg-slides');
+    const on = [...document.querySelectorAll('.tg-dots span')].findIndex((d) => d.classList.contains('on'));
+    return Math.abs(t.scrollLeft - i * t.clientWidth) < 1 && on === i;
+  }, i, { timeout: 3000 }).then(() => true, () => false);
+  const drag = async (dx) => {
+    const b = await track.boundingBox();
+    const y = b.y + b.height / 2;
+    await page.mouse.move(b.x + b.width / 2, y);
+    await page.mouse.down();
+    await page.mouse.move(b.x + b.width / 2 + dx * b.width, y, { steps: 10 });
+    await page.mouse.up();
+  };
+  const spoilered = () => page.evaluate(() => !!document.querySelector('.tg-slides .tg-media-spoiler'));
+  const clicks = () => page.evaluate(() => [window.__videoClicks, window.__clicks].join());
+
+  await page.click('.tg-dots span:nth-child(3)');
+  check('slideshow: a click on a dot shows its slide', await shows(2));
+  await track.focus();
+  await page.keyboard.press('ArrowLeft');
+  const left = await shows(1);
+  await page.keyboard.press('ArrowRight');
+  const right = await shows(2);
+  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('ArrowLeft');
+  check('slideshow: ← and → on the focused slides turn them', left && right && await shows(0));
+
+  await page.evaluate(() => Object.assign(window, { __videoClicks: 0, __clicks: 0 }));
+  await drag(-0.3);
+  check('slideshow: dragging with the mouse a third of a slide turns it', await shows(1));
+  check('slideshow: the click that ends a drag does not open the spoiler', await spoilered());
+  await drag(0.6);
+  check('slideshow: the click that ends a drag reaches neither the video nor the page', await shows(0) && await clicks() === '0,0', await clicks());
+  const b = await track.boundingBox();
+  await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2);
+  check('slideshow: a plain click still opens the spoiler', !await spoilered() && await clicks() === '0,1', await clicks());
 }
 
 check('no script ran and no page errors', (await page.evaluate(() => window.__xss)) === 0 && pageErrors.length === 0, pageErrors.join(' | '));
