@@ -82,12 +82,19 @@ def _loggable_chat(chat: Any) -> int | str | None:
     return None if chat is None else "?"
 
 
-async def call(method: str, params: dict | None = None, timeout: float = 60) -> Any:  # noqa: ASYNC109
-    """One Bot API call; every outcome is counted for the health report and logged without the URL."""
+async def call(
+    method: str,
+    params: dict | None = None,
+    timeout: float = 60,  # noqa: ASYNC109
+    retries: int = MAX_RETRIES,
+) -> Any:
+    """One Bot API call; every outcome is counted for the health report and logged without the URL.
+    `retries`: how many times a 429 is waited out and repeated (0: the 429 is raised at once, for a call that has
+    seconds to live, like a rich reply to a button press)."""
     started = time.monotonic()
     chat = _loggable_chat((params or {}).get("chat_id"))
     try:
-        result = await _call(method, params, timeout)
+        result = await _call(method, params, timeout, retries)
     except (TelegramError, NoAnswer) as e:
         ms = int((time.monotonic() - started) * 1000)
         text = e.description if isinstance(e, TelegramError) else str(e)
@@ -109,7 +116,7 @@ async def call(method: str, params: dict | None = None, timeout: float = 60) -> 
     return result
 
 
-async def _call(method: str, params: dict | None, timeout: float) -> Any:  # noqa: ASYNC109
+async def _call(method: str, params: dict | None, timeout: float, retries: int = MAX_RETRIES) -> Any:  # noqa: ASYNC109
     cfg = settings.get()
     files: dict[str, Path] = {}
     try:
@@ -117,12 +124,12 @@ async def _call(method: str, params: dict | None, timeout: float) -> Any:  # noq
     except MissingUpload as e:  # nothing was sent: the request itself is wrong
         raise StudioError(str(e)) from e
     url = f"{cfg.api_base}/bot{_token()}/{method}"
-    for attempt in range(MAX_RETRIES + 1):
+    for attempt in range(retries + 1):
         try:
             return await _post(url, params, files, timeout)
         except TelegramError as e:
             wait = e.retry_after
-            if e.code != 429 or not wait or wait > MAX_RETRY_AFTER or attempt == MAX_RETRIES:
+            if e.code != 429 or not wait or wait > MAX_RETRY_AFTER or attempt >= retries:
                 raise
             log.warning("%s: Telegram asks to wait %ss (429), retrying", method, wait)
             await _sleep(wait)

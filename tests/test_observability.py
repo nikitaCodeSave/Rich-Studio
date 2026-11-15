@@ -159,7 +159,7 @@ def test_each_incoming_update_is_logged_under_its_update_id(client, tg, log_file
         except StopIteration:
             raise asyncio.CancelledError from None  # stop the loop after one round
 
-    async def boom(u):
+    async def boom(u, received=None):
         raise RuntimeError("bad update")
 
     monkeypatch.setattr(updates.tg, "call", get_updates)
@@ -715,7 +715,7 @@ def test_telegram_check_ignores_a_rejected_post_but_not_a_setup_problem(client, 
 
     from telegram import client as tgc
 
-    async def refuse(method, params, timeout):
+    async def refuse(method, params, timeout, retries=None):
         raise tgc.TelegramError(refusal, 400)
 
     monkeypatch.setattr(tgc, "_call", refuse)

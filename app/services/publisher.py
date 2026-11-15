@@ -24,7 +24,7 @@ import store
 import telegram as tg
 from errors import Invalid, MayHaveGone, StudioError
 
-from . import kinds
+from . import callbacks, kinds
 
 log = logging.getLogger("rich-studio.publisher")
 RESERVED_PARAMS = {"chat_id", "rich_message", "reply_markup", "message_id"}
@@ -135,8 +135,8 @@ def options(post: dict) -> dict:
     return opts
 
 
-def check(post: dict) -> dict:
-    """Validation report of the text and of the buttons under it; raises nothing."""
+def _check_post(post: dict) -> dict:
+    """Validation report of the text and of the buttons under it."""
     r = spec.validate_rich_message(spec.current, post["rich_message"])
     bad_buttons = spec.keyboard_errors(post.get("reply_markup"))
     if bad_buttons:
@@ -144,23 +144,47 @@ def check(post: dict) -> dict:
     return r
 
 
+def _check_comment(post: dict) -> dict | None:
+    """The first comment's own report, its messages marked as the comment's; None without a comment."""
+    if not post.get("comment"):
+        return None
+    c = spec.validate_rich_message(spec.current, post["comment"])
+    return {
+        **c,
+        "errors": ["комментарий: " + e for e in c["errors"]],
+        "warnings": ["комментарий: " + w for w in c["warnings"]],
+    }
+
+
+def check(post: dict) -> dict:
+    """Validation report of the post, its first comment and the rich replies to its buttons (a draft is saved with
+    it, the editor shows it); raises nothing. The stats are the post's own."""
+    r = _check_post(post)
+    for part in (_check_comment(post), callbacks.check(post)):
+        if part:
+            r = {
+                **r,
+                "ok": r["ok"] and not part["errors"],
+                "errors": r["errors"] + part["errors"],
+                "warnings": r["warnings"] + part["warnings"],
+            }
+    return r
+
+
 def validate(post: dict) -> dict:
-    """Validation report; raises Invalid if the post or its first comment has errors."""
+    """Validation report; raises Invalid if the post, its first comment or a reply to its buttons has errors."""
     options(post)
-    r = check(post)
+    r = _check_post(post)
     if not r["ok"]:
         raise Invalid({"message": "пост не прошёл проверку", **r})
-    if post.get("comment"):
-        c = spec.validate_rich_message(spec.current, post["comment"])
+    if c := _check_comment(post):
         if not c["ok"]:
-            raise Invalid(
-                {
-                    "message": "первый комментарий не прошёл проверку",
-                    **c,
-                    "errors": ["комментарий: " + e for e in c["errors"]],
-                }
-            )
-        r = {**r, "warnings": r["warnings"] + ["комментарий: " + w for w in c["warnings"]]}
+            raise Invalid({"message": "первый комментарий не прошёл проверку", **c})
+        r = {**r, "warnings": r["warnings"] + c["warnings"]}
+    cb = callbacks.check(post)
+    r = {**r, "warnings": r["warnings"] + cb["warnings"]}  # the reply's own warnings too, refused or not
+    if cb["errors"]:
+        raise Invalid({"message": "ответ на кнопку не прошёл проверку", **r, "ok": False, "errors": cb["errors"]})
     if post.get("poll_after") is not None and (bad := kinds.poll_error(post["poll_after"])):
         raise Invalid({"message": "опрос после поста не прошёл проверку", **r, "ok": False, "errors": [bad]})
     return r

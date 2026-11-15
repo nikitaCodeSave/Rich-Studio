@@ -211,6 +211,8 @@ interface PostRow {
   comment_in_flight: boolean | null;
   reactions: Json | null;
   clicks: Json | null;
+  /** rich replies to button presses that did not go (Telegram refused, no answer, too late), by callback_data */
+  reply_errors: Record<string, { n: number; error: string; at: number }> | null;
   /** callback_data → the text on its button */
   buttons: Record<string, string>;
   poll_results: Json | null;

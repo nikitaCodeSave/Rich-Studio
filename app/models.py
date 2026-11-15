@@ -34,7 +34,12 @@ class Post(BaseModel):
     )
     callbacks: dict[str, Any] = Field(
         default_factory=dict,
-        description="Ответы на callback-кнопки: {callback_data: текст или {text, show_alert}}",
+        description="Ответы на callback-кнопки: {callback_data: текст или объект}. Объект — параметры "
+        "answerCallbackQuery (text, show_alert, url, cache_time) и по желанию reply: параметры sendRichMessage для "
+        "rich-ответа, который видит только нажавший (Bot API 10.4): {rich_message: InputRichMessage, "
+        "ephemeral_message_parameters?: {replace_callback_query_message: true — вместо поста}}. Студия добавит "
+        "callback_query_id и всё равно ответит answerCallbackQuery; ответ проверяется как пост и не повторяется. "
+        "Под постом канала не проверено, что он доходит",
         json_schema_extra=bot_api("Object"),
     )
     poll_after: dict | None = Field(
@@ -103,7 +108,9 @@ class MediaPostReq(BaseModel):
 
 class ButtonsReq(BaseModel):
     reply_markup: dict | None = Field(None, description="Новые кнопки; null убирает их")
-    callbacks: dict[str, Any] | None = None
+    callbacks: dict[str, Any] | None = Field(
+        None, description="Ответы на кнопки, как callbacks поста (с rich-ответом reply); null — прежние"
+    )
 
 
 class RescheduleReq(BaseModel):

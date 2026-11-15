@@ -13,6 +13,7 @@ from errors import Conflict, Invalid, MayHaveGone, NotFound, StudioError, Unreco
 from telegram.uploads import MissingUpload, collect_uploads
 
 from . import channels, kinds, publisher
+from .callbacks import check as check_answers
 from .updates import poll_results, remember_preview
 
 log = logging.getLogger("rich-studio.posts")
@@ -327,6 +328,9 @@ async def set_buttons(pid: str, reply_markup: dict | None, callbacks: dict | Non
     bad = spec.keyboard_errors(reply_markup)
     if bad:  # the same rule as a full send: Telegram would refuse the whole request
         raise Invalid({"message": "кнопки не прошли проверку", "ok": False, "errors": bad, "warnings": []})
+    answers = check_answers({"reply_markup": reply_markup, "callbacks": callbacks})
+    if answers["errors"]:  # a rich reply is checked like the post it answers for
+        raise Invalid({"message": "ответ на кнопку не прошёл проверку", "ok": False, **answers})
     p = _get(pid)
     if p["status"] not in ("sent", *WAITING):
         raise StudioError(f"пост в статусе {p['status']}")
