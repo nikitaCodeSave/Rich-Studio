@@ -141,7 +141,7 @@ def mark_outcome_unknown(pid: str, error: str) -> None:
     """A send that may have gone out (no answer from Telegram, a stop mid-send): failed, and flagged, so that the row
     never leaves the list on its own and the health report shows it until a person removes it."""
     with conn() as c:
-        c.execute("update posts set status='failed', outcome_unknown=1, error=? where id=?", (error, pid))
+        c.execute("update posts set status='failed', outcome_unknown=1, error=? where id=?", (_error(error), pid))
 
 
 def delete_post(pid: str) -> None:
@@ -246,7 +246,7 @@ def recover_stale_sending(keep: set[str] | frozenset[str] = frozenset()) -> int:
         cur = c.execute(
             f"""update posts set status='failed', outcome_unknown=1, error=?
                 where status='sending' and id not in ({marks})""",  # noqa: S608 - placeholders only
-            ("сервис остановился во время отправки; проверьте канал, пост мог уйти", *keep),
+            (_error("сервис остановился во время отправки; проверьте канал, пост мог уйти"), *keep),
         )
         return cur.rowcount
 
