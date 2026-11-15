@@ -532,6 +532,26 @@
   "source": "<p>Карта 4242 4242 4242 4242, адрес TON EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c и UQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAJKZ</p>",
   "spec": "Bot API 10.4"
  },
+ "html-entities": {
+  "blocks": [
+   {
+    "text": [
+     "1 2 3—4 5&laquo;6 7&",
+     {
+      "hashtag": "X22",
+      "text": "#X22",
+      "type": "hashtag"
+     },
+     ";8"
+    ],
+    "type": "paragraph"
+   }
+  ],
+  "captured_at": "2026-11-15",
+  "format": "html",
+  "source": "<p>1&nbsp;2 3&mdash;4 5&laquo;6 7&#X22;8</p>",
+  "spec": "Bot API 10.4"
+ },
  "html-href-apos": {
   "blocks": [
    {
@@ -963,6 +983,26 @@
   "format": "markdown",
   "source": "```python\nprint('hi')\n```\n\n    отступ код\n\n```\nбез языка\n```",
   "spec": "Bot API 10.3"
+ },
+ "md-entities": {
+  "blocks": [
+   {
+    "text": [
+     "1 2 3—4 5&laquo;6 7&",
+     {
+      "hashtag": "X22",
+      "text": "#X22",
+      "type": "hashtag"
+     },
+     ";8"
+    ],
+    "type": "paragraph"
+   }
+  ],
+  "captured_at": "2026-11-15",
+  "format": "markdown",
+  "source": "1&nbsp;2 3&mdash;4 5&laquo;6 7&#X22;8",
+  "spec": "Bot API 10.4"
  },
  "md-escape": {
   "blocks": [

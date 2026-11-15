@@ -5,14 +5,16 @@ here with the answer Telegram gave (issue #170 and the follow-up probes on its P
 Telegram refuses the post, or (the length in bytes) cuts it without a word. A warning only where the studio cannot
 count exactly: the characters of html/markdown before Telegram parses them, html tags no measurement had."""
 
+import html as html_lib
 import json
+import re
 import time
 from pathlib import Path
 
 import pytest
 
 import spec
-from spec.validator import MAX_BYTES, source_chars, table_columns
+from spec.validator import MAX_BYTES, TG_ENTITIES, source_chars, table_columns, tg_unescape
 
 CELL = {"text": "x", "align": "left", "valign": "top"}
 CAPTURED = json.loads((Path(__file__).parent / "telegram_parse" / "captured.json").read_text("utf-8"))
@@ -497,6 +499,60 @@ def test_text_decodes_only_the_entities_telegram_knows(current):
     """Measured: «a &quot b &QUOT; c &#34; d» went out as «a &quot b &QUOT; c " d»."""
     r = check(current, html="<p>a &quot b &QUOT; c &#34; d</p>")
     assert r["stats"]["chars"] == len('a &quot b &QUOT; c " d'), r["stats"]
+
+
+def test_telegram_decodes_exactly_16_named_entities():
+    """Measured with all 2125 names of HTML5, in html and markdown: these 16, to the same characters as HTML5."""
+    assert sorted(TG_ENTITIES) == sorted(
+        [
+            "amp",
+            "apos",
+            "copy",
+            "gt",
+            "hellip",
+            "ldquo",
+            "lsquo",
+            "lt",
+            "mdash",
+            "nbsp",
+            "ndash",
+            "quot",
+            "rdquo",
+            "reg",
+            "rsquo",
+            "trade",
+        ]
+    )
+    assert all(tg_unescape(f"&{name};") == html_lib.unescape(f"&{name};") for name in TG_ENTITIES)
+
+
+@pytest.mark.parametrize("fmt", ["html", "markdown"])
+def test_each_entity_telegram_decodes_is_one_character_and_the_rest_stay_as_typed(current, fmt):
+    """Measured: the 16 are one character each; the other 2109 names, a name without «;» and &#X22; stay as typed."""
+    for name in TG_ENTITIES:
+        assert check(current, **{fmt: f"x&{name};y"})["stats"]["chars"] == 3, name
+    for entity in ("&laquo;", "&raquo;", "&euro;", "&shy;", "&NBSP;", "&AMP;", "&nbsp", "&#X22;"):
+        assert tg_unescape(entity) == entity
+        assert check(current, **{fmt: f"x{entity}y"})["stats"]["chars"] == len(entity) + 2, entity
+
+
+def test_the_preview_decodes_the_same_entities():
+    """render.js keeps its own copy of the table (TG_ENTITIES): the preview shows what Telegram will."""
+    src = (Path(__file__).parent.parent / "app" / "static" / "render.js").read_text("utf-8")
+    table = re.search(r"const TG_ENTITIES = \{(.*?)\};", src, re.S)
+    assert table, "TG_ENTITIES not found in render.js"
+    names = set(re.findall(r"(\w+):", table[1]))
+    assert names == set(TG_ENTITIES), names ^ set(TG_ENTITIES)
+
+
+def test_numeric_entities_are_decoded_with_a_small_x():
+    assert tg_unescape("&#34;&#034;&#160;&#8212;&#x22;&#X22;") == '"" —"&#X22;'
+
+
+def test_a_markdown_link_address_keeps_its_entities(current):
+    """Measured: in [ссылка](…?q=&quot;x&quot;) Telegram decodes nothing, the link stays: no error, unlike html."""
+    r = check(current, markdown="[ссылка](https://example.com/?q=&quot;x&quot;)")
+    assert r["ok"] and not r["warnings"], r
 
 
 def test_a_quote_in_a_button_address_in_blocks_is_an_error(current):

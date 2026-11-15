@@ -91,6 +91,19 @@ for (const [name, url] of Object.entries(URLS)) {
   check('only the entities Telegram knows are decoded in HTML', ok, r.html);
 }
 {
+  // all 2125 names of HTML5 sent to Telegram (PR #173): it decodes exactly 16 of them, in html and markdown alike
+  const src = '1&nbsp;2 3&mdash;4 5&laquo;6 7&#X22;8 &amp;&apos;&copy;&gt;&hellip;&ldquo;&lsquo;&lt;&ndash;&quot;&rdquo;&reg;&rsquo;&trade; &euro; &shy; &NBSP; &nbsp &#160;&#x2014;';
+  const want = '1 2 3—4 5&laquo;6 7&#X22;8 &\'©>…“‘<–"”®’™ &euro; &shy; &NBSP; &nbsp  —';
+  const textOf = async (rm) => { await render(rm); return page.evaluate(() => document.querySelector('#out .tg-body p')?.textContent); };
+  const html = await textOf({ html: '<p>' + src + '</p>' });
+  check('html: the 16 named entities Telegram decodes and numeric ones are decoded, the rest stay as typed', html === want, JSON.stringify(html));
+  const md = await textOf({ markdown: src });
+  check('markdown: the same 16 and numeric ones, not every HTML5 name as markdown-it would', md === want, JSON.stringify(md));
+  await render({ markdown: '[ссылка](https://example.com/?q=&quot;x&quot;&amp;y=&#34;)' });
+  const href = await page.evaluate(() => document.querySelector('#out .tg-body a')?.getAttribute('href'));
+  check('markdown: no entity is decoded in a link address, the link stays', href === 'https://example.com/?q=&quot;x&quot;&amp;y=&#34;', String(href));
+}
+{
   const r = await render({ blocks: [{ type: 'paragraph', text: { type: 'url', text: 'клик', url: 'javascript:window.__xss=1' } }] });
   check('blocks: javascript: URL in a url entity has no href', !has(r.html, /href=/), r.html);
 }

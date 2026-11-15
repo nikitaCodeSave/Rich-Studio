@@ -1,6 +1,5 @@
 """Structural validation of a rich message against the spec, plus Telegram's size limits."""
 
-import html
 import re
 import string
 from collections import Counter
@@ -20,6 +19,28 @@ NOT_TEXT_MIRROR = frozenset({"url", "anchor_link", "reference", "reference_link"
 # a table cell without align and valign is taken and comes back as left and middle. Not an error, so a post written
 # by hand or by an agent is not held back for them.
 NOT_REQUIRED = {"RichBlockTableCell": frozenset({"align", "valign"})}
+# The named HTML entities Telegram decodes, measured on the real Bot API 10.4 (2026-11-16, PR #173: all 2125 names of
+# HTML5 with «;», sent in html and in markdown): exactly these 16, the same in both and to the same characters as in
+# HTML5. The other 2109 (&laquo; &euro; &shy; &NBSP;…) and every name without «;» stay in the text as typed. Numeric
+# ones are decoded too (&#34; &#034; &#160; &#x22;), but not with a capital X (&#X22;). Mirrored in render.js.
+TG_ENTITIES = {
+    "amp": "&",
+    "apos": "'",
+    "copy": "©",
+    "gt": ">",
+    "hellip": "…",
+    "ldquo": "“",
+    "lsquo": "‘",
+    "lt": "<",
+    "mdash": "—",
+    "nbsp": "\u00a0",
+    "ndash": "–",
+    "quot": '"',
+    "rdquo": "”",
+    "reg": "®",
+    "rsquo": "’",
+    "trade": "™",
+}
 
 
 def text_mirror_field(spec_t: dict, const) -> str | None:
@@ -505,19 +526,16 @@ HTML_ENDS_P = frozenset(
 )
 
 
-# Telegram's HTML decodes only these entities: &lt; &gt; &amp; &quot; and numeric ones, &#x with a small x (measured:
-# &QUOT;, &quot without «;» and &#X22; stay as typed, in text and in href alike), as its HTML parse mode documents
-TG_ENTITY_RE = re.compile(r"&(?:(lt|gt|amp|quot)|#([0-9]+)|#x([0-9a-fA-F]+));")
-TG_NAMED = {"lt": "<", "gt": ">", "amp": "&", "quot": '"'}
+TG_ENTITY_RE = re.compile(rf"&(?:({'|'.join(TG_ENTITIES)})|#([0-9]+)|#x([0-9a-fA-F]+));")
 ATTR_RE = re.compile(r"""[\s"'/]([^\s"'=/>]+)(?:\s*=\s*("[^"]*"|'[^']*'|[^\s>]*))?""")
 
 
 def tg_unescape(s: str) -> str:
-    """HTML entities as Telegram decodes them."""
+    """HTML entities as Telegram decodes them in html text and attributes and in markdown text (TG_ENTITIES)."""
 
     def one(m: re.Match) -> str:
         if m[1]:
-            return TG_NAMED[m[1]]
+            return TG_ENTITIES[m[1]]
         n = int(m[2]) if m[2] else int(m[3], 16)
         return chr(n) if 0 < n <= 0x10FFFF and not 0xD800 <= n <= 0xDFFF else m[0]
 
@@ -705,8 +723,8 @@ def source_chars(src: str, markdown: bool) -> tuple[int, int]:
     (without tags and link addresses), and at least how many (also without spaces and, in Markdown, markup and table
     lines). tests/test_rich_limits.py keeps the second one under Telegram's own count for every captured parse."""
     text = TAG_RE.sub("", src)
-    # html: as Telegram decodes it; markdown entities were not measured, html.unescape decodes the most of them
-    text = html.unescape(MD_TARGET_RE.sub("]", text)) if markdown else tg_unescape(text)
+    # entities as Telegram decodes them; in markdown the link addresses (not decoded at all) are gone already
+    text = tg_unescape(MD_TARGET_RE.sub("]", text) if markdown else text)
     if not markdown:
         return len(text), sum(not ch.isspace() for ch in text)
     sure = MD_MARKUP_RE.sub("", text)
