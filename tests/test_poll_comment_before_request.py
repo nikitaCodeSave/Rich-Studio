@@ -266,7 +266,7 @@ def test_a_comment_whose_sent_cannot_be_written_stays_sending_and_is_never_resen
 
 def test_the_list_of_posts_tells_a_comment_under_way_from_an_unconfirmed_one(client, tg, monkeypatch):
     """Issue #158: "sending" is a request under way (the editor says «отправляется») or a comment nobody sends any
-    more, here one Telegram took whose record the database refused («не подтверждён»)."""
+    more, here one Telegram took whose record the database refused («не подтверждён»); a standby cannot tell."""
     r = _with_comment(client, monkeypatch)
     pid = r["post"]["id"]
 
@@ -293,6 +293,13 @@ def test_the_list_of_posts_tells_a_comment_under_way_from_an_unconfirmed_one(cli
     assert asyncio.run(updates.handle_update(_forward(r))) == "comment"
     assert during == {"listed": ("sending", True)}
     assert listed() == ("sending", False)
+    # a standby never sends comments, the lease holder does: from here neither is known, whatever in_flight says
+    monkeypatch.setattr(loops.STATE, "role", "standby")
+    assert listed() == ("sending", None)
+    publisher.in_flight.add(pid)
+    assert listed() == ("sending", None)
+    store.fail_comment(pid, "первый комментарий: отказ")
+    assert listed() == ("failed", False)
 
 
 def test_a_comment_sent_while_the_scheduler_sends_the_poll_keeps_its_post_in_flight(client, tg, monkeypatch):

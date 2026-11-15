@@ -12,17 +12,17 @@ import { loadSuggested } from './suggested.js';
 
 // ---------- posts ----------
 const COMMENT_LABELS = { waiting: 'ждёт пересылки в обсуждение', sent: 'опубликован', failed: 'ошибка', skipped: 'не будет: приём событий выключен' };
-const COMMENT_UNCONFIRMED = 'Комментарий ушёл в Telegram или мог уйти, но студия этого не записала: база не приняла запись (его message_id в журнале, событие send.unrecorded) или отправку оборвало падение студии. Посмотрите обсуждение под постом и не публикуйте его заново; после перезапуска студии он станет «ошибка».';
+const COMMENT_UNCONFIRMED = 'Студия не знает, дошёл ли комментарий: например, Telegram его принял, а база не приняла запись (в журнале событие send.unrecorded с message_id), или Telegram отказал, а сбой не записался (в журнале «could not record the failed first comment»). Посмотрите обсуждение под постом. После перезапуска студии комментарий станет «ошибка».';
+const COMMENT_ELSEWHERE = 'Этот процесс студии в резерве: первые комментарии отправляет другой, поэтому отсюда не видно, идёт запрос или он оборвался. Посмотрите обсуждение под постом и не публикуйте комментарий заново.';
 
-// "sending" is a request under way (comment_in_flight), or a comment nobody sends any more whose answer from
-// Telegram the studio has not recorded: it may be in the discussion
-/** @param {PostRow} p */
-const commentUnconfirmed = (p) => p.comment_status === 'sending' && !p.comment_in_flight;
-
-/** @param {PostRow} p */
-function commentLabel(p) {
-  if (p.comment_status === 'sending') return p.comment_in_flight ? 'отправляется' : 'не подтверждён, мог уйти: проверьте обсуждение';
-  return COMMENT_LABELS[p.comment_status] || p.comment_status;
+/** The first comment in the row. "sending" is a request under way (comment_in_flight), one nobody sends any more
+ * whose answer from Telegram the studio has not recorded (it may be in the discussion), or, in a standby, unknown
+ * @param {PostRow} p @returns {string | HTMLElement} */
+function commentNote(p) {
+  if (p.comment_status !== 'sending') return 'комментарий: ' + (COMMENT_LABELS[p.comment_status] || p.comment_status);
+  if (p.comment_in_flight) return 'комментарий: отправляется';
+  if (p.comment_in_flight === null) return h('span', { title: COMMENT_ELSEWHERE, text: 'комментарий: отправляется или не подтверждён' });
+  return h('span', { class: 'unknown', title: COMMENT_UNCONFIRMED, text: 'комментарий: не подтверждён, мог уйти; не публикуйте заново, проверьте обсуждение' });
 }
 
 export async function loadPosts() {
@@ -49,7 +49,7 @@ export async function loadPosts() {
       p.pinned ? '📌 закреплён' : null,
       p.reactions && Object.keys(p.reactions).length ? Object.entries(p.reactions).map(([k, v]) => (k.startsWith('custom:') ? '★' : k === 'paid' ? '⭐' : k) + ' ' + v).join('  ') : null,
       p.clicks && Object.keys(p.clicks).length ? 'нажатия: ' + Object.entries(p.clicks).map(([k, v]) => ((p.buttons && p.buttons[k]) || k) + ' ' + v).join(', ') : null,
-      p.comment_status ? 'комментарий: ' + commentLabel(p) : null,
+      p.comment_status ? commentNote(p) : null,
       pr ? `голосов: ${pr.total}${pr.is_closed ? ' (закрыт)' : ''} · ` + pr.options.map((o) => `${o.text} ${o.voter_count}`).join(' / ') : null,
     ].filter(Boolean);
     const call = async (method, path, body, ok) => { try { await api(method, path, body); toast(ok, 'ok'); } catch (e) { toast(e.message, 'err'); } loadPosts(); };
@@ -62,7 +62,7 @@ export async function loadPosts() {
         p.link ? h('a', { href: p.link, target: '_blank', rel: 'noopener', title: 'Открыть в Telegram', text: num }) : num),
       h('span', { class: 'meta', text: new Date(when * 1000).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' }) }),
       p.error ? h('span', { class: 'small post-error' + (unknown ? ' unknown' : ''), text: (p.status === 'failed' && !unknown ? 'Не вышел: ' : '') + p.error }) : null,
-      stats.length ? h('span', { class: 'meta stats', title: commentUnconfirmed(p) ? COMMENT_UNCONFIRMED : null, text: stats.join(' · ') }) : null,
+      stats.length ? h('span', { class: 'meta stats' }, stats.flatMap((s, i) => (i ? [' · ', s] : [s]))) : null,
       h('span', { class: 'acts' },
         !own && ['sent', 'scheduled', 'missed'].includes(p.status) ? h('button', { class: 'ghost small-btn', text: 'Править', title: 'Открыть пост в редакторе; «Обновить пост» над редактором заменит его', onclick: () => editPost(p).catch((e) => toast(e.message, 'err')) }) : null,
         !own && !['sent', 'scheduled', 'missed'].includes(p.status) ? h('button', { class: 'ghost small-btn', text: 'Открыть', title: 'Копия поста новым черновиком', onclick: () => openCopy(p) }) : null,

@@ -1,7 +1,8 @@
 // the first comment between its forward and Telegram's answer: «отправляется» while the request is under way (the
 // mock holds the answer back), «опубликован» once it is in, never the raw «sending». A comment nobody sends any more
-// (Telegram took it and the database refused the record, or a crash cut it off) is «не подтверждён»: the studio says
-// so with comment_in_flight false (tests/test_poll_comment_before_request.py), here that answer is routed in
+// (e.g. Telegram took it and the database refused the record) is «не подтверждён», and a standby process cannot tell:
+// the studio says so with comment_in_flight false or null (tests/test_poll_comment_before_request.py), here those
+// answers are routed in
 /** @param {import('./harness.mjs').Ctx} ctx */
 export default async function ({ page, check, until, mockLog, push, MOCK }) {
   const mock = (path, body) => fetch(MOCK + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -45,27 +46,45 @@ export default async function ({ page, check, until, mockLog, push, MOCK }) {
       && !!answered && /комментарий: опубликован/.test(done) && !/sending/.test(underWay + done),
     JSON.stringify({ flying: flying && { status: flying.comment_status, in_flight: flying.comment_in_flight }, underWay, done }));
 
-  // the answer the studio gives for a comment whose record the database refused
-  const unconfirmed = async (route) => {
+  // what the studio answers for a comment nobody sends any more (false) and from a standby process (null); the row
+  // has reactions too, so the hint must sit on the comment's own note, not on the whole line
+  let inFlight = /** @type {boolean | null} */ (false);
+  const routed = async (route) => {
     const res = await route.fetch().catch(() => null);
     if (!res) return;
     const rows = await res.json();
-    for (const p of rows) if (p.id === pid) Object.assign(p, { comment_status: 'sending', comment_in_flight: false });
+    for (const p of rows) if (p.id === pid) Object.assign(p, { comment_status: 'sending', comment_in_flight: inFlight, reactions: { '👍': 3 } });
     await route.fulfill({ json: rows }).catch(() => {}); // a read still in flight when the check unroutes
   };
-  await page.route('**/api/posts', unconfirmed);
-  const text = await shown(/не подтверждён/);
-  const hint = (await row.locator('.stats').getAttribute('title').catch(() => '')) || '';
+  const looks = () => row.locator('.stats [title]').evaluate((el) => {
+    const probe = document.createElement('span');
+    probe.style.color = 'var(--warn)';
+    el.append(probe);
+    const warn = getComputedStyle(probe).color;
+    probe.remove();
+    return { warn: getComputedStyle(el).color === warn, title: el.getAttribute('title') || '', whole: !!el.closest('.stats')?.hasAttribute('title') };
+  }).catch(() => null);
+  await page.route('**/api/posts', routed);
+  const text = await shown(/не подтверждён, мог уйти/);
+  const unconfirmed = await looks();
   await row.screenshot({ path: 'test-results/ui/comment-unconfirmed-1400.png' }).catch(() => {});
   await page.setViewportSize({ width: 390, height: 844 });
   await row.scrollIntoViewIfNeeded().catch(() => {});
   await page.screenshot({ path: 'test-results/ui/comment-unconfirmed-390.png' }).catch(() => {});
   await page.setViewportSize({ width: 1400, height: 900 });
-  await page.unroute('**/api/posts', unconfirmed);
+  inFlight = null;
+  const standbyText = await shown(/отправляется или не подтверждён/);
+  const standby = await looks();
+  await page.unroute('**/api/posts', routed);
   const after = await shown(/комментарий: опубликован/);
   await page.click('#side-tabs [data-tab=drafts]');
-  check('A comment nobody sends any more says «не подтверждён» and to look at the discussion, with the log event',
-    /комментарий: не подтверждён, мог уйти: проверьте обсуждение/.test(text) && !/sending|отправляется/.test(text)
-      && /send\.unrecorded/.test(hint) && /не публикуйте/.test(hint) && /комментарий: опубликован/.test(after),
-    JSON.stringify({ text, hint: hint.slice(0, 120), after }));
+  check('A comment nobody sends any more: «не подтверждён», not to post it again, in the warning colour; the hint on the note only',
+    /👍 3 · комментарий: не подтверждён, мог уйти; не публикуйте заново, проверьте обсуждение/.test(text) && !/sending|отправляется/.test(text)
+      && !!unconfirmed && unconfirmed.warn && !unconfirmed.whole && /send\.unrecorded/.test(unconfirmed.title) && /could not record/.test(unconfirmed.title)
+      && /комментарий: опубликован/.test(after),
+    JSON.stringify({ text, unconfirmed: unconfirmed && { ...unconfirmed, title: unconfirmed.title.slice(0, 80) }, after }));
+  check('From a standby process the comment is «отправляется или не подтверждён», without a promise about a restart',
+    /комментарий: отправляется или не подтверждён/.test(standbyText) && !!standby && !standby.warn && !standby.whole
+      && /резерв/.test(standby.title) && !/перезапуск/.test(standbyText + standby.title),
+    JSON.stringify({ standbyText, standby: standby && { ...standby, title: standby.title.slice(0, 80) } }));
 }
