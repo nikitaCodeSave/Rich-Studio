@@ -1,4 +1,22 @@
 {
+  "autoMemoryEnabled": false,
+  "permissions": {
+    "deny": [
+      "Read(/.env)",
+      "Edit(/.env)",
+      "Read(/deploy/.env)",
+      "Edit(/deploy/.env)",
+      "Read(/deploy/litestream.env)",
+      "Edit(/deploy/litestream.env)",
+      "Read(/deploy/secrets/**)",
+      "Edit(/deploy/secrets/**)",
+      "Edit(/app/bundled/api.json)",
+      "Edit(/requirements.lock)",
+      "Bash(git push --force *)",
+      "Bash(git push -f *)",
+      "Bash(git push --force-with-lease *)"
+    ]
+  },
   "hooks": {
     "SessionStart": [
       {
