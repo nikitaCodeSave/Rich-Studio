@@ -15,12 +15,13 @@ export default async function ({ page, check, mockLog, push, MOCK }) {
   // Telegram's gateway answers 502: the decision may have gone, the suggestion stays «approving»
   await fail({ description: 'Bad Gateway', error_code: 502 });
   await page.locator('dialog[open] button', { hasText: /Принять|Опубликовать сейчас/ }).click();
-  await page.waitForTimeout(600);
+  // the studio answered the editor and the list says so: only then is the failure taken away
+  await row.filter({ hasText: 'ждём Telegram' }).waitFor({ timeout: 8000 }).catch(() => {});
   await fail({ description: null });
   await page.locator('dialog[open] button', { hasText: 'Закрыть' }).click().catch(() => {});
   const stuck = (await open()).find((s) => s.message_id === mid);
   await row.click();
-  await page.waitForTimeout(300);
+  await page.waitForSelector('dialog[open] >> text=Решить снова', { timeout: 8000 }).catch(() => {});
   const dlg = await page.locator('dialog[open]').textContent();
   await page.screenshot({ path: 'test-results/ui/suggested-again-1400.png' }).catch(() => {});
   await page.setViewportSize({ width: 390, height: 844 });
@@ -28,11 +29,13 @@ export default async function ({ page, check, mockLog, push, MOCK }) {
   await page.screenshot({ path: 'test-results/ui/suggested-again-390.png' }).catch(() => {});
   await page.setViewportSize({ width: 1400, height: 900 });
   await page.locator('dialog[open] button', { hasText: 'Решить снова' }).click();
-  await page.waitForTimeout(600);
+  // the answer closes this dialog and opens the usual one in the same step
+  await page.locator('dialog[open] button', { hasText: 'Решить снова' }).waitFor({ state: 'detached', timeout: 8000 }).catch(() => {});
   const reopened = (await open()).find((s) => s.message_id === mid);
   const again = await page.locator('dialog[open]').textContent();
   await page.locator('dialog[open] button', { hasText: /Принять|Опубликовать сейчас/ }).click();
-  await page.waitForTimeout(600);
+  // approved: the suggestion leaves the list once the editor got the answer
+  await row.waitFor({ state: 'detached', timeout: 8000 }).catch(() => {});
   const calls = (await mockLog()).filter((c) => c.method === 'approveSuggestedPost' && c.body.message_id === mid);
   const done = (await page.evaluate(() => fetch('/api/suggested-posts').then((r) => r.json()))).find((s) => s.message_id === mid);
   check('A decision without an answer is made again from the dialog at once',
