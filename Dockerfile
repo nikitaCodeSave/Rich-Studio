@@ -6,6 +6,8 @@ WORKDIR /app
 COPY requirements.lock .
 RUN pip install --no-cache-dir --require-hashes --no-deps -r requirements.lock
 COPY app/ .
+# the skill agents read over MCP (mcp_tools/skill.py): next to the app, as in the repository; without it no start
+COPY .claude/skills/telegram-rich-posts/SKILL.md /.claude/skills/telegram-rich-posts/SKILL.md
 # an unprivileged user that owns /data (the server's named volume); the local compose runs as the host user
 RUN useradd --system --uid 10001 --user-group --no-create-home --shell /usr/sbin/nologin studio \
     && mkdir -p /data && chown 10001:10001 /data
