@@ -1,6 +1,7 @@
 // Published and scheduled posts.
 import { api } from './api.js';
 import { setDraft } from './drafts.js';
+import { openDialog } from './dialogs.js';
 import { $, h, toast } from './dom.js';
 import { autosave, buildPost, callbacksFor, flushSave, loadPost, updatesLabel } from './editor.js';
 import { resetHistory } from './history.js';
@@ -20,13 +21,15 @@ export async function loadPosts() {
   const u = S.updates;
   $('#updates-state').replaceChildren(h('span', { class: u && u.state === 'ok' ? 'ok' : 'w', title: (u && u.error) || '', text: 'Приём событий: ' + updatesLabel() }),
     h('span', { class: 'muted', text: ' · нажатия кнопок, первые комментарии, реакции, итоги опросов, вступления, предложенные посты' }));
-  const shown = S.posts.filter((p) => !only || p.status === only);
+  // «Не вышли» are the refusals; a send whose outcome is unknown may be in the channel and has a filter of its own
+  const shown = S.posts.filter((p) => !only || (only === 'unknown' ? p.outcome_unknown : p.status === only && !p.outcome_unknown));
   ul.replaceChildren(...shown.map((p) => {
     const when = (p.status === 'scheduled' && p.scheduled_at) || p.sent_at || p.created_at;
     const kind = kindOf(p);
     // a poll, Live Photo or paid media is a message of its own: it does not open in the post editor
     const own = !kind.editable;
     const sent = p.status === 'sent';
+    const unknown = p.status === 'failed' && p.outcome_unknown;
     const pr = p.poll_results;
     const stats = [
       p.pinned ? '📌 закреплён' : null,
@@ -41,10 +44,10 @@ export async function loadPosts() {
       h('div', { class: 'post-head' },
         p.thumb ? h('img', { class: 'thumb', src: p.thumb, alt: '', loading: 'lazy' }) : null,
         h('span', { class: 'post-title' + (p.title ? '' : ' muted'), text: p.title || 'Без текста' })),
-      h('span', { class: 'meta' }, h('span', { class: 'status ' + p.status, text: STATUS_LABELS[p.status] || p.status }), kind.badge ? h('b', { text: kind.badge }) : null, p.actor && p.actor !== 'ui' ? h('span', { class: 'actor', title: 'Кто отправил: не редактор, а API или агент', text: p.actor }) : null, h('span', { class: 'chan', title: 'Канал', text: chatLabel(p.chat_id) }),
+      h('span', { class: 'meta' }, h('span', { class: 'status ' + (unknown ? 'unknown' : p.status), text: unknown ? 'исход неизвестен' : STATUS_LABELS[p.status] || p.status }), kind.badge ? h('b', { text: kind.badge }) : null, p.actor && p.actor !== 'ui' ? h('span', { class: 'actor', title: 'Кто отправил: не редактор, а API или агент', text: p.actor }) : null, h('span', { class: 'chan', title: 'Канал', text: chatLabel(p.chat_id) }),
         p.link ? h('a', { href: p.link, target: '_blank', rel: 'noopener', title: 'Открыть в Telegram', text: num }) : num),
       h('span', { class: 'meta', text: new Date(when * 1000).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' }) }),
-      p.error ? h('span', { class: 'small post-error', text: (p.status === 'failed' ? 'Не вышел: ' : '') + p.error }) : null,
+      p.error ? h('span', { class: 'small post-error' + (unknown ? ' unknown' : ''), text: (p.status === 'failed' && !unknown ? 'Не вышел: ' : '') + p.error }) : null,
       stats.length ? h('span', { class: 'meta stats', text: stats.join(' · ') }) : null,
       h('span', { class: 'acts' },
         !own && ['sent', 'scheduled', 'missed'].includes(p.status) ? h('button', { class: 'ghost small-btn', text: 'Править', title: 'Открыть пост в редакторе; «Обновить пост» над редактором заменит его', onclick: () => editPost(p).catch((e) => toast(e.message, 'err')) }) : null,
@@ -58,7 +61,7 @@ export async function loadPosts() {
         } }) : null,
         sent ? h('button', { class: 'ghost small-btn', text: p.pinned ? 'Открепить' : 'Закрепить', onclick: () => p.pinned ? call('DELETE', `/api/posts/${p.id}/pin`, undefined, 'Откреплено') : call('POST', `/api/posts/${p.id}/pin`, { disable_notification: true }, 'Закреплено без уведомления') }) : null,
         kind.stoppable && sent && !(pr && pr.is_closed) ? h('button', { class: 'ghost small-btn', text: 'Закрыть опрос', onclick: () => { if (confirm('Закрыть опрос? Голосовать больше будет нельзя.')) call('POST', `/api/posts/${p.id}/stop-poll`, undefined, 'Опрос закрыт'); } }) : null,
-        p.status === 'failed' ? h('button', { class: 'ghost small-btn', text: 'Убрать', title: 'Убрать запись из списка; в канале этого поста нет', onclick: () => call('DELETE', '/api/posts/' + p.id, undefined, 'Убрано из списка') }) : null,
+        p.status === 'failed' ? h('button', { class: 'ghost small-btn', text: 'Убрать', title: unknown ? 'Пост мог уйти: сначала проверьте канал' : 'Убрать запись из списка; в канале этого поста нет', onclick: () => unknown ? removeUnknown(p, () => call('DELETE', '/api/posts/' + p.id, undefined, 'Убрано из списка')) : call('DELETE', '/api/posts/' + p.id, undefined, 'Убрано из списка') }) : null,
         ['sent', 'scheduled', 'missed'].includes(p.status) ? h('button', { class: 'danger small-btn', text: p.status === 'sent' ? 'Удалить' : 'Отменить', onclick: async () => {
           if (!confirm(p.status === 'sent' ? 'Удалить пост из канала? Это нельзя отменить.' : 'Отменить отложенную публикацию?')) return;
           try { await api('DELETE', '/api/posts/' + p.id); toast('Готово', 'ok'); } catch (e) { toast(e.message, 'err'); }
@@ -66,6 +69,20 @@ export async function loadPosts() {
         } }) : null));
   }));
   if (!shown.length) ul.append(h('li', { class: 'muted small', text: only ? 'Таких постов нет.' : 'Здесь появятся опубликованные, отложенные и неудачные посты.' }));
+}
+
+// a send whose outcome is unknown leaves the list (and the health report) only by this step: the person says they
+// looked at the channel. The studio's own dialog, not confirm(): its text is the instruction, also on a phone
+function removeUnknown(p, remove) {
+  openDialog([
+    h('h3', { text: 'Пост мог уйти в ' + chatLabel(p.chat_id) }),
+    h('p', { text: 'Проверьте канал. Если пост там, отправлять его снова не нужно; если вы уже отправили его заново и вышло два поста, лишний удалите в Telegram: этого сообщения студия не знает и удалить его не может.' }),
+    h('p', { text: 'Если поста нет, отправьте черновик заново: повторная отправка эту запись не убирает.' }),
+    h('p', { class: 'muted small', text: 'Убрать — значит убрать только запись из списка и из проверки студии (/api/health); в канале ничего не изменится.' }),
+  ], [
+    h('button', { class: 'ghost', value: 'cancel', text: 'Отмена' }),
+    h('button', { class: 'danger', value: 'ok', text: 'Я проверил канал, убрать', onclick: remove }),
+  ]);
 }
 
 // the post as a new draft; the open draft is saved first, so nothing typed is lost

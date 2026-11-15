@@ -131,7 +131,9 @@ async def set_buttons(pid: str, req: ButtonsReq, who: str = Depends(actor)):
 @router.get("/api/posts", summary="Опубликованные, отложенные и неудачные посты: первая строка, миниатюра, ссылка")
 def list_posts(status: str | None = None, chat: str | None = None, limit: int = Query(100, ge=1, le=500)):
     """Для каждого поста: `title`, `thumb`, `link`, нажатия (`clicks`) и текст кнопки каждого `callback_data`
-    (`buttons`). Отправка, которой Telegram отказал, — статус `failed` с ошибкой."""
+    (`buttons`). Отправка, которой Telegram отказал, — статус `failed` с ошибкой. `outcome_unknown: true` у `failed`:
+    исход неизвестен (Telegram не ответил, студия остановилась или упала посреди отправки), пост мог уйти. Такая
+    запись не уходит после успешной отправки того же черновика и видна в `/api/health`, пока её не уберут `DELETE`."""
     return listing.list_posts(limit, status=status, chat=chat)
 
 
@@ -180,5 +182,7 @@ def reschedule(pid: str, req: RescheduleReq):
     summary="Отменить отложенный или пропущенный пост, или удалить пост из канала",
 )
 async def delete_post(pid: str):
-    """`DELETE` неудачной отправки убирает её из списка."""
+    """`DELETE` неудачной отправки убирает только её запись из списка, в канале ничего не удаляется. Запись с
+    `outcome_unknown: true` (пост мог уйти) так и решают: проверили канал и убрали её, тогда она уходит и из
+    `/api/health`."""
     return await posts.delete(pid)
