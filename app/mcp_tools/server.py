@@ -47,8 +47,8 @@ A post is {"rich_message": InputRichMessage with exactly one of html|markdown|bl
 it reaches the Bot API unchanged. callbacks answer callback buttons: {callback_data: text | {text?, show_alert?,
 "reply"?: sendRichMessage fields {rich_message, ephemeral_message_parameters?: {replace_callback_query_message?}}}};
 reply is a rich message only the person who pressed sees, under a channel post too; with replace_callback_query_message
-it takes the post's place for that person until they restart Telegram, without the post's buttons. describe_type gives
-exact fields of any Bot API type. Uploaded files are referenced as upload:<name>."""
+it takes the post's place for that person, without the post's buttons, until they restart Telegram (or it disappears
+by itself). describe_type gives exact fields of any Bot API type. Uploaded files are referenced as upload:<name>."""
 
 
 def build() -> MCPServer:

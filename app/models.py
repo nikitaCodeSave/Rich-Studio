@@ -39,7 +39,8 @@ class Post(BaseModel):
         "rich-ответа, который видит только нажавший (Bot API 10.4): {rich_message: InputRichMessage, "
         "ephemeral_message_parameters?: {replace_callback_query_message: true — вместо поста}}. Студия добавит "
         "callback_query_id и всё равно ответит answerCallbackQuery; ответ проверяется как пост и не повторяется. "
-        "Работает и под постом канала; замена поста — только у нажавшего, до перезапуска Telegram и без кнопок поста",
+        "Работает и под постом канала; замена поста — только у нажавшего, без кнопок поста и до перезапуска Telegram "
+        "(эфемерные сообщения могут исчезать и сами)",
         json_schema_extra=bot_api("Object"),
     )
     poll_after: dict | None = Field(
