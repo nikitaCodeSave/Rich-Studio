@@ -15,7 +15,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
 
 import settings
-from mcp_tools import preview_app, tools
+from mcp_tools import preview_app, skill, tools
 from mcp_tools.common import (
     PUBLIC,
     READ,
@@ -30,6 +30,8 @@ from mcp_tools.common import (
 from services import publisher
 
 INSTRUCTIONS = """Rich Studio: write, check, preview and publish rich posts for the user's Telegram channel.
+No telegram-rich-posts among your skills? Before writing a post read the resource skill://telegram-rich-posts/SKILL.md
+(the same file as the prompt telegram-rich-posts): blocks, tags, channel limits of the newest Bot API, how to work.
 Order: bot_api_status (what is new; refresh_bot_api if the user asks for the newest) → save_draft (returns validation:
 fix every error and save again) → preview_post with draft_id (the user sees the post as in Telegram right in the chat)
 → publish_post or schedule_post with draft_id and the version preview_post returned, only after the user explicitly confirmed that exact post
@@ -67,6 +69,7 @@ def build() -> MCPServer:
         return out if version is None else {**out, "version": version, **draft_links(draft_id or "")}
 
     server = MCPServer(name="rich-studio", title="Rich Studio", instructions=INSTRUCTIONS, extensions=[apps])
+    skill.register(server)  # the same SKILL.md as for Claude Code, for agents that only have /mcp
 
     def tool(annotations: ToolAnnotations):  # a ToolDecorator
         def register(fn):

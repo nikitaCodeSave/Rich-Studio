@@ -39,3 +39,14 @@
 | `studio_status` | Что сейчас работает: токен, канал по умолчанию, приём событий (без него не будет ответов на кнопки, первых комментариев и реакций), предел опоздания отложенных постов, можно ли агентам публиковать. | только читает |
 | `upload_media` | Загрузить картинку, видео или файл для поста. Вернёт ref (upload:<имя>): его ставят в media блока (например {"type": "photo", "photo": {"type": "photo", "media": ref}}) или в rich_message.media. | меняет данные студии |
 | `validate_post` | Проверить пост по спецификации: ошибки (исправить обязательно), предупреждения, длина. | только читает |
+
+## Ресурсы и prompts
+
+| Ресурс | Что это | Тип |
+|---|---|---|
+| `skill://telegram-rich-posts/SKILL.md` | Rich-посты в Telegram. Write, check, preview and publish Telegram channel posts with Rich Messages (sendRichMessage) using the newest Bot API; use for any Telegram post formatting or Bot API formatting question. | `text/markdown` |
+| `ui://rich-studio/preview` | Предпросмотр поста. Пост так, как его покажет Telegram | `text/html;profile=mcp-app` |
+
+| Prompt | Что даёт |
+|---|---|
+| `telegram-rich-posts` | Rich-посты в Telegram. Write, check, preview and publish Telegram channel posts with Rich Messages (sendRichMessage) using the newest Bot API; use for any Telegram post formatting or Bot API formatting question. |
