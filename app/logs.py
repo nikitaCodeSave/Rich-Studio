@@ -2,7 +2,7 @@
 
 The file is what agents read (GET /api/logs, MCP studio_logs): one JSON object per line with ts, level,
 logger, msg and the fields passed as `extra=`. Rotation keeps at most LOG_MAX_MB × (LOG_FILES + 1) on disk.
-The bot token never reaches either output: every line is scrubbed after formatting.
+No secret reaches either output: every line is scrubbed after formatting (redact.py).
 
 Writing happens off the event loop: loggers hand records to a QueueHandler, and a QueueListener thread
 formats and writes them (the logging cookbook's advice for async apps). `flush()` waits until it caught up.
@@ -26,15 +26,12 @@ from pathlib import Path
 
 import metrics
 import settings
+from redact import scrub
 
 ROOT = "rich-studio"
 # other loggers whose warnings and errors belong in the same file: uvicorn reports crashes of a request there
 FOREIGN = ("uvicorn.error",)
 FILE_NAME = "studio.log"
-# a Bot API token anywhere in the text, not only in URLs; the lookbehind and the bound on digits keep a long run
-# of digits linear (an unauthenticated path of 15000 digits used to block the event loop for seconds)
-_TOKEN = re.compile(r"(?<!\d)\d{5,12}:[\w-]{30,}")
-_TOKEN_IN_URL = re.compile(r"(?<=/bot)\d{5,12}:[\w-]+")  # also a token cut short by a truncated error text
 # attributes every LogRecord has; anything else came from extra= and goes into the JSON line
 _STANDARD = set(vars(logging.LogRecord("", 0, "", 0, "", None, None))) | {"message", "asctime", "taskName"}
 LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
@@ -90,24 +87,6 @@ class _WithRequestId(logging.Filter):
         if not hasattr(record, "request_id") and (rid := request_id.get()):
             record.request_id = rid
         return True
-
-
-def scrub(text: str) -> str:
-    token = settings.get().bot_token
-    if token and token in text:  # whatever its shape (test tokens do not look like real ones)
-        text = text.replace(token, "<token>")
-    return _TOKEN_IN_URL.sub("<token>", _TOKEN.sub("<token>", text))
-
-
-def scrub_all(value):
-    """scrub() every string inside a JSON-like value (the health report carries error texts from many places)."""
-    if isinstance(value, str):
-        return scrub(value)
-    if isinstance(value, dict):
-        return {k: scrub_all(v) for k, v in value.items()}
-    if isinstance(value, list | tuple):
-        return [scrub_all(v) for v in value]
-    return value
 
 
 class _PrivateFile(logging.handlers.RotatingFileHandler):
