@@ -679,3 +679,24 @@ def test_a_long_russian_post_does_not_go_out_cut(client, tg):
     r = client.post("/api/send", json={"post": post, "chat_id": "@chan"})
     assert r.status_code == 422 and CUT in str(r.json()), r.json()
     assert not [c for c in tg.calls if c["method"] == "sendRichMessage"]
+
+
+def test_a_rich_reply_to_a_button_is_held_to_the_same_limits(client, tg):
+    """The rich reply of #163 is a rich message too: the cut, nesting and a " in a link stop the post before it goes."""
+    like = {"inline_keyboard": [[{"text": "👍", "callback_data": "like"}]]}
+
+    def errors(rich_message):
+        post = {
+            "rich_message": {"blocks": [para()]},
+            "reply_markup": like,
+            "callbacks": {"like": {"reply": {"rich_message": rich_message}}},
+        }
+        return client.post("/api/validate", json=post).json()["errors"]
+
+    (cut,) = errors({"html": "<p>" + "ж" * 20000 + "</p>"})
+    assert cut.startswith("ответ на кнопку «👍»: ") and CUT in cut, cut
+    (deep,) = errors({"blocks": [quotes(16)]})
+    assert deep.startswith("ответ на кнопку «👍»: ") and "17 уровней вложенности" in deep, deep
+    (link,) = errors({"html": '<p><a href="https://example.com/?q=&quot;x&quot;">ссылка</a></p>'})
+    assert "%22" in link, link
+    assert errors({"blocks": [{"type": "table", "cells": [[{"text": "a"}]]}]}) == []
