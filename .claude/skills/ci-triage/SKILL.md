@@ -24,7 +24,7 @@ Done when every failed run has its job, step and failing test or line, you know 
 | What the log shows | Cause | Fix |
 |---|---|---|
 | `test_lock.py`: `requirements.lock отстал от requirements.txt` in a Dependabot pip PR | Dependabot bumps `requirements.txt` only, by design (`.github/dependabot.yml`) | 3a |
-| `vendor_codemirror: app/static/vendor/ is not what package-lock.json gives` in a Dependabot npm PR of the group `codemirror` | Dependabot bumps `package.json` and the lock only; the copy in `app/static/vendor/codemirror-*` is made by `scripts/vendor_codemirror.mjs` | 3a, `make vendor` |
+| `vendor_codemirror: app/static/vendor/ is not what package-lock.json gives` or `vendor_codemirror: … a second copy …` in a Dependabot npm PR that bumps `@codemirror/*` or `@lezer/*` (the group `codemirror`, or a security update, which Dependabot opens outside any group) | Dependabot bumps `package.json` and the lock only; the copy in `app/static/vendor/codemirror-*` is made by `scripts/vendor_codemirror.mjs` | 3a, `make vendor` |
 | `FAIL  <check>` in `e2e` of a PR whose diff cannot reach the editor (an image digest, docs, another job's deps) | flake: a fixed pause before reading a page that updates asynchronously | 3b |
 | `supply-chain` or Trivy: a CVE in a package outside the diff | a fresh advisory | the CVE rule in `AGENTS.md` |
 | anything else | a real break | reproduce locally (`make check-fast`, the single test), fix test-first (`tests/AGENTS.md`) |
@@ -46,7 +46,7 @@ make check && git commit -am "requirements.lock: …" && git push
 
 Once you pushed, Dependabot stops rebasing the PR; `@dependabot recreate` would throw the lock commit away, so rebase it yourself if `main` moves.
 
-Dependabot PR of CodeMirror (group `codemirror`): the same with `npm ci && make vendor` in the PR's branch instead of `make lock`; commit `app/static/vendor/` (the old `codemirror-<hash>/` goes, a new one comes). If the bump brought in a package the set did not have, `make vendor` names the `npm install --save-dev --save-exact …` to run first.
+Dependabot PR of CodeMirror (the group `codemirror`, or a security update of one of its packages): the same with `npm ci && make vendor` in the PR's branch instead of `make lock`; commit `app/static/vendor/` (the old `codemirror-<hash>/` goes, a new one comes). If the bump brought in a package the set did not have, `make vendor` names the `npm install --save-dev --save-exact …` to run first. `a second copy <pkg> <version> in node_modules/<other>/node_modules/<pkg>` means the bump moved one package past what another one of the set accepts (a new `@codemirror/view` that needs a newer `@codemirror/state`): run `make vendor-update` in the branch, which moves the whole set to its latest versions together, check `npm ls <pkg>` shows one version, and commit `package.json`, the lock and `app/static/vendor/`.
 
 **b. Flaky browser check**: its own PR (area editor). Replace the pause before the read with a wait for the event, then the unchanged `check` (as in `tests/e2e/19-a-new-post-becomes.mjs`):
 
