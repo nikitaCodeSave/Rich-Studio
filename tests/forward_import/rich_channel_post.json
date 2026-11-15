@@ -2,8 +2,8 @@
   "update_id": 900001,
   "message": {
     "message_id": 501,
-    "from": {"id": 777, "is_bot": false, "first_name": "Никита", "language_code": "ru"},
-    "chat": {"id": 777, "type": "private", "first_name": "Никита"},
+    "from": {"id": 777, "is_bot": false, "first_name": "Владелец"},
+    "chat": {"id": 777, "type": "private", "first_name": "Владелец"},
     "date": 1763200000,
     "forward_origin": {
       "type": "channel",

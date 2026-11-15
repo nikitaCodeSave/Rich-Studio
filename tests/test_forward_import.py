@@ -1,8 +1,8 @@
 """A post the owner forwards to the bot becomes a draft with the same formatting; nothing goes to a channel.
 
-Each file in tests/forward_import/ is exactly one update: the owner's forward of a post from a public channel, with
-the owner's own id, name and username replaced by made-up ones. Never a whole getUpdates answer: the repository is
-public, and that answer also holds other people's clicks, joins, comments and private messages.
+Each file in tests/forward_import/ is exactly one update: the owner's forward of a post from a public channel (one
+with a username), with the owner replaced by the made-up one below (OWNER, DM). Never a whole getUpdates answer: the
+repository is public, and that answer also holds other people's clicks, joins, comments and private messages.
 rich_channel_post.json is built from app/bundled/api.json (a test checks it against the spec); a real forward is
 recorded by the steps in PR #120. Every file there must become a draft without validation errors.
 """
@@ -20,8 +20,9 @@ from services import updates
 from test_mcp import call_list
 
 FIXTURES = Path(__file__).parent / "forward_import"
-OWNER = {"id": 777, "is_bot": False, "first_name": "Никита"}
-DM = {"id": 777, "type": "private", "first_name": "Никита"}
+# the made-up owner every saved forward must have instead of the real one (the PR #120 steps put exactly these)
+OWNER = {"id": 777, "is_bot": False, "first_name": "Владелец"}
+DM = {"id": 777, "type": "private", "first_name": "Владелец"}
 FROM_CHANNEL = {
     "type": "channel",
     "date": 1763100000,
@@ -33,13 +34,40 @@ FROM_CHANNEL = {
 def _update(path: Path) -> dict:
     """One saved update: the owner's forward and nothing else (see the docstring above)."""
     u = json.loads(path.read_text("utf-8"))
-    assert set(u) <= {"update_id", "message"}, (
-        f"{path.name}: one update with a message per file, not a getUpdates answer"
-    )
+    one = isinstance(u, dict) and set(u) <= {"update_id", "message"} and isinstance(u.get("message"), dict)
+    assert one, f"{path.name}: one update with a message per file, not a list or a getUpdates answer"
     m = u["message"]
-    assert m["chat"]["type"] == "private" and m["chat"]["id"] == m["from"]["id"], f"{path.name}: the owner's own chat"
-    assert (m.get("forward_origin") or {"type": "channel"})["type"] == "channel", f"{path.name}: forward from a channel"
+    assert m.get("from") == OWNER and m.get("chat") == DM, (
+        f"{path.name}: from and chat must be the made-up owner {OWNER} / {DM}, never your real id and name"
+    )
+    origin = m.get("forward_origin")
+    assert origin is None or (origin.get("type") == "channel" and (origin.get("chat") or {}).get("username")), (
+        f"{path.name}: only a forward from a public channel (one with a username)"
+    )
     return u
+
+
+@pytest.mark.parametrize(
+    "data, why",
+    [
+        ([], "not a list"),
+        ({"ok": True, "result": []}, "not a list or a getUpdates answer"),
+        ({"message": {"from": {**OWNER, "id": 123456789, "first_name": "Настоящее имя"}, "chat": DM}}, "made-up owner"),
+        ({"message": {"from": OWNER, "chat": {**DM, "username": "real_me"}}}, "made-up owner"),
+        ({"message": {"from": OWNER, "chat": DM,
+                      "forward_origin": {"type": "channel", "chat": {"id": -100, "type": "channel", "title": "Закрытый"}}}},
+         "public channel"),
+        ({"message": {"from": OWNER, "chat": DM,
+                      "forward_origin": {"type": "user", "sender_user": {"id": 5, "first_name": "Друг"}}}},
+         "public channel"),
+    ],
+    ids=["list", "getUpdates-answer", "real-owner", "real-username", "private-channel", "from-a-person"],
+)  # fmt: skip
+def test_a_saved_forward_with_personal_data_is_refused(tmp_path, data, why):
+    path = tmp_path / "real.json"
+    path.write_text(json.dumps(data, ensure_ascii=False), "utf-8")
+    with pytest.raises(AssertionError, match=why):
+        _update(path)
 
 
 def _forward(message_id=10, **content) -> dict:
