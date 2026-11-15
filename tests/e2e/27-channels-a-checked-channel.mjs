@@ -2,30 +2,32 @@
 /** @param {import('./harness.mjs').Ctx} ctx */
 export default async function ({ page, check }) {
   await page.click('#btn-new');
-  await page.waitForTimeout(400);
   await page.fill('#title', 'Канал черновика');
   await page.click('#btn-check');
   await page.locator('dialog[open] input[placeholder="@канал, @другой"]').fill('@kept_chan');
   await page.keyboard.press('Tab');
-  await page.waitForTimeout(500);
   await page.locator('dialog[open] .channel', { hasText: '@kept_chan' }).locator('button', { hasText: 'Проверить' }).click();
-  await page.waitForTimeout(600);
+  // the check asks Telegram: wait for the row to show the answer
+  await page.waitForFunction(() => /публикация/.test([...document.querySelectorAll('dialog[open] .channel')].find((c) => /@kept_chan/.test(c.textContent))?.textContent || ''), null, { timeout: 8000 }).catch(() => {});
   const dialogText = await page.locator('dialog[open] .channels').textContent();
   await page.keyboard.press('Escape');
   // saves go one at a time: this one may wait behind an autosave, so wait for it rather than for a fixed time
   const saved = page.waitForResponse((r) => /\/api\/drafts/.test(r.url()) && /kept_chan/.test(r.request().postData() || ''));
   await page.click('#btn-save');
   await saved;
-  await page.waitForTimeout(300);
+  // after the answer: the editor says «сохранено» (and remembers the draft) and redraws the header after a short pause
+  await page.waitForFunction(() => /сохранено/.test(document.querySelector('#save-state').textContent)
+    && document.querySelector('#btn-check').textContent === 'Тест · @kept_chan ▾' && /Тест/.test(document.querySelector('#preview').shadowRoot.textContent), null, { timeout: 8000 }).catch(() => {});
   const keptId = await page.evaluate(() => localStorage.getItem('rs.lastDraft'));
   const header = await page.evaluate(() => document.querySelector('#preview').shadowRoot.textContent);
   const label = await page.locator('#btn-check').textContent();
   await page.click('#btn-new');
-  await page.waitForTimeout(300);
   const fresh = await page.inputValue('#chat');
   await page.click('#side-tabs [data-tab=drafts]');
   await page.locator('#drafts li', { hasText: 'Канал черновика' }).first().click();
-  await page.waitForTimeout(500);
+  // open: its title is in the editor and the list marks it
+  await page.waitForFunction(() => /** @type {HTMLInputElement} */ (document.querySelector('#title')).value === 'Канал черновика'
+    && /Канал черновика/.test(document.querySelector('#drafts li.on')?.textContent || ''), null, { timeout: 8000 }).catch(() => {});
   const reopened = await page.inputValue('#chat');
   const draftRow = await page.locator('#drafts li', { hasText: 'Канал черновика' }).first().textContent();
   const stored = await page.evaluate((id) => fetch('/api/drafts/' + JSON.parse(id)).then((r) => r.json()), keptId);
