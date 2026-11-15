@@ -1,8 +1,8 @@
 """The list of posts as a person reads it: the first line of the text, a thumbnail, a link to the message."""
 
-import html
 import re
 
+import spec
 import store
 
 from . import channels, kinds, loops, publisher
@@ -64,7 +64,7 @@ def title(payload: dict, kind: str | None = kinds.RICH) -> str:
     if rm.get("blocks"):
         text = _first_line(_first_block_text(rm["blocks"]))
     elif isinstance(rm.get("html"), str):
-        text = _first_line(html.unescape(_TAG.sub("", _LINE_END.sub("\n", rm["html"]))))
+        text = _first_line(spec.tg_unescape(_TAG.sub("", _LINE_END.sub("\n", rm["html"]))))  # as Telegram decodes
     elif isinstance(rm.get("markdown"), str):
         lines = (_MD_MARKS.sub(r"\1", _MD_PREFIX.sub("", line)).strip(" |") for line in rm["markdown"].splitlines())
         text = next((x for x in lines if x and not re.fullmatch(r"[-=*_:| ]+", x)), "")

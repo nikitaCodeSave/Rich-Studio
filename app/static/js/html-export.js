@@ -57,7 +57,7 @@ export const INLINE_FIELDS = {
   cashtag: ['text', 'cashtag'],
   bot_command: ['text', 'bot_command'],
   bank_card_number: ['text', 'bank_card_number'],
-  ton_address: null,
+  ton_address: ['text', 'address'],
   date_time: ['text', 'unix_time', 'date_time_format'],
   custom_emoji: ['custom_emoji_id', 'alternative_text'],
   mathematical_expression: ['expression'],
@@ -84,12 +84,15 @@ const ACTION_FIELDS = {
   copy_text: ['text'],
   disabled: [],
 };
-// in the table without fields: HTML has no way to say them, so a post with them is refused, with the reason
-export const NO_HTML = {
-  ton_address: 'в Rich HTML нет тега для адреса TON, а находит ли Telegram его в тексте сам, не описано (Bot API 10.4)',
-};
-// found in the text by Telegram itself: in HTML they exist only as this text
-const DETECTED = { mention: ['@', 'username'], hashtag: ['#', 'hashtag'], cashtag: ['$', 'cashtag'], bot_command: ['/', 'bot_command'], bank_card_number: ['', 'bank_card_number'] };
+// in the table without fields (null): HTML has no way to say them, so a post with them is refused with the reason
+// written here; there are none now
+/** @type {Record<string, string>} */
+export const NO_HTML = {};
+// found in the text by Telegram itself: in HTML they exist only as this text. A TON address has no tag, but Telegram
+// finds one in HTML text (Bot API 10.4, tests/telegram_parse/captured.json: html-detected-card-ton)
+// the TON addresses Telegram finds in text: user-friendly EQ…/UQ… of 48 characters; a raw «0:83df…» stays text
+const TON_FOUND = /^[EU]Q[A-Za-z0-9_-]{46}$/;
+const DETECTED = { mention: ['@', 'username'], hashtag: ['#', 'hashtag'], cashtag: ['$', 'cashtag'], bot_command: ['/', 'bot_command'], bank_card_number: ['', 'bank_card_number'], ton_address: ['', 'address'] };
 // <a href> Telegram reads as an e-mail, a phone, a mention or a link inside the post, not as a plain link
 /** @type {[RegExp, string][]} */
 const SPECIAL_HREF = [[/^#/, 'ссылку на якорь или сноску'], [/^mailto:/i, 'e-mail'], [/^tel:/i, 'телефон'], [/^tg:\/\/user\?/i, 'упоминание']];
@@ -103,6 +106,9 @@ const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
 // a type is looked up only among the table's own keys: «constructor» or «__proto__» are not types
 const own = (table, key) => (typeof key === 'string' && Object.hasOwn(table, key) ? table[key] : undefined);
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+// a " in an address, written &quot; in HTML, makes Telegram drop a link and refuse a button (BUTTON_URL_INVALID);
+// %22 is the same address and goes through (tests/telegram_parse/captured.json: html-href-quot, html-href-pct22)
+const noQuote = (url) => (typeof url === 'string' ? url.replace(/"/g, '%22') : url);
 const plain = (v) => typeof v === 'string' ? v : Array.isArray(v) ? v.map(plain).join('') : isObj(v) ? plain(v.text ?? v.alternative_text ?? '') : '';
 
 /**
@@ -111,8 +117,9 @@ const plain = (v) => typeof v === 'string' ? v : Array.isArray(v) ? v.map(plain)
  * @param {{ media?: any[], skipEntities?: boolean, layout?: boolean }} [opts] media: rich_message.media already there
  *   (its ids stay taken, an entry with the same file is used again); skipEntities: rich_message.skip_entity_detection
  *   is on; layout: false gives the HTML without line breaks and indents between blocks, the one that is checked
- * @returns {{ ok: true, html: string, media: any[], warnings: string[] } | { ok: false, problems: string[], diff?: { blocks: string, html: string } }}
- *   warnings: where spaces in a row, tabs or an indent after a line break are, which HTML squeezes into one space
+ * @returns {{ ok: true, html: string, media: any[], warnings: string[], notes: string[] } | { ok: false, problems: string[], diff?: { blocks: string, html: string } }}
+ *   warnings: where spaces in a row, tabs or an indent after a line break are, which HTML squeezes into one space;
+ *   notes: what goes into HTML as the same text but will not be the same element (a card number with spaces)
  */
 export function blocksToHtml(blocks, opts = {}) {
   // line breaks and indents between blocks are for the person reading the source; the check reads the HTML without
@@ -126,7 +133,7 @@ export function blocksToHtml(blocks, opts = {}) {
     if (mine !== theirs) return { ok: false, problems: ['В предпросмотре HTML выглядит иначе, чем визуальный пост'], diff: firstDifference(theirs, mine) };
   }
   const out = opts.layout === false ? tight : write(blocks, opts, true);
-  return { ok: true, html: out.html, media: out.media, warnings };
+  return { ok: true, html: out.html, media: out.media, warnings, notes: tight.notes };
 }
 
 /** The post as the preview reads it (RichRender.outline): structure and text, not the values of attributes (links,
@@ -163,6 +170,8 @@ function write(blocks, opts, pretty) {
   const problems = [];
   /** @type {Set<string>} */
   const squeezed = new Set(); // Telegram reads HTML whitespace as HTML does (captured example-post-extras)
+  /** @type {string[]} */
+  const notes = [];
   const media = [...(opts.media || [])];
   const taken = new Set(media.map((m) => m && m.id));
   const used = new Set();
@@ -204,7 +213,7 @@ function write(blocks, opts, pretty) {
       case 'url': {
         const special = SPECIAL_HREF.find(([re]) => re.test(String(v.url || '')));
         if (special) say(here, `адрес «${v.url}» Telegram прочитает в HTML как ${special[1]}, а не как ссылку`);
-        return tag('a', [['href', v.url]]);
+        return tag('a', [['href', noQuote(v.url)]]);
       }
       case 'text_mention': {
         const id = isObj(v.user) ? v.user.id : undefined;
@@ -213,12 +222,15 @@ function write(blocks, opts, pretty) {
       }
       case 'email_address': return tag('a', [['href', 'mailto:' + v.email_address]]);
       case 'phone_number': return tag('a', [['href', 'tel:' + v.phone_number]]);
-      case 'mention': case 'hashtag': case 'cashtag': case 'bot_command': case 'bank_card_number': {
+      case 'mention': case 'hashtag': case 'cashtag': case 'bot_command': case 'bank_card_number': case 'ton_address': {
         const [prefix, key] = DETECTED[t];
         const shown = plain(v.text);
         const same = t === 'bank_card_number' ? shown.replace(/\D/g, '') === String(v[key] ?? '').replace(/\D/g, '') : shown === prefix + v[key];
         if (opts.skipEntities) say(here, 'при «Не распознавать ссылки, @, #…» (skip_entity_detection) Telegram не найдёт его в HTML');
         else if (!same) say(here, `текст «${shown}» не совпадает с ${prefix}${v[key]}: в HTML Telegram находит такие элементы только по тексту`);
+        else if (t === 'ton_address' && !TON_FOUND.test(shown)) say(here, `адрес «${shown}» Telegram в тексте не найдёт: он находит только адреса EQ… и UQ… из 48 символов`);
+        // the text stays as the author wrote it; written without the spaces it would read otherwise than the blocks
+        else if (t === 'bank_card_number' && /\D/.test(shown)) notes.push(`${here}: «${shown}» в HTML останется текстом, номером карты Telegram делает только цифры без пробелов`);
         return inner();
       }
       case 'date_time':
@@ -247,10 +259,10 @@ function write(blocks, opts, pretty) {
       known(v, ACTION_FIELDS[k], where);
     }
     const list = [['type', k], ['style', b.style]];
-    if (k === 'url') list.push(['url', v]);
+    if (k === 'url') list.push(['url', noQuote(v)]);
     else if (k === 'callback_data') list.push(['data', v]);
-    else if (k === 'web_app') list.push(['url', v.url]);
-    else if (k === 'login_url') list.push(['url', v.url], ['forward-text', v.forward_text], ['request-write-access', !!v.request_write_access]);
+    else if (k === 'web_app') list.push(['url', noQuote(v.url)]);
+    else if (k === 'login_url') list.push(['url', noQuote(v.url)], ['forward-text', v.forward_text], ['request-write-access', !!v.request_write_access]);
     else if (k === 'switch_inline_query' || k === 'switch_inline_query_current_chat') list.push(['query', v]);
     else if (k === 'switch_inline_query_chosen_chat') list.push(['query', v.query], ...['user', 'bot', 'group', 'channel'].map((c) => [`allow-${c}-chats`, !!v[`allow_${c}_chats`]]));
     else if (k === 'copy_text') list.push(['text', v.text]);
@@ -379,7 +391,7 @@ function write(blocks, opts, pretty) {
   };
 
   const html = (Array.isArray(blocks) ? blocks : []).map((b, i) => block(b, `блок ${i + 1}`, '')).join(pretty ? '\n' : '');
-  return { html, media, problems, squeezed };
+  return { html, media, problems, squeezed, notes };
 }
 
 // ---------- the button ----------
@@ -395,6 +407,7 @@ export function exportToHtml(apply) {
     S.media = r.media;
     apply();
     toast('Пост переведён в HTML' + (added ? `, медиа добавлены в список (${added})` : '') + '. Блоки остались во вкладке «Визуально».', 'ok');
+    for (const note of r.notes) toast(note);
     // not a refusal: the text stays, only its extra spaces go
     if (r.warnings.length) toast('В HTML несколько пробелов подряд, табуляция и отступ после переноса строки станут одним пробелом: ' + r.warnings.slice(0, 3).join('; ') + (r.warnings.length > 3 ? ` и ещё ${r.warnings.length - 3}` : '') + '.');
   };

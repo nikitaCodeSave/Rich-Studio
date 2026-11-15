@@ -439,6 +439,9 @@
         node.classList.add('tg-task'); node.firstElementChild.disabled = true;
       } else if (tag === 'a' && attr('name') && !attr('href')) {
         rep = el('a', { name: attr('name'), id: 'anchor-' + attr('name'), class: 'tg-anchor' });
+      } else if (tag === 'a' && attr('href') && attr('href').includes('"')) {
+        // Telegram drops a link whose address has a " in it (&quot; in HTML) and keeps only its text
+        node.replaceWith(...kids()); return;
       } else if (tag === 'a' && attr('href')) {
         // #name links are resolved after the walk, when all anchors and references are known
         if (!attr('href').startsWith('#')) { node.setAttribute('target', '_blank'); node.setAttribute('rel', 'noopener'); }
@@ -489,6 +492,22 @@
       if (inline) run.push(n); else flush(n);
     });
     flush(null);
+  }
+
+  // The named entities Telegram decodes, in html and markdown alike (all 2125 names of HTML5 measured, PR #173; the
+  // same table is TG_ENTITIES in app/spec/validator.py), and numeric ones with a small x. Every other «&…» (&laquo;,
+  // &NBSP;, &nbsp without «;», &#X22;) stays as typed: the browser gets it as text.
+  const TG_ENTITIES = { amp: '&', apos: "'", copy: '©', gt: '>', hellip: '…', ldquo: '“', lsquo: '‘', lt: '<', mdash: '—',
+    nbsp: '\u00a0', ndash: '–', quot: '"', rdquo: '”', reg: '®', rsquo: '’', trade: '™' };
+  const ENTITY_SRC = `&(?:(${Object.keys(TG_ENTITIES).join('|')})|#([0-9]{1,8})|#x([0-9a-fA-F]{1,7}));`;
+  const NOT_ENTITY = new RegExp('&(?!' + ENTITY_SRC.slice(1) + ')', 'g');
+  const ENTITY_AT = new RegExp('^' + ENTITY_SRC);
+  const tgEntities = (src) => src.replace(NOT_ENTITY, '&amp;');
+  /** @param {RegExpExecArray} m */
+  function decodeEntity(m) {
+    if (m[1]) return TG_ENTITIES[m[1]];
+    const n = m[2] ? parseInt(m[2], 10) : parseInt(m[3], 16);
+    return n > 0 && n <= 0x10ffff && !(n >= 0xd800 && n <= 0xdfff) ? String.fromCodePoint(n) : m[0];
   }
 
   function renderHtml(src, ctx) {
@@ -625,9 +644,31 @@
     return true;
   }
 
+  // markdown-it knows every entity of HTML5; Telegram's markdown only the ones its HTML does
+  function entity(state, silent) {
+    if (state.src.charCodeAt(state.pos) !== 0x26) return false;
+    const m = ENTITY_AT.exec(state.src.slice(state.pos, state.pos + 32));
+    if (!m) return false;
+    if (!silent) state.pending += decodeEntity(m);
+    state.pos += m[0].length;
+    return true;
+  }
+
   function markdownParser() {
     const m = /** @type {any} */ (global.markdownit)({ html: true, linkify: true, breaks: false });
     m.inline.ruler.at('text', text);
+    m.inline.ruler.at('entity', entity);
+    // in a link address Telegram decodes no entity at all ([x](…?q=&quot;x&quot;) keeps «&quot;», measured):
+    // markdown-it's own reading decodes them, so the address is taken as written, with only its \-escapes undone
+    const destination = m.helpers.parseLinkDestination;
+    m.helpers.parseLinkDestination = (str, start, max) => {
+      const res = destination(str, start, max);
+      if (res.ok) {
+        const raw = str.slice(start, res.pos);
+        res.str = (raw.startsWith('<') && raw.endsWith('>') ? raw.slice(1, -1) : raw).replace(/\\([!-/:-@[-`{-~])/g, '$1');
+      }
+      return res;
+    };
     m.inline.ruler.before('emphasis', 'tg_spoiler', pairRule('tg_spoiler', 0x7c, '<tg-spoiler>', '</tg-spoiler>'));
     m.inline.ruler.before('emphasis', 'tg_mark', pairRule('tg_mark', 0x3d, '<mark>', '</mark>'));
     m.inline.ruler.after('escape', 'tg_math', inlineMath);
@@ -672,7 +713,7 @@
       html = html.replace(/<li>\s*\[([ xX])\]\s*/g, (m, c) => `<li><input type="checkbox"${c.trim() ? ' checked' : ''}> `)
         .replace(/<li><p>\s*\[([ xX])\]\s*/g, (m, c) => `<li><p><input type="checkbox"${c.trim() ? ' checked' : ''}> `);
     } else html = '<pre>' + esc(src) + '</pre>';
-    return renderHtml(html, ctx);
+    return renderHtml(tgEntities(html), ctx); // raw HTML in markdown: the same entities as in the html mode
   }
 
   // ---------- message ----------
@@ -683,7 +724,7 @@
     const body = el('div', { class: 'tg-body', dir: rm.is_rtl ? 'rtl' : null });
     try {
       if (rm.blocks) body.append(renderBlocks(rm.blocks, ctx));
-      else if (rm.html) body.append(renderHtml(rm.html, ctx));
+      else if (rm.html) body.append(renderHtml(tgEntities(rm.html), ctx));
       else if (rm.markdown) body.append(renderMarkdown(rm.markdown, ctx));
       else body.append(el('p', { class: 'tg-empty', text: 'Пустой пост' }));
     } catch (e) {

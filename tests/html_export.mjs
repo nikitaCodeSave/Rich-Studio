@@ -87,6 +87,7 @@ const every = [
       { type: 'email_address', text: 'a@t.me', email_address: 'a@t.me' }, ' ', { type: 'phone_number', text: '+123456789', phone_number: '+123456789' }, ' ',
       { type: 'mention', text: '@durov', username: 'durov' }, ' ', { type: 'hashtag', text: '#тег', hashtag: 'тег' }, ' ', { type: 'cashtag', text: '$USD', cashtag: 'USD' }, ' ',
       { type: 'bot_command', text: '/start', bot_command: 'start' }, ' ', { type: 'bank_card_number', text: '4242 4242 4242 4242', bank_card_number: '4242 4242 4242 4242' }, ' ',
+      { type: 'ton_address', text: 'UQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAJKZ', address: 'UQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAJKZ' }, ' ',
       { type: 'date_time', text: 'завтра', unix_time: 1798761600, date_time_format: 'wDT' }, ' ',
       { type: 'custom_emoji', custom_emoji_id: '5368324170671202286', alternative_text: '👍' }, ' ', { type: 'mathematical_expression', expression: 'a^2 < b & c' }, ' ',
       { type: 'anchor', name: 'mid' }, { type: 'anchor_link', text: 'к якорю', anchor_name: 'mid' }, ' ', { type: 'anchor_link', text: 'наверх', anchor_name: '' }, ' ',
@@ -236,9 +237,36 @@ const many = await refused('Unknown block, field and element: one refusal that l
 check('The refusal lists every problem, not only the first', (many.problems || []).length === 5, JSON.stringify(many.problems));
 await refused('Names of Object\'s own properties are not types', [{ type: 'constructor' }, { type: 'paragraph', text: { type: '__proto__', text: 'x' } }, { type: 'paragraph', text: { text: 'без type' } }],
   [/блок 1.*«constructor» не переносится/, /блок 2.*«__proto__» не переносится/, /блок 3.*без type/]);
-await refused('A TON address has no HTML (Bot API 10.4): refused with the reason', [{ type: 'paragraph', text: ['Кошелёк ', { type: 'ton_address', text: 'UQBvW8Z5huBkMJYdnfAEM5JqTNkuWX3diqYENkWsIL0XggGG', address: 'UQBvW8Z5huBkMJYdnfAEM5JqTNkuWX3diqYENkWsIL0XggGG' }] }],
-  [/блок 1.*«Адрес TON».*нет тега для адреса TON/]);
-check('Every type HTML cannot say is refused by name in this file', noHtml.every((t) => t === 'ton_address'), 'add a refusal check for: ' + noHtml.filter((t) => t !== 'ton_address').join(', '));
+{
+  // Telegram finds a TON address in HTML text by itself (captured html-detected-card-ton): it is written as its text
+  const ton = 'UQBvW8Z5huBkMJYdnfAEM5JqTNkuWX3diqYENkWsIL0XggGG';
+  const r = await toHtml([{ type: 'paragraph', text: ['Кошелёк ', { type: 'ton_address', text: ton, address: ton }] }]);
+  check('A TON address is written as its text, Telegram finds it there', r.ok && r.html === `<p>Кошелёк ${ton}</p>`, JSON.stringify(r));
+  await refused('A TON address shown as other text is refused: Telegram finds it only by the text', [{ type: 'paragraph', text: { type: 'ton_address', text: 'UQBv…ggGG', address: ton } }], [/«Адрес TON».*не совпадает/]);
+  // measured: Telegram finds only the 48-character EQ…/UQ… form; a raw address stays text, so it is not lost quietly
+  const raw = '0:83dfd552e63729b472fcbcc8c45ebcc6691702558b68ec7527e1ba403a0f31a8';
+  await refused('A raw TON address is refused: Telegram does not find it in text', [{ type: 'paragraph', text: { type: 'ton_address', text: raw, address: raw } }], [/«Адрес TON».*EQ… и UQ… из 48 символов/]);
+}
+check('Every type HTML cannot say is refused by name in this file (none now)', noHtml.length === 0, 'add a refusal check for: ' + noHtml.join(', '));
+{
+  // with &quot; in the address Telegram drops the link (captured html-href-quot); %22 keeps it (html-href-pct22)
+  const quoted = [{ type: 'paragraph', text: ['Поиск ', { type: 'url', text: 'по фразе', url: 'https://example.com/?q="x y"' }] }];
+  const { ok, r, info } = await exportsAs(quoted, await look({ blocks: quoted }));
+  check('A " in a link address is written as %22, not &quot;', ok && r.html === '<p>Поиск <a href="https://example.com/?q=%22x y%22">по фразе</a></p>', info);
+  // in a button Telegram refuses the whole post for it (BUTTON_URL_INVALID)
+  const b = await toHtml([{ type: 'buttons', buttons: [btn('кнопка', { url: 'https://t.me/?q="x"' }), btn('приложение', { web_app: { url: 'https://telegram.org/?q="y"' } })] }]);
+  check('A " in a button address is written as %22 too', b.ok && b.html.includes('url="https://t.me/?q=%22x%22"') && b.html.includes('url="https://telegram.org/?q=%22y%22"') && !b.html.includes('&quot;'), JSON.stringify(b));
+}
+{
+  // Telegram finds a card number in HTML text only without spaces (4242424242424242 yes, 4242 4242 4242 4242 no):
+  // the export keeps the author's text and says so, written without the spaces it would read otherwise than the blocks
+  const card = (text) => toHtml([{ type: 'paragraph', text: ['Карта ', { type: 'bank_card_number', text, bank_card_number: '4242424242424242' }] }]);
+  const spaced = await card('4242 4242 4242 4242');
+  const bare = await card('4242424242424242');
+  check('A card number with spaces exports as written, with a note that Telegram will not find it',
+    spaced.ok && spaced.html === '<p>Карта 4242 4242 4242 4242</p>' && spaced.notes.length === 1 && /без пробелов/.test(spaced.notes[0]) && /блок 1/.test(spaced.notes[0])
+      && bare.ok && bare.html === '<p>Карта 4242424242424242</p>' && bare.notes.length === 0, JSON.stringify({ spaced, bare }));
+}
 await refused('A map size has no HTML: refused, not dropped', [{ type: 'map', location: { latitude: 1, longitude: 2, heading: 90 }, width: 300 }], [/поле width/, /поле heading/]);
 await refused('A login button with bot_username has no HTML attribute: refused', [{ type: 'buttons', buttons: [btn('вход', { login_url: { url: 'https://t.me', bot_username: 'other_bot' } })] }], [/кнопка 1.*поле bot_username/]);
 await refused('A button with two actions is refused', [{ type: 'buttons', buttons: [btn('две', { url: 'https://t.me', callback_data: 'x' })] }], [/кнопка 1.*несколько действий/]);
