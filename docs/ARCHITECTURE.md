@@ -20,7 +20,8 @@
 | `app/services/channels.py` | каналы: название, форум и темы, права бота (из `getChat`/`getChatMember` при проверке); темы из событий `forum_topic_created`/`edited` | Telegram спрашивается только при проверке |
 | `app/services/scheduler.py` | отложенные посты | |
 | `app/services/loops.py` | фоновые циклы под lease в SQLite: их ведёт один процесс, второй ждёт в резерве; остановка без обрыва отправок | |
-| `app/services/updates.py` | getUpdates: нажатия, первый комментарий, реакции, опросы, вступления по ссылкам, предложенные посты и их исходы; `STATUS` | |
+| `app/services/updates.py` | getUpdates: нажатия, первый комментарий, реакции, опросы, вступления по ссылкам, предложенные посты и их исходы, пересылки владельца; `STATUS` | |
+| `app/services/forward_import.py` | пост, который владелец (`TG_PREVIEW_CHAT`) переслал боту, становится черновиком: rich-блоки или текст с entities, медиа по file_id, источник и предупреждения в `_studio`; ответ — реакция или одна строка отказа ([0015](decisions/0015-forward-import.md)) | ничего не публикует; чужие сообщения и обычные сообщения владельца молча пропускает |
 | `app/services/invite_links.py` | именные пригласительные ссылки и платная подписка (create/edit/revoke в Telegram), счётчики вступлений и заявок из `chat_member` / `chat_join_request` | Telegram эти счётчики боту не даёт: только то, что студия увидела сама |
 | `app/services/suggested_posts.py` | предложенные посты из личных сообщений канала: что пришло (`suggested_post_info`), принять (`approveSuggestedPost`) или отклонить, исходы из служебных сообщений | публикует принятый пост Telegram, а не студия: в `posts` он не попадает. Решение занимает запись (`pending` → `approving`/`declining`) до запроса: второй клик не уходит, при отказе Telegram запись возвращается, при «могло дойти» ждёт служебного сообщения |
 | `app/services/health.py` | отчёт о состоянии: проверки `ok/warn/fail` с подсказкой `action` | только читает |
@@ -31,7 +32,7 @@
 | `app/services/backup.py` | бэкап: zip с базой и файлами, ежедневная копия базы | |
 | `app/telegram/` | транспорт к Bot API, `upload:` → `attach://` (в полях файлов `media`, `photo`, `live_photo`, `thumbnail`, `cover`), проверка прав бота | не меняет payload, кроме `upload:` |
 | `app/store/` | SQLite: соединения, миграции (`PRAGMA user_version`; шаг и его номер в одной транзакции), черновики, посты, каналы | |
-| `app/spec/` | загрузка и кэш api.json (с `SPEC_PIN` только копия из образа), сводка для редактора, diff версий, валидатор, перевод блоков из ответа Telegram в отправляемые (`convert.py`) | |
+| `app/spec/` | загрузка и кэш api.json (с `SPEC_PIN` только копия из образа), сводка для редактора, diff версий, валидатор, перевод блоков из ответа Telegram в отправляемые (`convert.py`), текста с entities в блоки (`entities.py`, смещения в UTF-16) | |
 | `app/static/js/` | редактор: ES-модули без сборки, вход `main.js`; общее состояние в `state.js` | не пишет пользовательский HTML в `innerHTML` (это запрещает ESLint) |
 | `app/static/render.js` | предпросмотр поста, очистка HTML/Markdown (`sanitize`), разбор HTML/Markdown по правилам Telegram, `outline` для сверки | правила разбора меняются только вместе с примером в `tests/telegram_parse/`, записанным с настоящего Telegram |
 

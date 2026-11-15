@@ -26,6 +26,7 @@
 | `telegram.call`, `telegram.error` | `telegram.client.call`; успешный `getUpdates` не пишется | method, ms, code, chat_id |
 | `health.change` | `services/housekeeping.watch` | check, status, action |
 | `cleanup`, `backup.daily`, `start`, `stop` | уборка, бэкап, запуск | что сделано |
+| `forward.import` | `services/forward_import` (пост, пересланный боту) | `draft_id` и число `warnings`, или `refused` с причиной |
 
 - Токен вычищается из каждой готовой строки (`logs.scrub`) в обоих выходах, включая трассировки. Текст постов, запросы и тела ответов не пишутся. `httpx` понижен до `WARNING`: его строки с URL дублировали наши.
 - Предупреждения `uvicorn.error` (падение запроса с трассировкой) тоже попадают в файл.

@@ -21,3 +21,4 @@
 | [0011](0011-dead-mans-switch.md) | Внешний сигнал «жива»: dead man's switch и `/readyz` снаружи |
 | [0012](0012-media-fetch-proxy.md) | Скачивание по ссылке через системный прокси, как запросы к Telegram |
 | [0013](0013-message-kinds-registry.md) | Типы сообщений (пост, опрос, Live Photo, платный контент) в одном реестре `services/kinds.py` |
+| [0015](0015-forward-import.md) | Пост из Telegram в черновик пересылкой боту, а не через MTProto или веб-виджет |
