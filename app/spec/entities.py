@@ -14,9 +14,10 @@ from typing import NamedTuple
 
 from .source import Spec
 
-# what Telegram detects in text on its own (InputRichMessage.skip_entity_detection); RichText* types of the same
-# names need fields an entity does not have (username, hashtag…)
-DETECTED = {"mention", "hashtag", "cashtag", "bot_command", "url", "email", "phone_number"}
+# what Telegram detects in text on its own (Bot API, «Rich message formatting options»: «Plain URLs, e-mail addresses,
+# username mentions, hashtags, cashtags, bot commands, phone numbers, and bank card numbers are detected
+# automatically»); RichText* types of the same names need fields an entity does not have (username, hashtag…)
+DETECTED = {"mention", "hashtag", "cashtag", "bot_command", "url", "email", "phone_number", "bank_card_number"}
 RENAMED = {"text_link": "url"}  # MessageEntity type -> RichText type, where the names differ
 CONTENT = ("text", "blocks", "alternative_text")  # where the covered text goes, in the order tried
 _BLANK_LINE = re.compile(r"\n\s*\n")

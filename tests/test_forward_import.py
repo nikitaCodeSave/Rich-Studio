@@ -164,7 +164,7 @@ def test_nested_and_crossing_entities(client):
 
 
 def test_entities_telegram_finds_again_unknown_ones_and_broken_ranges(client):
-    text = "#тег @user https://t.me 😀a новое"
+    text = "#тег @user https://t.me 😀a новое 4111 1111 1111 1111"
     blocks, warnings = _blocks(
         text,
         [
@@ -173,6 +173,7 @@ def test_entities_telegram_finds_again_unknown_ones_and_broken_ranges(client):
             {"type": "url", "offset": 11, "length": 12},
             {"type": "bold", "offset": 25, "length": 2},  # starts inside the surrogate pair of 😀
             {"type": "sparkle", "offset": 28, "length": 5},  # a type the spec does not know
+            {"type": "bank_card_number", "offset": 34, "length": 19},
             {"type": "date_time", "offset": 0, "length": 4, "unix_time": 1},  # no format: RichText needs one
         ],
     )
