@@ -265,7 +265,7 @@ function write(blocks, opts, pretty) {
       const at = `${where} › пункт ${i + 1}`;
       if (!isObj(it)) { say(at, 'пункт не по спецификации'); return ''; }
       known(it, PARTS.item, at);
-      const own = [['value', counted ? undefined : it.value], ['type', oneType ? undefined : it.type]];
+      const itemAttrs = [['value', counted ? undefined : it.value], ['type', oneType ? undefined : it.type]];
       const box = it.has_checkbox ? `<input type="checkbox"${it.is_checked ? ' checked' : ''}>` : '';
       const inner = Array.isArray(it.blocks) ? it.blocks : [];
       // the first paragraph is the item's own text, as Telegram reads <li>text</li>
@@ -273,7 +273,7 @@ function write(blocks, opts, pretty) {
       let head = '';
       if (first) { known(first, ['type', ...BLOCK_FIELDS.paragraph], `${at} › блок 1 («${BLOCK_LABELS.paragraph}»)`); head = rt(first.text, `${at} › блок 1 («${BLOCK_LABELS.paragraph}»)`); }
       const rest = inner.map((x, j) => (first && j === 0 ? '' : nl(ind + '    ') + block(x, `${at} › блок ${j + 1}`, ind + '    '))).join('');
-      return nl(ind + '  ') + `<li${attrs(own)}>${box}${head}${rest}${rest ? nl(ind + '  ') : ''}</li>`;
+      return nl(ind + '  ') + `<li${attrs(itemAttrs)}>${box}${head}${rest}${rest ? nl(ind + '  ') : ''}</li>`;
     }).join('');
     const tag = ordered ? 'ol' : 'ul';
     const head = ordered ? [['start', counted && values[0] !== 1 ? values[0] : undefined], ['type', oneType && types[0] !== '1' ? types[0] : undefined]] : [];
@@ -345,8 +345,8 @@ function write(blocks, opts, pretty) {
         const m = b[t];
         if (!isObj(m) || typeof m.media !== 'string') { say(here, 'нет файла'); return ''; }
         const tag = MEDIA_TAGS[t];
-        const own = attrs([['src', `tg://${t}?id=${mediaId(t, m)}`], ['tg-spoiler', !!m.has_spoiler]]);
-        return figure(tag === 'img' ? `<img${own}/>` : `<${tag}${own}></${tag}>`, b.caption, here);
+        const src = attrs([['src', `tg://${t}?id=${mediaId(t, m)}`], ['tg-spoiler', !!m.has_spoiler]]);
+        return figure(tag === 'img' ? `<img${src}/>` : `<${tag}${src}></${tag}>`, b.caption, here);
       }
       default: say(here, `для «${t}» нет записи в HTML`); return '';
     }
