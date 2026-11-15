@@ -54,7 +54,7 @@ Checked on the real Bot API (tests/telegram_parse/captured.json): `<blockquote e
 
 The studio preview follows these rules. `send_preview_to_me` (and `preview-send`) answers with `parsed.input_blocks`: the post as Telegram parsed it, in `rich_message.blocks` form. Read it to confirm a formula, spoiler or table came out as meant; it can also be sent or saved as a visual draft. The editor shows the same check above its preview.
 
-Media: put `tg://photo?id=X` (video/audio/document/animation/voice_note) in html/markdown and add `{"id":"X","media":{"type":"photo","media":"<URL|file_id|attach://name>"}}` to `media`. In blocks the media object sits in the block itself. Captions on InputMedia are ignored.
+Media: put `tg://photo?id=X` (or `tg://video`, `tg://audio`, `tg://document`: the only links the docs name) in html/markdown and add `{"id":"X","media":{"type":"photo","media":"<URL|file_id|attach://name>"}}` to `media`. A GIF is `<video src="tg://video?id=X">` with `"type":"animation"` in its entry, a voice note `<audio src="tg://audio?id=X">` with `"type":"voice_note"`. In blocks the media object sits in the block itself, and `rich_message.media` is not sent (it is only for tg:// links in html/markdown). Captions on InputMedia are ignored.
 
 Buttons: `RichMessageButton{text, style?: primary|success|danger|link, exactly one of url|callback_data|login_url|switch_inline_query|switch_inline_query_chosen_chat|copy_text{text}|disabled{}}`. Keyboard under the post: normal `reply_markup.inline_keyboard`; a button `url` needs a host: Telegram rejects the whole post for `https://` alone, and validation reports it as an error.
 
