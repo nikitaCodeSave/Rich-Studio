@@ -22,7 +22,7 @@ updates:
         update-types: ["version-update:semver-major"]
     groups:
       js: { patterns: ["*"] }
-  # Dockerfile: python:3.12-slim, new digests and patches only; the minor moves with CI's python-version and `make lock`
+  # Dockerfile: python:3.12-slim, a new digest of the same tag only; the minor moves with CI's python-version and `make lock`
   - package-ecosystem: docker
     directory: /
     schedule: { interval: monthly }
