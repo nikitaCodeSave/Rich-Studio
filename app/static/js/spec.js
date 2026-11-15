@@ -15,13 +15,26 @@ export function rtTypes() {
   const base = T('RichText');
   return ((base && base.subtypes) || []).filter((n) => T(n)).map((n) => ({ name: n, const: constOf(n), desc: T(n).description }));
 }
+/** The field that tells this member of a union from the others ("type" of a block), as /api/spec says. */
 export function constField(name) {
   const t = T(name);
-  if (!t || !t.const) return null;
-  const f = t.fields.find((f) => f.name === 'type' || f.name === 'source' || f.name === 'status');
-  return f && f.name;
+  return (t && t.const && t.const_field) || null;
 }
 export const isNewType = (name) => (S.spec.changes || []).some((c) => (c.items || []).some((i) => i.name === name || (i.name || '').endsWith('→ ' + name)));
+
+// Mirrors NOT_TEXT_MIRROR in app/spec/validator.py: required String fields that are not the visible text again.
+const NOT_TEXT_MIRROR = ['url', 'anchor_link', 'reference', 'reference_link'];
+// The field of an inline type that repeats its visible text (email_address, phone_number, bank_card_number, address,
+// username...): the only required String besides type and text. Found from the spec, not from a list of types.
+export function textMirrorField(typeName) {
+  const t = T(typeName);
+  if (!t || !t.const || NOT_TEXT_MIRROR.includes(t.const)) return null;
+  const req = t.fields.filter((f) => f.required && f.name !== 'type');
+  if (req.length !== 2 || !req.some((f) => f.name === 'text')) return null;
+  const f = req.find((x) => x.name !== 'text');
+  if (!f) return null;
+  return f.types.length === 1 && f.types[0] === 'String' ? f.name : null;
+}
 
 export function defaultFor(types, fieldName) {
   const t = types[0];

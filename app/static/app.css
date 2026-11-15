@@ -120,6 +120,7 @@ dialog .ok { color: var(--ok); } dialog .w { color: var(--warn); }
 #posts-filter { margin: 0 0 6px; font-size: 12px; }
 .status { padding: 0 6px; border-radius: 999px; font-size: 11px; background: var(--soft); }
 .status.sent { color: var(--ok); } .status.failed { color: var(--err); } .status.scheduled, .status.missed { color: var(--warn); }
+.status.unknown, .post-error.unknown { color: var(--warn); }
 .actor { padding: 0 6px; border-radius: 999px; font-size: 11px; border: 1px solid var(--soft); }
 .upload { display: block; text-align: center; border: 1px dashed var(--accent); color: var(--accent); border-radius: 8px; padding: 10px; cursor: pointer; }
 .uploads li { flex-direction: row; align-items: center; gap: 8px; }
@@ -128,13 +129,34 @@ dialog .ok { color: var(--ok); } dialog .w { color: var(--warn); }
 .uploads .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
 
 .pane { margin-top: 10px; }
+/* above the blocks: «В HTML» (js/html-export.js) */
+.pane-tools { display: flex; justify-content: flex-end; gap: 6px; margin-top: 8px; }
+.pane-tools[hidden] { display: none; }
+.pane-tools + .pane { margin-top: 6px; }
+.export-problems { margin: 0; padding-left: 18px; font-size: 13px; }
+.export-problems li { margin-bottom: 3px; overflow-wrap: anywhere; }
+.export-diff { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; font-size: 12px; }
+.export-diff code { overflow-wrap: anywhere; }
 textarea.code { width: 100%; min-height: 380px; font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; tab-size: 2; resize: vertical; }
+/* CodeMirror over the source textareas (code-editor.js); its own theme is in the script */
+.cm-box .cm-editor { width: 100%; }
+.source-tools { margin: 4px 0 6px; gap: 4px 12px; }
+.source-tools label { margin: 0; gap: 4px; }
 /* the JSON tab holds text not applied yet: a dot on the tab, and a bar when the post changed after it */
 .mode-tabs button.pending::after { content: " •"; color: var(--warn); }
 .json-stale { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-bottom: 6px; padding: 6px 10px; font-size: 13px;
   color: var(--warn); border: 1px solid var(--warn); border-radius: 8px; background: var(--panel); }
 .json-stale[hidden] { display: none; }
 .json-stale span { flex: 1 1 260px; }
+/* a narrow editor (a phone; three columns on a laptop) has no room for the check pill next to the four tabs:
+   it stands above them on the right, the tabs keep their line */
+@media (max-width: 700px), (min-width: 1101px) and (max-width: 1360px) {
+  .mode-tabs { flex-wrap: wrap; }
+  .mode-tabs .check-pill { order: -2; margin-left: auto; padding: 2px 4px 0; }
+  .mode-tabs .grow { order: -1; flex-basis: 100%; }
+  #mode-hint { display: none; }
+}
+@media (max-width: 700px) { .mode-tabs button[data-mode] { padding: 8px; } }
 .snip-bar { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-bottom: 6px; }
 .snip-group { display: flex; flex-wrap: wrap; gap: 3px; align-items: center; }
 .snip-group > span { font-size: 11px; color: var(--muted); margin-right: 2px; }

@@ -16,8 +16,16 @@ interface SpecType {
   description: string;
   fields: SpecField[];
   subtypes: string[];
+  /** the field that tells this member of a union from the others, and its value */
+  const_field: string | null;
   const: string | null;
   href?: string | null;
+}
+
+/** `post` in GET /api/spec: the studio's post and the method parameters behind its options and poll_after */
+interface SpecPost {
+  root: string;
+  types: Record<string, { description: string; fields: SpecField[] }>;
 }
 
 interface SpecMethod {
@@ -38,6 +46,7 @@ interface SpecSummary {
   changes: Json[];
   gaps: SpecGap[];
   last_check: { at: number; error: string | null } | null;
+  post: SpecPost;
 }
 
 /** What labels.js or render.js does not know yet (spec/coverage.py) */
@@ -255,6 +264,9 @@ interface EditorState {
   /** the JSON tab's text not applied yet (kept in the draft as `_studio.json`, never sent) and `base`, the post
    * (JSON.stringify of buildPost) it was typed over: they differ when the post changed after the JSON was typed */
   json: { text: string; base: string } | null;
+  /** the keys of the draft's `_studio` the editor does not write (`source` and `warnings` of a forwarded post, and
+   * whatever comes next): kept as they are and saved back with the draft, never sent */
+  notes: Json;
   media: Json[];
   flags: Json;
   keyboard: ButtonRow[];

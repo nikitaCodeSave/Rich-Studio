@@ -90,9 +90,17 @@ def update_post(pid: str, **fields) -> dict | None:
     return get_post(pid)
 
 
+def _post(r) -> dict | None:
+    """A posts row as every caller sees it: JSON fields parsed, the outcome flag a bool (0/1 in SQLite)."""
+    p = row(r)
+    if p is not None and "outcome_unknown" in p:
+        p["outcome_unknown"] = bool(p["outcome_unknown"])
+    return p
+
+
 def get_post(pid: str) -> dict | None:
     with conn() as c:
-        return row(c.execute("select * from posts where id=?", (pid,)).fetchone())
+        return _post(c.execute("select * from posts where id=?", (pid,)).fetchone())
 
 
 def list_posts(limit: int = 100, status: str | None = None, chat: str | None = None) -> list[dict]:
@@ -114,7 +122,7 @@ def list_posts(limit: int = 100, status: str | None = None, chat: str | None = N
                             from posts {cond} order by coalesce(scheduled_at, sent_at, created_at) desc, rowid desc limit ?""",  # noqa: S608 - fixed fragments
             (*args, limit),
         )
-        return [row(r) for r in rows]  # type: ignore[misc]
+        return [_post(r) for r in rows]  # type: ignore[misc]
 
 
 def drop_refused(chat_id, draft_id: str) -> int:
@@ -144,7 +152,7 @@ def delete_post(pid: str) -> None:
 def find_post(chat_num, message_id) -> dict | None:
     """The studio post behind a channel message, by numeric chat id and message id."""
     with conn() as c:
-        return row(
+        return _post(
             c.execute(
                 "select * from posts where chat_num=? and message_id=? order by created_at desc", (chat_num, message_id)
             ).fetchone()
@@ -154,7 +162,7 @@ def find_post(chat_num, message_id) -> dict | None:
 def find_sent(chat, message_id: int) -> dict | None:
     """A sent studio post by the chat as the caller wrote it (@username or numeric id) and message id."""
     with conn() as c:
-        return row(
+        return _post(
             c.execute(
                 """select * from posts where message_id=? and status='sent' and (chat_id=? or chat_num=?)
                    order by created_at desc""",
@@ -165,7 +173,7 @@ def find_sent(chat, message_id: int) -> dict | None:
 
 def find_poll(poll_id: str) -> dict | None:
     with conn() as c:
-        return row(c.execute("select * from posts where poll_id=?", (poll_id,)).fetchone())
+        return _post(c.execute("select * from posts where poll_id=?", (poll_id,)).fetchone())
 
 
 def bump_click(pid: str, data: str) -> None:
@@ -242,6 +250,19 @@ def recover_stale_sending(keep: set[str] | frozenset[str] = frozenset()) -> int:
         return cur.rowcount
 
 
+def confirm_sent(pid: str, message_id: int, sent_at: int, chat_num=None, poll_id=None) -> bool:
+    """A send Telegram accepted whose "sent" the database refused at the time, written down late. Telegram's answer
+    settles it, even if the recovery of another process marked the row "may have gone" meanwhile. False: no such row."""
+    with conn() as c:
+        cur = c.execute(
+            """update posts set status='sent', message_id=?, sent_at=?, chat_num=coalesce(?, chat_num),
+                                poll_id=coalesce(?, poll_id), error=null, retry_at=null, outcome_unknown=0
+               where id=?""",
+            (message_id, sent_at, chat_num, poll_id, pid),
+        )
+        return cur.rowcount == 1
+
+
 def due_posts() -> list[dict]:
     """Scheduled posts whose time (or retry time) has come, earliest first."""
     with conn() as c:
@@ -250,7 +271,7 @@ def due_posts() -> list[dict]:
                order by scheduled_at, created_at""",
             (int(time.time()),),
         )
-        return [row(r) for r in rows]  # type: ignore[misc]
+        return [_post(r) for r in rows]  # type: ignore[misc]
 
 
 def mark_missed(pid: str, error: str, *, scheduled_at: int) -> bool:

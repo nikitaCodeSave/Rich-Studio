@@ -1,10 +1,12 @@
 """Safe sending for agents: Idempotency-Key, who sent the post, dry run."""
 
+import sqlite3
 import time
 
 import httpx
 
 import store
+from services import publisher
 from test_api import BLOCKS_POST
 
 
@@ -66,23 +68,31 @@ def test_network_error_mid_send_is_never_resent_with_same_key(client, tg, monkey
 
 
 def test_error_after_telegram_accepted_never_resends_with_same_key(client, tg, monkeypatch):
-    # Telegram took the post, then the studio broke while recording it: the key must not be freed
+    # Telegram took the post, then the disk was full when the studio recorded it. It used to be a bare 500 without
+    # the message_id (issue #89): now the answer says where the post is and not to send it again, and the key is kept
     real = store.update_post
 
-    def broken(pid, **fields):
+    def full(pid, **fields):
         if fields.get("status") == "sent":
-            raise RuntimeError("disk full")
+            raise sqlite3.OperationalError("database or disk is full")
         return real(pid, **fields)
 
     h = {"Idempotency-Key": "post-5"}
-    monkeypatch.setattr(store, "update_post", broken)
-    assert client.post("/api/send", json={"post": BLOCKS_POST}, headers=h).status_code == 500
+    monkeypatch.setattr(publisher, "unrecorded", {})
+    monkeypatch.setattr(store, "update_post", full)
+    first = client.post("/api/send", json={"post": BLOCKS_POST}, headers=h)
+    assert first.status_code == 502
+    d = first.json()["detail"]
+    assert "опубликован, студия не смогла записать — не публикуйте повторно" in d["message"]
+    assert (d["chat_id"], d["message_id"]) == ("@test_channel", tg.next_id)
     monkeypatch.setattr(store, "update_post", real)
-    # the row written before the send is still there: the next start marks it "may have gone"
-    assert [p["status"] for p in store.list_posts()] == ["sending"]
+    # the studio stopped before it could write the confirmation down: the next start marks the row "may have gone"
+    monkeypatch.setattr(publisher, "unrecorded", {})
     assert store.recover_stale_sending() == 1
     again = client.post("/api/send", json={"post": BLOCKS_POST}, headers=h)
-    assert again.status_code == 502 and "мог уйти" in again.json()["detail"]
+    retry = again.json()["detail"]
+    assert again.status_code == 502 and (retry["chat_id"], retry["message_id"]) == (d["chat_id"], d["message_id"])
+    assert "Исход неизвестен" in retry["message"]  # the headline says the record is lost, not "will be written"
     assert sends(tg) == 1
 
 

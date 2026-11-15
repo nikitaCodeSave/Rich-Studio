@@ -5,25 +5,43 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 
+def bot_api(*types: str) -> dict:
+    """What a field of the post holds in Bot API terms (`bot_api` in OpenAPI): a type of the spec, or PostOptions and
+    PollAfter, the parameters of sendRichMessage and sendPoll the studio lets you set (api/specs.py). The editor's
+    JSON tab suggests the fields from it."""
+    return {"bot_api": list(types)}
+
+
 class Post(BaseModel):
-    rich_message: dict = Field(..., description="InputRichMessage: ровно одно из html / markdown / blocks, плюс media")
-    reply_markup: dict | None = Field(None, description="InlineKeyboardMarkup под постом")
+    rich_message: dict = Field(
+        ...,
+        description="InputRichMessage: ровно одно из html / markdown / blocks, плюс media",
+        json_schema_extra=bot_api("InputRichMessage"),
+    )
+    reply_markup: dict | None = Field(
+        None, description="InlineKeyboardMarkup под постом", json_schema_extra=bot_api("InlineKeyboardMarkup")
+    )
     options: dict = Field(
         default_factory=dict,
         description="Любые другие параметры sendRichMessage: disable_notification, protect_content…",
+        json_schema_extra=bot_api("PostOptions"),
     )
-    pin: bool = Field(False, description="Закрепить пост после публикации")
+    pin: bool = Field(False, description="Закрепить пост после публикации", json_schema_extra=bot_api("Boolean"))
     comment: dict | None = Field(
         None,
         description="InputRichMessage первого комментария: студия ответит им на пересылку поста в группу обсуждения",
+        json_schema_extra=bot_api("InputRichMessage"),
     )
     callbacks: dict[str, Any] = Field(
-        default_factory=dict, description="Ответы на callback-кнопки: {callback_data: текст или {text, show_alert}}"
+        default_factory=dict,
+        description="Ответы на callback-кнопки: {callback_data: текст или {text, show_alert}}",
+        json_schema_extra=bot_api("Object"),
     )
     poll_after: dict | None = Field(
         None,
         description="Параметры sendPoll (question, options…): опрос уйдёт в тот же чат сразу после поста; "
         "тема форума и disable_notification берутся из options поста, если в опросе их нет",
+        json_schema_extra=bot_api("PollAfter"),
     )
 
 

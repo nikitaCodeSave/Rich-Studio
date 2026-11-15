@@ -6,6 +6,7 @@ import store
 from errors import Conflict, NotFound
 from models import DraftReq
 from services import publisher
+from services.drafts import keep_notes
 
 router = APIRouter(tags=["drafts"])
 
@@ -32,10 +33,13 @@ def create_draft(req: DraftReq):
 
 @router.put("/api/drafts/{did}", summary="Сохранить черновик; с version — 409, если его сохранили в другом месте")
 def put_draft(did: str, req: DraftReq):
-    """`chat_ids` — каналы черновика: публикация из него без `chat_id` уходит туда. Без поля остаются прежние."""
-    old = (store.get_draft(did) or {}).get("chat_ids")
+    """`chat_ids` — каналы черновика: публикация из него без `chat_id` уходит туда. Без поля остаются прежние.
+    Редактор присылает `_studio` целиком, и оно сохраняется как есть; без `_studio` в посте остаются заметки студии
+    (`source`, `warnings` пересланного поста), а буферы редактора (`buffers`, `json`, `format`) сбрасываются."""
+    prev = store.get_draft(did) or {}
+    old = prev.get("chat_ids")
     chat_ids = (publisher.normalize_chats(req.chat_ids) or None) if req.chat_ids is not None else old
-    d = store.save_draft(did, req.title, req.post, req.version, req.post_id, chat_ids)
+    d = store.save_draft(did, req.title, keep_notes(req.post, prev.get("payload")), req.version, req.post_id, chat_ids)
     if d is None:
         current = store.get_draft(did)
         raise Conflict(

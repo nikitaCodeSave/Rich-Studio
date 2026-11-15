@@ -5,6 +5,7 @@ the person and for an agent alike: what to look at or which call fixes it. The r
 here changes data.
 """
 
+import json
 import shutil
 import sqlite3
 import time
@@ -193,30 +194,60 @@ def posts() -> dict:
     if not total:
         return _check("posts", "ok", "пропущенных нет, за сутки без сбоев")
     shown = f", показаны {len(found)} последних" if total > len(found) else ""
-    return _check(
-        "posts",
-        "warn",
-        f"{total} постов требуют внимания (не ушли или могли уйти, пропущены, без первого комментария){shown}",
+    # a "sending" row whose post Telegram accepted and the database refused: the row itself says nothing about it
+    gone = [
+        {"post_id": pid, "chat_id": f["chat_id"], "message_id": f["message_id"]}
+        for pid, f in publisher.unrecorded.items()
+    ]
+    for p in found:
+        if p["id"] in publisher.unrecorded:
+            p["error"] = f"опубликован (message_id {publisher.unrecorded[p['id']]['message_id']}), запись не удалась"
+    action = (
         "прочитайте error у каждого; пропущенный виден здесь, пока его не решат: отложить заново или отправить сейчас "
         "(POST /api/posts/{id}/reschedule), а не нужен или уже опубликован копией — отменить (DELETE /api/posts/{id}); "
         "с outcome_unknown пост мог уйти, запись видна здесь, пока её не уберут: проверьте канал вместе с "
         "пользователем, если поста нет — отправьте заново, затем уберите запись (DELETE /api/posts/{id}, "
-        "«Убрать» во вкладке «Посты»); повторная отправка её не убирает",
-        details={"posts": found},
+        "«Убрать» во вкладке «Посты»); повторная отправка её не убирает"
     )
+    summary = f"{total} постов требуют внимания (не ушли или могли уйти, пропущены, без первого комментария){shown}"
+    details: dict[str, Any] = {"posts": found}
+    if gone:
+        summary += f"; {len(gone)} из них в канале, но база не приняла запись"
+        action = (
+            "посты из unrecorded уже в канале (chat_id и message_id), студия не смогла их записать: освободите место "
+            "на диске или верните права на папку данных, запись допишется сама; заново их не отправляйте. " + action
+        )
+        details["unrecorded"] = gone
+    return _check("posts", "warn", summary, action, details=details)
 
 
 def sends() -> dict:
     found = store.stats.uncertain_sends(int(time.time()) - DAY)
     if not found:
         return _check("sends", "ok", "неясных отправок нет")
-    return _check(
-        "sends",
-        "warn",
-        f"{len(found)} отправок за сутки могли уйти, а могли нет",
-        "посмотрите канал: если поста нет, отправьте заново с новым Idempotency-Key; повтор с прежним не пройдёт",
-        details={"sends": found},
-    )
+    gone = [s for s in found if _unrecorded_key(s)]  # the post is in the channel for sure: nothing to check
+    summary, actions = [], []
+    if len(found) > len(gone):
+        summary.append(f"{len(found) - len(gone)} отправок за сутки могли уйти, а могли нет")
+        actions.append(
+            "посмотрите канал: если поста нет, отправьте заново с новым Idempotency-Key; повтор с прежним не пройдёт"
+        )
+    if gone:
+        summary.append(f"{len(gone)} отправок за сутки опубликованы, но студия не смогла их записать")
+        actions.append(
+            "эти посты в канале (chat_id и message_id в response): не отправляйте их заново ни с каким ключом"
+        )
+    return _check("sends", "warn", "; ".join(summary), "; ".join(actions), details={"sends": found})
+
+
+def _unrecorded_key(key: dict) -> bool:
+    """An idempotency key whose answer was Unrecorded: the post went out, the studio could not write it down."""
+    response = key.get("response")
+    try:
+        response = json.loads(response) if isinstance(response, str) else response
+    except ValueError:
+        return False
+    return isinstance(response, dict) and bool(response.get("unrecorded"))
 
 
 def spec_source() -> dict:

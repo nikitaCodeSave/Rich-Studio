@@ -12,6 +12,8 @@ export default async function ({ page, check, mockLog, until, showJson, applyJso
   const json = () => page.inputValue('#src-json');
   const bar = page.locator('#json-stale');
   const shown = () => bar.isVisible();
+  // the dot on «JSON»: there is text not applied yet
+  const dot = () => page.locator('#mode-tabs [data-mode=json]').evaluate((b) => b.classList.contains('pending'));
   const preview = () => page.locator('#preview .tg-preview').textContent();
   const visual = () => page.click('#mode-tabs [data-mode=blocks]');
   const typeInPost = async (s) => {
@@ -38,11 +40,12 @@ export default async function ({ page, check, mockLog, until, showJson, applyJso
   await page.waitForSelector('.block');
   await showJson();
   const afterReload = await json();
+  const barAfterReload = await shown();
   const d = await draft();
   check('Unapplied invalid JSON survives a tab switch and a reload, the post stays as it was',
-    afterTabs === broken && afterReload === broken && !barAfterTabs
+    afterTabs === broken && afterReload === broken && !barAfterTabs && !barAfterReload && (await dot())
       && JSON.stringify(d?.payload?.rich_message) === JSON.stringify({ blocks: [{ type: 'paragraph', text: 'Пост' }] }) && /Пост/.test(await preview()),
-    JSON.stringify({ afterTabs, afterReload, barAfterTabs, rich_message: d?.payload?.rich_message }));
+    JSON.stringify({ afterTabs, afterReload, barAfterTabs, barAfterReload, rich_message: d?.payload?.rich_message }));
 
   // the post changed in the visual mode after the JSON was typed
   await typeInPost('!');
@@ -51,10 +54,18 @@ export default async function ({ page, check, mockLog, until, showJson, applyJso
   const stale = await shown();
   // for the screenshots: the formatting toolbar goes once the block loses focus, the preview catches up
   await page.waitForFunction(() => !document.querySelector('.toolbar.on') && /Пост!/.test(document.querySelector('#preview').shadowRoot.textContent), null, quick).catch(() => {});
+  // and the check pill is there: it comes with the first check after the reload
+  await page.waitForFunction(() => !(/** @type {HTMLElement} */ (document.querySelector('#check-pill'))).hidden, null, quick).catch(() => {});
   await page.screenshot({ path: 'test-results/ui/json-stale-1400.png' }).catch(() => {});
   await page.setViewportSize({ width: 390, height: 844 });
   await bar.scrollIntoViewIfNeeded(quick).catch(() => {});
   await page.screenshot({ path: 'test-results/ui/json-stale-390.png' }).catch(() => {});
+  // the tabs, the dot on «JSON» and the check pill fit a phone
+  const tabs = await page.locator('#mode-tabs').evaluate((el) => ({ scroll: el.scrollWidth, width: el.clientWidth, right: el.getBoundingClientRect().right,
+    page: document.documentElement.scrollWidth, pill: (/** @type {HTMLElement} */ (document.querySelector('#check-pill'))).hidden ? null : document.querySelector('#check-pill').textContent }));
+  const phoneDot = await dot();
+  check('On a phone the mode tabs with the dot on «JSON» and the check pill stay inside the screen',
+    phoneDot && !!tabs.pill && tabs.scroll <= tabs.width && tabs.right <= 390 && tabs.page <= 390, JSON.stringify({ ...tabs, phoneDot }));
   await page.setViewportSize({ width: 1400, height: 900 });
   await bar.getByRole('button', { name: 'Отбросить' }).click(quick).catch(() => {});
   const dropped = await json().then((t) => { try { return JSON.parse(t).rich_message; } catch { return t; } });

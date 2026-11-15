@@ -2,9 +2,11 @@
 import { api } from './api.js';
 import { $, $$, clone, debounce, h, toast } from './dom.js';
 import { channelTitle } from './channels.js';
+import { setSource, showSource } from './code-editor.js';
 import { saveDraft } from './drafts.js';
 import { renderBlocksPane } from './forms.js';
 import { recordHistory } from './history.js';
+import { exportToHtml } from './html-export.js';
 import { readIssue, reveal } from './issues.js';
 import { renderKeyboard } from './keyboard.js';
 import { plural } from './labels.js';
@@ -22,7 +24,8 @@ export function buildPost() {
   const rm = {};
   if (S.format === 'blocks') rm.blocks = S.buf.blocks;
   else rm[S.format] = S.buf[S.format];
-  if (S.media.length) rm.media = S.media;
+  // InputRichMessage.media lists the files of tg:// links in html/markdown; blocks hold their files themselves
+  if (S.media.length && S.format !== 'blocks') rm.media = S.media;
   for (const [k, v] of Object.entries(S.flags)) if (v) rm[k] = v;
   const post = { rich_message: rm, options: {} };
   const kb = S.keyboard.filter((r) => r.length);
@@ -47,15 +50,24 @@ export function callbacksFor(kb) {
   return out;
 }
 
-// Drafts keep the text of every mode, not only the one that is sent, and the JSON not applied yet
+// Drafts keep the text of every mode, not only the one that is sent, and the JSON not applied yet;
+// the rest of `_studio` is someone else's (an imported post's source and warnings) and goes back as it came
 export function draftPayload() {
-  return { ...buildPost(), _studio: { format: S.format, buffers: { blocks: S.buf.blocks, html: S.buf.html, markdown: S.buf.markdown }, ...(S.json && { json: S.json }) } };
+  // a visual post does not carry the media list of the HTML/Markdown tabs, so the draft keeps it with their text
+  const media = S.format === 'blocks' && S.media.length ? { media: S.media } : {};
+  return { ...buildPost(), _studio: { ...S.notes, format: S.format, buffers: { blocks: S.buf.blocks, html: S.buf.html, markdown: S.buf.markdown, ...media }, ...(S.json && { json: S.json }) } };
 }
 
-export function loadPost(post) {
+// the keys of `_studio` the editor writes itself; any other one is a note of the draft
+const OWN_STUDIO = ['format', 'buffers', 'json'];
+
+/** @param {Json} post @param {boolean} [keepNotes] only the post changes (JSON applied, an earlier version):
+ * the open draft keeps its notes */
+export function loadPost(post, keepNotes = false) {
   post = clone(post || {});
   const studio = post._studio;
   delete post._studio;
+  if (!keepNotes) setNotes(studio);
   S.topicChat = undefined; // the loaded post's topic belongs to the channel it is opened with
   const rm = post.rich_message || {};
   S.buf = { blocks: [], html: '', markdown: '' };
@@ -75,6 +87,7 @@ export function loadPost(post) {
     if (Array.isArray(b.blocks) && !rm.blocks) S.buf.blocks = b.blocks;
     if (typeof b.html === 'string' && rm.html === undefined) S.buf.html = b.html;
     if (typeof b.markdown === 'string' && rm.markdown === undefined) S.buf.markdown = b.markdown;
+    if (Array.isArray(b.media) && !rm.media) S.media = b.media;
   }
   const j = studio && studio.json;
   S.json = j && typeof j.text === 'string' && typeof j.base === 'string' ? { text: j.text, base: j.base } : null;
@@ -84,8 +97,8 @@ export function loadPost(post) {
 
 export function renderAll() {
   renderBlocksPane();
-  $('#src-html').value = S.buf.html;
-  $('#src-markdown').value = S.buf.markdown;
+  setSource(/** @type {HTMLTextAreaElement} */ ($('#src-html')), S.buf.html);
+  setSource(/** @type {HTMLTextAreaElement} */ ($('#src-markdown')), S.buf.markdown);
   renderJson();
   renderMedia();
   renderKeyboard();
@@ -99,10 +112,12 @@ export function renderAll() {
 export function setMode(mode, silent) {
   S.mode = mode;
   if (mode !== 'json') S.format = mode;
-  $$('#mode-tabs button').forEach((b) => b.classList.toggle('on', b.dataset.mode === mode));
+  $$('#mode-tabs button[data-mode]').forEach((b) => b.classList.toggle('on', b.dataset.mode === mode));
   ['blocks', 'html', 'markdown', 'json'].forEach((m) => { $('#pane-' + m).hidden = m !== mode; });
   $('#panel-media').hidden = mode === 'blocks';
+  $('#blocks-tools').hidden = mode !== 'blocks';
   if (mode === 'json') { renderJson(); $('#json-err').textContent = ''; }
+  if (mode !== 'blocks') showSource(mode);
   const hints = { blocks: 'отправляется как rich_message.blocks', html: 'отправляется как rich_message.html', markdown: 'отправляется как rich_message.markdown', json: 'активный формат: ' + S.format };
   $('#mode-hint').textContent = hints[mode];
   if (!silent) changed();
@@ -116,13 +131,13 @@ export function renderJson() {
   const post = buildPost();
   const text = S.json ? S.json.text : JSON.stringify(post, null, 2);
   const ta = /** @type {HTMLTextAreaElement} */ ($('#src-json'));
-  if (ta.value !== text) ta.value = text;
+  setSource(ta, text);
   $('#json-stale').hidden = !S.json || S.json.base === JSON.stringify(post);
   $('#mode-tabs [data-mode=json]').classList.toggle('pending', !!S.json);
 }
 
 function applyJson() {
-  try { loadPost(JSON.parse($('#src-json').value)); } catch (e) { $('#json-err').textContent = e.message; return; }
+  try { loadPost(JSON.parse($('#src-json').value), true); } catch (e) { $('#json-err').textContent = e.message; return; }
   S.json = null;
   setMode('json', true); changed(); toast('JSON применён', 'ok');
 }
@@ -138,6 +153,29 @@ export function bindJson() {
   $('#json-apply').onclick = applyJson;
   $('#json-mine').onclick = applyJson;
   $('#json-drop').onclick = () => { S.json = null; $('#json-err').textContent = ''; changed(); };
+}
+
+// ---------- the draft's notes: what an import (or anything else that made the draft) wants the person to know ----------
+/** The notes from a draft's `_studio`: every key the editor does not write itself. */
+export function setNotes(studio) {
+  S.notes = {};
+  if (studio && typeof studio === 'object' && !Array.isArray(studio)) {
+    for (const [k, v] of Object.entries(studio)) if (!OWN_STUDIO.includes(k)) S.notes[k] = v;
+  }
+  renderNotes();
+}
+
+// `warnings` is a list of strings; a single string (or anything else) is one item, so nothing is hidden
+function renderNotes() {
+  const w = S.notes.warnings;
+  const list = Array.isArray(w) ? w : w === undefined || w === null || w === '' ? [] : [w];
+  /** @type {import('./components/rs-draft-notes.js').RsDraftNotes} */ ($('#draft-notes')).warnings =
+    list.map((x) => (typeof x === 'string' ? x : JSON.stringify(x)));
+}
+
+// «В HTML» in the visual mode: the post as HTML source in its tab (html-export.js); the blocks stay in theirs
+export function bindHtmlExport() {
+  $('#to-html').onclick = () => exportToHtml(() => { setMode('html', true); renderAll(); changed(); });
 }
 
 // ---------- after publishing: pin, first comment, poll ----------

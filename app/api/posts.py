@@ -182,5 +182,7 @@ def reschedule(pid: str, req: RescheduleReq):
     summary="Отменить отложенный или пропущенный пост, или удалить пост из канала",
 )
 async def delete_post(pid: str):
-    """`DELETE` неудачной отправки убирает её из списка."""
+    """`DELETE` неудачной отправки убирает только её запись из списка, в канале ничего не удаляется. Запись с
+    `outcome_unknown: true` (пост мог уйти) так и решают: проверили канал и убрали её, тогда она уходит и из
+    `/api/health`."""
     return await posts.delete(pid)

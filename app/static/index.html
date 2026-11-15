@@ -55,7 +55,7 @@
     <div class="side-body" data-pane="drafts"><rs-templates id="templates"></rs-templates><ul id="drafts" class="list"></ul></div>
     <div class="side-body" data-pane="posts" hidden><p id="updates-state" class="small"></p>
       <div id="suggested" class="suggested" hidden></div>
-      <select id="posts-filter" aria-label="Какие посты показать"><option value="">Все посты</option><option value="failed">Не вышли (ошибка)</option><option value="scheduled">Отложенные</option><option value="sent">Опубликованные</option></select>
+      <select id="posts-filter" aria-label="Какие посты показать"><option value="">Все посты</option><option value="failed">Не вышли (ошибка)</option><option value="unknown">Исход неизвестен</option><option value="scheduled">Отложенные</option><option value="sent">Опубликованные</option></select>
       <ul id="posts" class="list"></ul></div>
     <div class="side-body" data-pane="uploads" hidden>
       <label class="upload"><input id="upload" type="file" multiple hidden>＋ Загрузить файлы</label>
@@ -70,6 +70,7 @@
 
   <section class="editor">
     <rs-edit-bar id="edit-bar"></rs-edit-bar>
+    <rs-draft-notes id="draft-notes"></rs-draft-notes>
     <nav class="tabs mode-tabs" id="mode-tabs">
       <button data-mode="blocks" class="on" title="Конструктор из блоков; формы строятся из спецификации Bot API">Визуально</button>
       <button data-mode="html" title="Rich HTML: покрывает всё, включая новые теги">HTML</button>
@@ -79,6 +80,9 @@
       <span class="muted small" id="mode-hint"></span>
       <button id="check-pill" class="check-pill" type="button" hidden></button>
     </nav>
+    <div id="blocks-tools" class="pane-tools">
+      <button id="to-html" type="button" class="ghost small-btn" title="HTML-исходник этого поста во вкладке HTML; блоки останутся здесь">В HTML</button>
+    </div>
     <div id="pane-blocks" class="pane"></div>
     <div id="pane-html" class="pane" hidden>
       <div class="snip-bar" id="snip-html"></div>

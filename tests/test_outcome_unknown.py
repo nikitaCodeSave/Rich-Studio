@@ -45,7 +45,7 @@ def test_a_crash_mid_send_stays_listed_after_the_draft_goes_out_again(client, tg
     assert store.recover_stale_sending() == 1
     assert client.post("/api/send", json={"post": BLOCKS_POST, "draft_id": did, "chat_id": "@c"}).status_code == 200
     left = store.get_post(crashed["id"])
-    assert left["status"] == "failed" and left["outcome_unknown"] == 1
+    assert left["status"] == "failed" and left["outcome_unknown"] is True
     rows = client.get("/api/posts").json()
     assert [(p["status"], p["outcome_unknown"]) for p in rows] == [("sent", False), ("failed", True)]
 
@@ -160,7 +160,23 @@ def test_health_shows_an_unknown_outcome_however_old_until_the_row_is_removed(cl
     check = health.posts()
     assert check["status"] == "warn" and check["summary"].startswith("1 постов")
     [shown] = check["details"]["posts"]
-    assert shown["id"] == crashed["id"] and shown["outcome_unknown"] == 1
+    assert shown["id"] == crashed["id"] and shown["outcome_unknown"] is True
     assert "outcome_unknown" in check["action"] and "DELETE /api/posts/{id}" in check["action"]
     assert client.delete("/api/posts/" + crashed["id"]).json()["status"] == "removed"
     assert health.posts()["status"] == "ok"
+
+
+def test_the_flag_is_a_bool_in_every_answer(client, tg, monkeypatch):
+    """One type for one field: the list, a single post, a send's answer and the health report agree."""
+    did = _draft(client)
+    crashed = store.add_post("@c", BLOCKS_POST, did, "sending")
+    store.recover_stale_sending()
+    sent = client.post("/api/send", json={"post": BLOCKS_POST, "draft_id": did, "chat_id": "@c"}).json()
+    assert sent["post"]["outcome_unknown"] is False and sent["results"][0]["post"]["outcome_unknown"] is False
+    assert client.get("/api/posts/" + crashed["id"]).json()["outcome_unknown"] is True
+    assert client.get("/api/posts/" + sent["post"]["id"]).json()["outcome_unknown"] is False
+    assert {p["id"]: p["outcome_unknown"] for p in client.get("/api/posts").json()} == {
+        crashed["id"]: True,
+        sent["post"]["id"]: False,
+    }
+    assert [p["outcome_unknown"] for p in health.posts()["details"]["posts"]] == [True]

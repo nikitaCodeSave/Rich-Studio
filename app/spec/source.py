@@ -10,6 +10,7 @@ changes.
 
 import json
 import time
+from collections.abc import Iterable
 from pathlib import Path
 
 import httpx
@@ -21,6 +22,47 @@ from .diff import TRACK_METHODS, TRACK_PREFIXES, diff_specs
 from .parse import check_spec_shape, enum_values, type_const, version_tuple
 
 BUNDLED = Path(__file__).resolve().parent.parent / "bundled" / "api.json"
+
+
+# outside the tracked prefixes, but fields of rich blocks and buttons refer to them
+EXTRA_TYPES = (
+    "Location",
+    "LoginUrl",
+    "SwitchInlineQueryChosenChat",
+    "WebAppInfo",
+    "User",
+    "RichBlockTableCell",
+    "RichBlockCaption",
+)
+
+
+def field_summary(f: dict) -> dict:
+    """A field of a type or a parameter of a method, as the editor reads it."""
+    description = f.get("description", "")
+    return {
+        "name": f["name"],
+        "types": f["types"],
+        "required": f["required"],
+        "description": description,
+        "enum": enum_values(description),
+    }
+
+
+def reachable(types: dict, roots: Iterable[str]) -> set[str]:
+    """Names of the types in `roots` and of every type their fields and subtypes lead to ("Array of X" is X)."""
+    seen: set[str] = set()
+    todo = list(roots)
+    while todo:
+        name = todo.pop()
+        while name.startswith("Array of "):
+            name = name.removeprefix("Array of ")
+        if name in seen or name not in types:
+            continue
+        seen.add(name)
+        t = types[name]
+        todo += t.get("subtypes", [])
+        todo += [x for f in t.get("fields", []) for x in f["types"]]
+    return seen
 
 
 class Spec:
@@ -136,36 +178,20 @@ class Spec:
         """For subtypes like InputRichBlockParagraph: (field, value) of the constant `type` field."""
         return type_const(self.types, type_name)
 
-    def summary(self) -> dict:
-        """Compact description of everything the editor needs."""
+    def summary(self, roots: Iterable[str] = ()) -> dict:
+        """Compact description of everything the editor needs: the rich types and every type they reach, and the
+        types `roots` reach (the JSON tab's completion walks the post down to any field)."""
+        tracked = [name for name in self.types if name.startswith(TRACK_PREFIXES) or name in EXTRA_TYPES]
         out_types = {}
-        for name, t in self.types.items():
-            if not name.startswith(TRACK_PREFIXES) and name not in (
-                "Location",
-                "LoginUrl",
-                "SwitchInlineQueryChosenChat",
-                "WebAppInfo",
-                "User",
-                "RichBlockTableCell",
-                "RichBlockCaption",
-            ):
-                continue
-            fields = []
-            for f in t.get("fields", []):
-                fields.append(
-                    {
-                        "name": f["name"],
-                        "types": f["types"],
-                        "required": f["required"],
-                        "description": f.get("description", ""),
-                        "enum": enum_values(f.get("description", "")),
-                    }
-                )
+        for name in sorted(reachable(self.types, [*tracked, *roots])):
+            t = self.types[name]
             c = self.type_const(name)
             out_types[name] = {
                 "description": " ".join(t.get("description", [])),
-                "fields": fields,
+                "fields": [field_summary(f) for f in t.get("fields", [])],
                 "subtypes": t.get("subtypes", []),
+                # the field that tells this subtype from the others of its union, and its value
+                "const_field": c[0] if c else None,
                 "const": c[1] if c else None,
                 "href": t.get("href"),
             }
@@ -175,15 +201,7 @@ class Spec:
                 mm = self.methods[m]
                 methods[m] = {
                     "description": " ".join(mm.get("description", [])),
-                    "fields": [
-                        {
-                            "name": f["name"],
-                            "types": f["types"],
-                            "required": f["required"],
-                            "description": f.get("description", ""),
-                        }
-                        for f in mm.get("fields", [])
-                    ],
+                    "fields": [field_summary(f) for f in mm.get("fields", [])],
                     "href": mm.get("href"),
                 }
         return {

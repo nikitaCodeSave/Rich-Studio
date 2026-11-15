@@ -1,14 +1,17 @@
 // invite links: a named link from the «Каналы» dialog, joins through it counted from chat_member
 /** @param {import('./harness.mjs').Ctx} ctx */
 export default async function ({ page, check, mockLog, push }) {
+  // the list of links is empty until it has loaded, then holds the links or «Ссылок пока нет»
+  const loaded = () => page.waitForFunction(() => document.querySelector('dialog[open] .links')?.textContent.trim(), null, { timeout: 8000 }).catch(() => {});
   await page.click('#btn-check');
   await page.locator('dialog[open] .channel', { hasText: '@kept_chan' }).locator('button', { hasText: 'Ссылки' }).click();
-  await page.waitForTimeout(400);
+  await loaded();
   const empty = await page.locator('dialog[open] .links').textContent();
   await page.fill('dialog[open] input[placeholder^="Название"]', 'Хабр');
   await page.fill('dialog[open] input[aria-label="Предел вступлений"]', '10');
   await page.locator('dialog[open] button', { hasText: 'Создать ссылку' }).click();
-  await page.waitForTimeout(500);
+  // made in Telegram first, then the list is read again
+  await page.waitForSelector('dialog[open] .invite-link code', { timeout: 8000 }).catch(() => {});
   const sent = (await mockLog()).filter((c) => c.method === 'createChatInviteLink').pop();
   const link = sent && (await page.locator('dialog[open] .invite-link code').first().textContent());
   await push({
@@ -26,7 +29,7 @@ export default async function ({ page, check, mockLog, push }) {
   // the dialog shows the new count when opened again
   await page.keyboard.press('Escape');
   await page.locator('dialog[open] .channel', { hasText: '@kept_chan' }).locator('button', { hasText: 'Ссылки' }).click();
-  await page.waitForTimeout(400);
+  await loaded();
   const row = await page.locator('dialog[open] .invite-link').first().textContent();
   await page.selectOption('dialog[open] select[aria-label="Вид ссылки"]', 'subscription');
   const priceShown = await page.locator('dialog[open] input[aria-label="Цена подписки"]').isVisible();
