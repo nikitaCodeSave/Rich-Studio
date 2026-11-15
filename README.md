@@ -55,6 +55,8 @@ docker compose up -d --build
 
 На сервере (`STUDIO_MODE=server`) спецификация закреплена (`SPEC_PIN`): студия ничего не скачивает и работает на копии из образа, новая версия приходит с обновлением образа. Ещё вручную: после изменения `requirements.txt` (и после PR Dependabot) `make lock` пересобирает `requirements.lock` с хэшами, из которого ставит пакеты образ. Swagger UI для `/docs` лежит в студии закреплённой версией и обновляется по заметке `app/static/vendor/swagger-ui/README.md`.
 
+CodeMirror для вкладок HTML, Markdown и JSON лежит в `app/static/vendor/codemirror-<хеш>/`: файлы пакетов из npm как есть, только импорты сделаны относительными ([0017](docs/decisions/0017-codemirror-vendored-modules.md)). `make vendor-update` поднимает его до последних версий, после PR Dependabot по CodeMirror нужен `make vendor` в ветке PR. `make check` сверяет каталог с `package-lock.json`.
+
 ## Редактор
 
 | Вкладка | Что это |

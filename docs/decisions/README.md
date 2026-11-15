@@ -23,3 +23,4 @@
 | [0013](0013-message-kinds-registry.md) | Типы сообщений (пост, опрос, Live Photo, платный контент) в одном реестре `services/kinds.py` |
 | [0014](0014-vendored-api-docs.md) | Swagger UI для `/docs` вендорен в `app/static/vendor/`, без CDN и ReDoc |
 | [0016](0016-post-templates.md) | Шаблоны постов: поля `{{key}}` только там, где значение остаётся текстом; Markdown пока не заполняется |
+| [0017](0017-codemirror-vendored-modules.md) | CodeMirror 6 для вкладок исходника: файлы из npm с переписанными импортами (`make vendor`), без сборщика |
