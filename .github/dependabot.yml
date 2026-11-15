@@ -13,7 +13,13 @@ updates:
     directory: /
     schedule: { interval: weekly, day: monday }
     groups:
-      js: { patterns: ["*"] }
+      # CodeMirror and what it imports, vendored into app/static/vendor/codemirror-*/ (docs/decisions/0016): a PR of
+      # its own; Dependabot bumps package.json and the lock only, so run `make vendor` in its branch and push
+      codemirror:
+        patterns: ["@codemirror/*", "@lezer/*", "@marijn/*", "crelt", "style-mod", "w3c-keyname"]
+      js:
+        patterns: ["*"]
+        exclude-patterns: ["@codemirror/*", "@lezer/*", "@marijn/*", "crelt", "style-mod", "w3c-keyname"]
   - package-ecosystem: docker
     directory: /
     schedule: { interval: weekly, day: monday }
