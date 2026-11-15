@@ -57,6 +57,33 @@ def _broken(*a, **kw):
     raise sqlite3.OperationalError("disk I/O error")
 
 
+def _disk_full_after_first_send(monkeypatch, method: str = "sendRichMessage"):
+    """A really full disk: once Telegram accepted the first message, every write of the studio fails (reads work)."""
+    full = {"on": False}
+    real_call = telegram.call
+
+    async def accept(m, params=None, *a, **kw):
+        res = await real_call(m, params, *a, **kw)
+        if m == method:
+            full["on"] = True
+        return res
+
+    def refusing(real):
+        def write(*a, **kw):
+            if full["on"]:
+                raise sqlite3.OperationalError(FULL)
+            return real(*a, **kw)
+
+        return write
+
+    monkeypatch.setattr(telegram, "call", accept)
+    writes = ("add_post", "update_post", "mark_outcome_unknown", "drop_refused", "confirm_sent", "delete_post")
+    for name in writes:
+        monkeypatch.setattr(store, name, refusing(getattr(store, name)))
+    for name in ("claim", "finish", "release"):
+        monkeypatch.setattr(store.idempotency, name, refusing(getattr(store.idempotency, name)))
+
+
 def _unrecorded_events() -> list[dict]:
     return [x for x in logs.read("ERROR") if x.get("event") == "send.unrecorded"]
 
@@ -138,6 +165,33 @@ def test_one_unrecorded_channel_of_several_is_reported_and_the_others_go(client,
     assert by_chat["@b"]["message_id"] == by_chat["@b"]["message"]["message_id"]
     assert out["post"]["chat_id"] == "@a"  # the first recorded one
     assert any(w.startswith("@b: ") and UNRECORDED in w for w in out["warnings"])
+
+
+def test_a_really_full_disk_mid_broadcast_still_says_where_the_post_is(client, tg, monkeypatch):
+    """After the first accepted send every write fails, the rows of the next chats too: nothing more goes out, and
+    the answer is not a bare 500 but the chat and message_id of the post that is out."""
+    _disk_full_after_first_send(monkeypatch)
+    h = {"Idempotency-Key": "full-broadcast"}
+    body = {"post": BLOCKS_POST, "chat_ids": ["@a", "@b", "@c"]}
+    first = client.post("/api/send", json=body, headers=h)
+    assert first.status_code == 502, first.text
+    d = first.json()["detail"]
+    assert UNRECORDED in d["message"] and (d["chat_id"], d["message_id"]) == ("@a", tg.next_id)
+    assert [e.split(":")[0] for e in d["errors"]] == ["@b", "@c"]
+    assert all("не отправлено" in e for e in d["errors"])
+    again = client.post("/api/send", json=body, headers=h)
+    assert again.status_code == 502 and again.json()["detail"] == d
+    assert sends(tg) == 1
+
+
+def test_a_really_full_disk_mid_broadcast_through_mcp(client, tg, monkeypatch):
+    _disk_full_after_first_send(monkeypatch)
+    for _ in range(2):
+        res, _, text = call(client, "publish_post", post=BLOCKS_POST, chat_ids=["@a", "@b"])
+        assert res["isError"] and UNRECORDED in text
+        detail = json.loads(text[text.index("{") :])
+        assert (detail["chat_id"], detail["message_id"]) == ("@a", tg.next_id)
+    assert sends(tg) == 1
 
 
 def test_nothing_recorded_but_one_channel_has_the_post_is_unrecorded_not_not_sent(client, tg, monkeypatch):

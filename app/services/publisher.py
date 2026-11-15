@@ -359,7 +359,16 @@ async def publish(chats: list, post: dict, draft_id: str | None = None, kind: st
     warnings: list[str] = []
     write_unrecorded()  # what an earlier send could not write down goes first
     for chat in chats:
-        rec = store.add_post(chat, post, draft_id, "sending", kind=kind, actor=actor)
+        try:
+            rec = store.add_post(chat, post, draft_id, "sending", kind=kind, actor=actor)
+        except Exception as e:
+            if not any(r["ok"] for r in out):  # nothing is out anywhere: the request fails as it is, nothing was sent
+                raise
+            # the post is in an earlier chat already: the answer must still say where, so this one is "not sent"
+            log.exception("could not write the row of the send to %s; not sent there", chat)
+            error = f"не отправлено: студия не смогла записать строку поста ({_reason(e)})"
+            out.append({"chat_id": chat, "ok": False, "error": error})
+            continue
         in_flight.add(rec["id"])
         try:
             res = await send(chat, post, kind)
