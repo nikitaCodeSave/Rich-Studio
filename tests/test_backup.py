@@ -76,7 +76,7 @@ def test_a_file_of_a_missed_post_is_not_deleted_without_force(client, tg):
     rec = client.post(
         "/api/schedule", json={"post": _photo("later.png"), "chat_id": "@c", "at": int(time.time()) + 3600}
     ).json()
-    store.mark_missed(rec["id"], "студия не работала")
+    store.update_post(rec["id"], status="missed", error="студия не работала")
     r = client.delete("/api/media/later.png")
     assert r.status_code == 409 and r.json()["detail"]["used_by"] == ["пропущенный пост в @c"]
     assert client.delete("/api/media/later.png?force=true").status_code == 200
