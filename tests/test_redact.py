@@ -16,7 +16,7 @@ import settings
 import store
 import telegram
 from services import updates
-from test_api import BLOCKS_POST
+from test_api import BLOCKS_POST, POLL
 from test_mcp import call, rpc
 
 SECRET = "AAH" + "x" * 32  # the part after the colon: what must not show up anywhere
@@ -133,6 +133,72 @@ def test_proxy_page_with_an_url_encoded_token_is_masked(client, tg, bot_token):
     assert r.status_code == 502 and _clean(r.text) and "/bot<token>/getMe" in r.text
 
 
+# ---------- a network error whose text repeats the request (an echo server at a wrong TG_API_BASE) ----------
+def _echoing_server(monkeypatch, methods: set[str], chats: set[str] | None = None) -> None:
+    """httpx puts the server's status line into RemoteProtocolError: an echo server answers with the request line."""
+    import telegram.client as tc
+
+    real = tc._request
+
+    async def request(url, params, files, timeout):
+        method = url.rsplit("/", 1)[1]
+        if method in methods and (chats is None or params.get("chat_id") in chats):
+            raise httpx.RemoteProtocolError(f"illegal status line: bytearray(b'POST /bot{TOKEN}/{method} HTTP/1.1')")
+        return await real(url, params, files, timeout)
+
+    monkeypatch.setattr(tc, "_request", request)
+
+
+def test_network_error_text_is_masked_in_a_200_and_its_replay(client, tg, bot_token, monkeypatch):
+    _echoing_server(monkeypatch, {"sendRichMessage"}, {"@b"})
+    h = {"Idempotency-Key": "two-channels"}
+    body = {"post": BLOCKS_POST, "chat_ids": ["@a", "@b"]}
+    r = client.post("/api/send", json=body, headers=h)
+    assert r.status_code == 200 and [x["ok"] for x in r.json()["results"]] == [True, False]
+    assert _clean(r.text) and "RemoteProtocolError" in r.json()["results"][1]["error"]
+    with store.conn() as c:
+        saved = [x[0] for x in c.execute("select response from idempotency where status='done'")]
+    assert saved and all(_clean(x) for x in saved)
+    again = client.post("/api/send", json=body, headers=h)
+    assert again.status_code == 200 and _clean(again.text)
+
+    _, data, text = call(client, "publish_post", post=BLOCKS_POST, chat_ids=["@a", "@b"])
+    assert data and _clean(text) and "<token>" in text
+
+
+def test_network_error_text_after_the_send_is_masked_in_the_warnings(client, tg, bot_token, monkeypatch):
+    _echoing_server(monkeypatch, {"pinChatMessage", "sendPoll"})
+    r = client.post("/api/send", json={"post": {**BLOCKS_POST, "pin": True, "poll_after": POLL}})
+    assert r.status_code == 200
+    warnings = r.json()["warnings"]
+    assert len(warnings) == 2 and all("<token>" in w for w in warnings) and _clean(r.text)
+    assert all(_clean(p["error"] or "") for p in store.list_posts())
+
+
+# ---------- the second line: texts that never went through the transport ----------
+def test_answers_mask_what_the_transport_did_not_see(client, tg, monkeypatch):
+    async def refused(method, params=None, timeout=60):
+        if method == "getMe":
+            raise telegram.NoAnswer(f"HTTP 502 from https://api.telegram.org/bot{TOKEN}/getMe")
+        raise telegram.TelegramError(f"Bad Request: echo https://api.telegram.org/bot{TOKEN}/{method}", 400)
+
+    monkeypatch.setattr(telegram, "call", refused)
+    r = client.post("/api/send", json={"post": BLOCKS_POST})
+    assert r.status_code == 422 and _clean(r.text) and "Bad Request: echo" in r.text
+    res, _, text = call(client, "publish_post", post=BLOCKS_POST, chat_id="@other")
+    assert res["isError"] and _clean(text) and "Bad Request: echo" in text
+    r = client.post("/api/raw/getMe", json={})
+    assert r.status_code == 502 and _clean(r.text) and "могло выполниться" in r.text
+
+
+def test_page_is_masked_before_it_is_cut(client, tg, bot_token):
+    # not after /bot, and the 300-character limit falls inside the token: cut first, and its head would stay
+    page = "x" * (300 - len("1234567890:") - 10) + TOKEN + " echoed"
+    tg.queue["getMe"] = [HTMLResponse(page, status_code=404)]
+    r = client.post("/api/raw/getMe", json={})
+    assert r.status_code == 502 and ":AAH" not in r.text
+
+
 # ---------- what is masked and what is not ----------
 def test_url_encoded_token_is_masked_as_set_and_by_its_shape(monkeypatch):
     monkeypatch.setattr(settings.get(), "bot_token", "123:TEST")  # the tests' token: no real shape
@@ -154,6 +220,7 @@ def test_api_key_is_masked_also_url_encoded(monkeypatch):
 def test_named_tokens_are_masked_but_not_words_that_look_alike():
     assert redact.scrub(f"Bearer {NAMED}") == "Bearer <rs-token>"
     assert redact.scrub(f"token={NAMED}&x=1") == "token=<rs-token>&x=1"
+    assert redact.scrub(f"Bearer%20{NAMED}&token%3D{NAMED}") == "Bearer%20<rs-token>&token%3D<rs-token>"
     assert redact.scrub("cookie rs_session, users_" + "a" * 30) == "cookie rs_session, users_" + "a" * 30
 
 

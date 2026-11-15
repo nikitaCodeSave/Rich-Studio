@@ -138,6 +138,11 @@ async def _post(url: str, params: dict, files: dict[str, Path], timeout: float) 
         r = await _request(url, params, files, timeout)
     except _NOT_SENT as e:
         raise Unreachable(f"нет связи с Telegram ({type(e).__name__}): запрос не отправлен") from e
+    except httpx.HTTPError as e:
+        # broken mid-request, the post may have gone: callers see the same type, but its text may repeat the
+        # request (RemoteProtocolError quotes the status line, and an echo server sends back "POST /bot<token>/…")
+        e.args = (redact.scrub(str(e)),)
+        raise
     try:
         body = r.json()
     except ValueError:

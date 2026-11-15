@@ -22,7 +22,8 @@ _COLON = r"(?::|%3[Aa])"  # a token in a URL may come back URL-encoded
 # of digits linear (an unauthenticated path of 15000 digits used to block the event loop for seconds)
 _TOKEN = re.compile(rf"(?<!\d)\d{{5,12}}{_COLON}[\w-]{{30,}}")
 _TOKEN_IN_URL = re.compile(rf"(?<=/bot)\d{{5,12}}{_COLON}[\w-]+")  # also a token cut short by a truncated text
-_NAMED = re.compile(r"(?<![\w-])rs_[\w-]{20,}")  # rs_ + token_urlsafe(32); not rs_session, not users_…
+# rs_ + token_urlsafe(32), alone or right after an escape like %20 or %3D; not rs_session, not users_…
+_NAMED = re.compile(r"(?:(?<![\w-])|(?<=%[0-9A-Fa-f]{2}))rs_[\w-]{20,}")
 _UNRESERVED = re.compile(r"[A-Za-z0-9._~-]")  # what URL encoding leaves as it is
 
 
