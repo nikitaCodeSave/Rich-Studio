@@ -568,7 +568,7 @@
       "bot_api": [
        "Object"
       ],
-      "description": "Ответы на callback-кнопки: {callback_data: текст или объект}. Объект — параметры answerCallbackQuery (text, show_alert, url, cache_time) и по желанию reply: параметры sendRichMessage для rich-ответа, который видит только нажавший (Bot API 10.4): {rich_message: InputRichMessage, ephemeral_message_parameters?: {replace_callback_query_message: true — вместо поста}}. Студия добавит callback_query_id и всё равно ответит answerCallbackQuery; ответ проверяется как пост и не повторяется. Под постом канала не проверено, что он доходит",
+      "description": "Ответы на callback-кнопки: {callback_data: текст или объект}. Объект — параметры answerCallbackQuery (text, show_alert, url, cache_time) и по желанию reply: параметры sendRichMessage для rich-ответа, который видит только нажавший (Bot API 10.4): {rich_message: InputRichMessage, ephemeral_message_parameters?: {replace_callback_query_message: true — вместо поста}}. Студия добавит callback_query_id и всё равно ответит answerCallbackQuery; ответ проверяется как пост и не повторяется. Работает и под постом канала; замена поста — только у нажавшего, без кнопок поста и до перезапуска Telegram (эфемерные сообщения могут исчезать и сами)",
       "title": "Callbacks",
       "type": "object"
      },
