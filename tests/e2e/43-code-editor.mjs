@@ -45,11 +45,17 @@ export default async function ({ browser, BASE, check, until }) {
   await page.goto(BASE);
   await page.waitForSelector('.block');
 
+  // «В HTML» of the visual mode (html-export.js, renderAll → setSource): the HTML it makes is in CodeMirror
+  await page.click('#to-html');
+  await page.waitForSelector('#pane-html .cm-editor', quick).catch(() => {});
+  const exported = await until(async () => { const d = await doc(page, 'html'); return d && d.includes('Заголовок') && d; });
+  check('«В HTML» puts its HTML into CodeMirror', !!exported && exported === (await page.inputValue('#src-html')), JSON.stringify(exported));
+
   // HTML: what is typed is what the post gets (closing tags typed by hand are not doubled), tags from snippets.js,
   // the textarea, preview and draft follow
   await tab(page, 'html');
-  await page.waitForSelector('#pane-html .cm-editor', quick).catch(() => {});
   await page.click('#pane-html .cm-content');
+  await page.keyboard.press('Control+a');
   await page.keyboard.type('<p>Привет <b>жирный</b> и <i>курсив</i> <tg-sp');
   const tags = await list(page);
   const spoiler = await pick(page, 'tg-spoiler');
