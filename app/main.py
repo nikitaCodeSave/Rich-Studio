@@ -39,6 +39,7 @@ from api import (
     session,
     specs,
     suggested_posts,
+    templates,
 )
 from errors import StudioError
 from security import guard
@@ -223,6 +224,7 @@ def create_app(cfg: settings.Settings | None = None) -> FastAPI:
         channels,
         invite_links,
         suggested_posts,
+        templates,
         posts,
         raw,
         media,

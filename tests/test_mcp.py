@@ -643,3 +643,45 @@ def test_edit_post_with_a_stale_post_version_is_a_tool_error(client, tg):
         client, "edit_post", post_id=pid, post={"rich_message": {"markdown": "# Чужое"}}, post_version=p["version"]
     )
     assert res["isError"] and "get_post" in text
+
+
+def test_a_template_fills_into_a_new_draft_through_mcp(client, tg):
+    post = {"rich_message": {"html": '<p>Выпуск {{num}}: {{topic}}</p><p><a href="{{link}}">Читать</a></p>'}}
+    fields = [
+        {"key": "num", "label": "Номер"},
+        {"key": "topic", "label": "Тема"},
+        {"key": "link", "label": "Ссылка", "type": "url", "default": "https://example.com"},
+    ]
+    res, t, _ = call(client, "save_post_template", title="Выпуск", post=post, fields=fields)
+    assert not res.get("isError"), res
+    [row] = call_list(client, "list_post_templates")
+    assert row["id"] == t["id"] and [f["key"] for f in row["fields"]] == ["num", "topic", "link"]
+    _, full, _ = call(client, "get_post_template", template_id=t["id"])
+    assert full["payload"]["rich_message"]["html"] == post["rich_message"]["html"] and full["version"] == 1
+    res, d, _ = call(
+        client, "draft_from_template", template_id=t["id"], version=1, values={"num": "7", "topic": "<i>Кэш</i> & Co"}
+    )
+    assert not res.get("isError"), res
+    saved = store.get_draft(d["id"])
+    assert saved["payload"]["rich_message"]["html"] == (
+        '<p>Выпуск 7: &lt;i&gt;Кэш&lt;/i&gt; &amp; Co</p><p><a href="https://example.com">Читать</a></p>'
+    )
+    assert d["validation"]["ok"] and d["chat_ids"] is None and d["editor_url"].endswith("?draft=" + d["id"])
+    # an edit, then the old version: an error the agent can act on, nothing is overwritten or filled
+    res, t2, _ = call(
+        client, "save_post_template", title="Выпуск №", post=post, fields=fields, template_id=t["id"], version=1
+    )
+    assert not res.get("isError") and t2["version"] == 2
+    res, _, text = call(
+        client, "save_post_template", title="x", post=post, fields=fields, template_id=t["id"], version=1
+    )
+    assert res["isError"] and "get_post_template" in text and "version 2" in text
+    res, _, text = call(
+        client, "draft_from_template", template_id=t["id"], version=1, values={"num": "8", "topic": "x"}
+    )
+    assert res["isError"] and "get_post_template" in text and len(store.list_drafts()) == 1
+    res, _, text = call(
+        client, "save_post_template", title="md", post={"rich_message": {"markdown": "*{{a}}*"}}, fields=[{"key": "a"}]
+    )
+    assert res["isError"] and "Markdown" in text
+    assert not tg.calls

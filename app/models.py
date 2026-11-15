@@ -174,3 +174,37 @@ class ApproveSuggestedReq(BaseModel):
 
 class DeclineSuggestedReq(BaseModel):
     comment: str | None = Field(default=None, description="Комментарий автору предложения, до 128 символов")
+
+
+class TemplateField(BaseModel):
+    key: str = Field(
+        ..., description="Имя поля: в посте стоит как {{key}}; латинская буква или _, дальше буквы, цифры, _"
+    )
+    label: str = Field("", description="Подпись в форме заполнения; пусто — имя поля")
+    type: Literal["text", "multiline", "url"] = Field(
+        "text",
+        description="text — строка, multiline — несколько строк, url — ссылка http(s)/tg/mailto/tel или файл "
+        "upload:имя (только такое поле ставится в href и src)",
+    )
+    required: bool = Field(True, description="Без значения черновик не создаётся (поле без значения берёт default)")
+    default: str = Field("", description="Значение, если поле не заполнили")
+
+
+class TemplateReq(BaseModel):
+    title: str = Field(..., description="Название шаблона (рубрики)")
+    post: Post = Field(
+        ...,
+        description="Пост, как для отправки: {{key}} стоит только в строковых значениях (в HTML — в тексте или в "
+        "атрибуте в кавычках, в href/src — только поле типа url целиком); в Markdown поля пока не подставляются",
+    )
+    fields: list[TemplateField] = Field(default_factory=list, description="Поля шаблона: каждое стоит в посте")
+
+
+class TemplateUpdateReq(TemplateReq):
+    version: int = Field(..., description="version прочитанного шаблона: если его сохранили после этого, ответ 409")
+
+
+class TemplateFillReq(BaseModel):
+    version: int = Field(..., description="version шаблона, по которому заполнялась форма: иначе 409")
+    values: dict[str, str] = Field(default_factory=dict, description="Значения по key; поле без значения берёт default")
+    title: str = Field("", description="Название нового черновика; пусто — название шаблона")

@@ -886,6 +886,137 @@
     "title": "SessionReq",
     "type": "object"
    },
+   "TemplateField": {
+    "properties": {
+     "default": {
+      "default": "",
+      "description": "Значение, если поле не заполнили",
+      "title": "Default",
+      "type": "string"
+     },
+     "key": {
+      "description": "Имя поля: в посте стоит как {{key}}; латинская буква или _, дальше буквы, цифры, _",
+      "title": "Key",
+      "type": "string"
+     },
+     "label": {
+      "default": "",
+      "description": "Подпись в форме заполнения; пусто — имя поля",
+      "title": "Label",
+      "type": "string"
+     },
+     "required": {
+      "default": true,
+      "description": "Без значения черновик не создаётся (поле без значения берёт default)",
+      "title": "Required",
+      "type": "boolean"
+     },
+     "type": {
+      "default": "text",
+      "description": "text — строка, multiline — несколько строк, url — ссылка http(s)/tg/mailto/tel или файл upload:имя (только такое поле ставится в href и src)",
+      "enum": [
+       "text",
+       "multiline",
+       "url"
+      ],
+      "title": "Type",
+      "type": "string"
+     }
+    },
+    "required": [
+     "key"
+    ],
+    "title": "TemplateField",
+    "type": "object"
+   },
+   "TemplateFillReq": {
+    "properties": {
+     "title": {
+      "default": "",
+      "description": "Название нового черновика; пусто — название шаблона",
+      "title": "Title",
+      "type": "string"
+     },
+     "values": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "description": "Значения по key; поле без значения берёт default",
+      "title": "Values",
+      "type": "object"
+     },
+     "version": {
+      "description": "version шаблона, по которому заполнялась форма: иначе 409",
+      "title": "Version",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "version"
+    ],
+    "title": "TemplateFillReq",
+    "type": "object"
+   },
+   "TemplateReq": {
+    "properties": {
+     "fields": {
+      "description": "Поля шаблона: каждое стоит в посте",
+      "items": {
+       "$ref": "#/components/schemas/TemplateField"
+      },
+      "title": "Fields",
+      "type": "array"
+     },
+     "post": {
+      "$ref": "#/components/schemas/Post",
+      "description": "Пост, как для отправки: {{key}} стоит только в строковых значениях (в HTML — в тексте или в атрибуте в кавычках, в href/src — только поле типа url целиком); в Markdown поля пока не подставляются"
+     },
+     "title": {
+      "description": "Название шаблона (рубрики)",
+      "title": "Title",
+      "type": "string"
+     }
+    },
+    "required": [
+     "title",
+     "post"
+    ],
+    "title": "TemplateReq",
+    "type": "object"
+   },
+   "TemplateUpdateReq": {
+    "properties": {
+     "fields": {
+      "description": "Поля шаблона: каждое стоит в посте",
+      "items": {
+       "$ref": "#/components/schemas/TemplateField"
+      },
+      "title": "Fields",
+      "type": "array"
+     },
+     "post": {
+      "$ref": "#/components/schemas/Post",
+      "description": "Пост, как для отправки: {{key}} стоит только в строковых значениях (в HTML — в тексте или в атрибуте в кавычках, в href/src — только поле типа url целиком); в Markdown поля пока не подставляются"
+     },
+     "title": {
+      "description": "Название шаблона (рубрики)",
+      "title": "Title",
+      "type": "string"
+     },
+     "version": {
+      "description": "version прочитанного шаблона: если его сохранили после этого, ответ 409",
+      "title": "Version",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "title",
+     "post",
+     "version"
+    ],
+    "title": "TemplateUpdateReq",
+    "type": "object"
+   },
    "Topic": {
     "properties": {
      "id": {
@@ -1759,7 +1890,7 @@
       "description": "Successful Response"
      }
     },
-    "summary": "Загруженные файлы; used — нужен ли файл черновику или посту",
+    "summary": "Загруженные файлы; used — нужен ли файл черновику, шаблону или посту",
     "tags": [
      "media"
     ]
@@ -1893,7 +2024,7 @@
       "description": "Successful Response"
      }
     },
-    "summary": "Удалить файлы, которые не упоминает ни один черновик и ни один живой пост",
+    "summary": "Удалить файлы, которые не упоминает ни один черновик, шаблон и живой пост",
     "tags": [
      "media"
     ]
@@ -1983,7 +2114,7 @@
       "description": "Validation Error"
      }
     },
-    "summary": "Удалить файл; если он нужен отложенному посту или черновику, 409 (force=true удаляет всё равно)",
+    "summary": "Удалить файл; если он нужен отложенному посту, черновику или шаблону, 409 (force=true удаляет всё равно)",
     "tags": [
      "media"
     ]
@@ -3338,6 +3469,249 @@
     "summary": "Решить снова: решение без ответа Telegram (approving/declining) возвращается в ожидание",
     "tags": [
      "suggested posts"
+    ]
+   }
+  },
+  "/api/templates": {
+   "get": {
+    "operationId": "list_templates_api_templates_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Шаблоны постов (без самого поста), последние сверху",
+    "tags": [
+     "templates"
+    ]
+   },
+   "post": {
+    "description": "Значение поля всегда текст: в HTML экранируется, в блоках остаётся строкой. 422, если {{key}} стоит там,\nгде значение стало бы разметкой: в теге, в ключе JSON, в атрибуте без кавычек, в Markdown.",
+    "operationId": "create_template_api_templates_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/TemplateReq"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Новый шаблон: пост с {{key}} и описание его полей",
+    "tags": [
+     "templates"
+    ]
+   }
+  },
+  "/api/templates/{tid}": {
+   "delete": {
+    "operationId": "delete_template_api_templates__tid__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "tid",
+      "required": true,
+      "schema": {
+       "title": "Tid",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "version",
+      "required": true,
+      "schema": {
+       "title": "Version",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Удалить шаблон; со старой version — 409. Черновики из него остаются",
+    "tags": [
+     "templates"
+    ]
+   },
+   "get": {
+    "operationId": "get_template_api_templates__tid__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "tid",
+      "required": true,
+      "schema": {
+       "title": "Tid",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Шаблон целиком: пост с {{key}}, поля, version",
+    "tags": [
+     "templates"
+    ]
+   },
+   "put": {
+    "operationId": "put_template_api_templates__tid__put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "tid",
+      "required": true,
+      "schema": {
+       "title": "Tid",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/TemplateUpdateReq"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Сохранить шаблон; со старой version — 409",
+    "tags": [
+     "templates"
+    ]
+   }
+  },
+  "/api/templates/{tid}/draft": {
+   "post": {
+    "description": "Поле без значения берёт default; пустое обязательное поле и ссылка не той схемы — 422. Ничего не публикует.",
+    "operationId": "draft_from_template_api_templates__tid__draft_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "tid",
+      "required": true,
+      "schema": {
+       "title": "Tid",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/TemplateFillReq"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Заполнить шаблон: новый черновик без каналов; со старой version — 409, больше 1 МБ — 413",
+    "tags": [
+     "templates"
     ]
    }
   },
