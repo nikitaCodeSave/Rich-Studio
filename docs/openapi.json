@@ -2235,7 +2235,7 @@
   },
   "/api/posts": {
    "get": {
-    "description": "Для каждого поста: `title`, `thumb`, `link`, нажатия (`clicks`) и текст кнопки каждого `callback_data`\n(`buttons`), rich-ответы на нажатия, которые не дошли (`reply_errors`: `{callback_data: {n, error, at}}`). Отправка, которой Telegram отказал, — статус `failed` с ошибкой. `outcome_unknown: true` у `failed`:\nисход неизвестен (Telegram не ответил, студия остановилась или упала посреди отправки), пост мог уйти. Такая\nзапись не уходит после успешной отправки того же черновика и видна в `/api/health`, пока её не уберут `DELETE`.",
+    "description": "Для каждого поста: `title`, `thumb`, `link`, нажатия (`clicks`) и текст кнопки каждого `callback_data`\n(`buttons`), rich-ответы на нажатия, которые не дошли (`reply_errors`: `{callback_data: {n, error, at}}`).\nОтправка, которой Telegram отказал, — статус `failed` с ошибкой. `outcome_unknown: true` у `failed`:\nисход неизвестен (Telegram не ответил, студия остановилась или упала посреди отправки), пост мог уйти. Такая\nзапись не уходит после успешной отправки того же черновика и видна в `/api/health`, пока её не уберут `DELETE`.\n`comment_status: sending` и `comment_in_flight: true`: первый комментарий отправляется сейчас; `false`: он не\nподтверждён, его никто больше не отправляет — например, Telegram его принял, а база не приняла запись (событие\n`send.unrecorded` с `message_id` в журнале), или Telegram отказал, а сбой не записался (ошибка «could not record\nthe failed first comment»); мог уйти, заново его не публикуйте; `null`: процесс студии в резерве, комментарии\nотправляет другой, отсюда не видно, идёт запрос или нет.",
     "operationId": "list_posts_api_posts_get",
     "parameters": [
      {

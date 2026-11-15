@@ -6,6 +6,7 @@ from .db import conn, init
 from .drafts import delete_draft, drafts_using, get_draft, list_drafts, save_draft
 from .meta import drop_lease, get_meta, lease_holder, set_meta, take_lease
 from .posts import (
+    add_error,
     add_post,
     add_scheduled,
     add_version,
@@ -51,6 +52,7 @@ from .tokens import (
 )
 
 __all__ = [
+    "add_error",
     "add_post",
     "add_scheduled",
     "add_session",

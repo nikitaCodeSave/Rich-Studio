@@ -112,6 +112,7 @@ dialog .ok { color: var(--ok); } dialog .w { color: var(--warn); }
 .list li:hover { background: var(--soft); }
 .list li.on { background: var(--chip); }
 .list li .meta { font-size: 11.5px; color: var(--muted); display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.list li .meta.stats { display: block; } /* one line of text: a note with its own hint wraps like the words around it */
 .list li .acts { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
 .post-head { display: flex; gap: 8px; align-items: center; }
 .post-head .thumb { width: 36px; height: 36px; object-fit: cover; border-radius: 6px; flex: none; }
@@ -120,7 +121,7 @@ dialog .ok { color: var(--ok); } dialog .w { color: var(--warn); }
 #posts-filter { margin: 0 0 6px; font-size: 12px; }
 .status { padding: 0 6px; border-radius: 999px; font-size: 11px; background: var(--soft); }
 .status.sent { color: var(--ok); } .status.failed { color: var(--err); } .status.scheduled, .status.missed { color: var(--warn); }
-.status.unknown, .post-error.unknown { color: var(--warn); }
+.status.unknown, .post-error.unknown, .stats .unknown { color: var(--warn); }
 .actor { padding: 0 6px; border-radius: 999px; font-size: 11px; border: 1px solid var(--soft); }
 .upload { display: block; text-align: center; border: 1px dashed var(--accent); color: var(--accent); border-radius: 8px; padding: 10px; cursor: pointer; }
 .uploads li { flex-direction: row; align-items: center; gap: 8px; }

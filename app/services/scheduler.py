@@ -60,7 +60,8 @@ async def _send_claimed(queued: dict, now: float) -> None:
         warnings = [f"{type(e).__name__}: {e}"]
     if warnings:
         try:
-            store.update_post(p["id"], error="; ".join(warnings))
+            # added, not replaced: the comment's forward may have come during the steps, and its failure is in there
+            store.add_error(p["id"], "; ".join(warnings))
         except Exception:
             log.exception("could not record the warnings of sent post %s: %s", p["id"], "; ".join(warnings))
 

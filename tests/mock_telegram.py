@@ -3,8 +3,10 @@
 Run standalone: uvicorn mock_telegram:app --port 8081 (from tests/), then start the studio with
 TG_BOT_TOKEN=1:x TG_API_BASE=http://127.0.0.1:8081. GET /log shows every call;
 POST /push queues an update that the studio will receive through getUpdates;
-POST /fail makes a method answer 400 (for checks of refused sends). sendRichMessage with
-ephemeral_message_parameters.callback_query_id is an ephemeral reply to a button press: no chat_id, message_id 0.
+POST /fail makes a method answer 400 (for checks of refused sends);
+POST /hold keeps the answers of a method back until POST /release (for checks of a request under way).
+sendRichMessage with ephemeral_message_parameters.callback_query_id is an ephemeral reply to a button press:
+no chat_id, message_id 0.
 """
 
 import asyncio
@@ -17,6 +19,7 @@ from fastapi import FastAPI, Request
 # real answers of Telegram to known HTML/Markdown sources (scripts/capture_telegram_parse.py)
 CAPTURED = Path(__file__).resolve().parent / "telegram_parse" / "captured.json"
 _parsed_cache: dict = {}
+HOLD_MAX = 15  # seconds a /hold lasts without /release: a check that fails midway does not slow the stand down
 
 TRUE_METHODS = {
     "deleteMessage",
@@ -91,6 +94,8 @@ class FakeTelegram:
         self.updates: list[dict] = []  # what the next getUpdates returns
         self.messages: dict[tuple, dict] = {}  # (chat_id, message_id) -> content, to answer edits like Telegram
         self.links: dict[str, dict] = {}  # invite_link -> ChatInviteLink
+        self.held: dict[str, asyncio.Event] = {}  # method -> set on release: its requests wait for it, then answer
+        self._loop: asyncio.AbstractEventLoop | None = None  # the server's loop: the Events of `held` are set there
         self.app = self._build()
 
     def reset(self):
@@ -101,6 +106,19 @@ class FakeTelegram:
         self.updates.clear()
         self.messages.clear()
         self.links.clear()
+        held, self.held = self.held, {}
+        if self._loop:  # the test's thread: an Event is set only on the server's loop, the one /hold noted
+            for released in held.values():
+                self._loop.call_soon_threadsafe(released.set)
+
+    def _release(self, method: str, only: asyncio.Event | None = None) -> None:
+        """On the server's loop: the held requests of `method` get their answers, the next ones go through. `only`:
+        the timer of a hold leaves a later hold of the same method alone."""
+        released = self.held.get(method)
+        if released is None or (only is not None and released is not only):
+            return
+        del self.held[method]
+        released.set()
 
     def last(self, method: str) -> dict:
         return [c for c in self.calls if c["method"] == method][-1]
@@ -258,6 +276,8 @@ class FakeTelegram:
             if method == "getUpdates" and not self.queue.get(method):  # a queued answer: an error of the long poll
                 return await self._get_updates(body)
             self.calls.append({"method": method, "token": token, "body": body, "files": files})
+            if (released := self.held.get(method)) is not None:  # in the log already: the request is under way
+                await released.wait()
             return self.answer(method, body)  # a queued starlette Response (e.g. an HTML 502) goes out as is
 
         @app.post("/push")
@@ -274,6 +294,23 @@ class FakeTelegram:
             else:
                 self.fail.pop(req["method"], None)
                 self.fail_code.pop(req["method"], None)
+            return {"ok": True}
+
+        @app.post("/hold")
+        async def hold(req: dict):
+            """{"method": ...}: its requests get their answers only on /release, at the latest HOLD_MAX seconds after
+            this call: a forgotten /release does not slow down every later request of that method."""
+            method = req["method"]
+            if method not in self.held:
+                self._loop = asyncio.get_running_loop()
+                released = self.held[method] = asyncio.Event()
+                self._loop.call_later(HOLD_MAX, self._release, method, released)
+            return {"ok": True}
+
+        @app.post("/release")
+        async def release(req: dict):
+            """{"method": ...}: the held requests of that method get their answers, the next ones go through."""
+            self._release(req["method"])
             return {"ok": True}
 
         @app.get("/log")

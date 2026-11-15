@@ -411,6 +411,13 @@ def fail_comment(pid: str, error: str) -> None:
         )
 
 
+def add_error(pid: str, error: str) -> None:
+    """Add to the error of a post in one statement, never replacing what is there: the warnings of a sent post are
+    written after its steps, and the failure of its first comment (fail_comment) may have come in that second."""
+    with conn() as c:
+        c.execute("update posts set error=coalesce(error || '; ', '') || ? where id=?", (_error(error), pid))
+
+
 def using_upload(ref: str) -> list[dict]:
     """Posts still waiting (scheduled or missed) whose content mentions the upload reference (e.g. "upload:cat.png")."""
     with conn() as c:
