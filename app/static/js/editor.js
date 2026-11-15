@@ -5,6 +5,7 @@ import { channelTitle } from './channels.js';
 import { saveDraft } from './drafts.js';
 import { renderBlocksPane } from './forms.js';
 import { recordHistory } from './history.js';
+import { exportToHtml } from './html-export.js';
 import { readIssue, reveal } from './issues.js';
 import { renderKeyboard } from './keyboard.js';
 import { plural } from './labels.js';
@@ -115,6 +116,7 @@ export function setMode(mode, silent) {
   $$('#mode-tabs button').forEach((b) => b.classList.toggle('on', b.dataset.mode === mode));
   ['blocks', 'html', 'markdown', 'json'].forEach((m) => { $('#pane-' + m).hidden = m !== mode; });
   $('#panel-media').hidden = mode === 'blocks';
+  $('#blocks-tools').hidden = mode !== 'blocks';
   if (mode === 'json') { renderJson(); $('#json-err').textContent = ''; }
   const hints = { blocks: 'отправляется как rich_message.blocks', html: 'отправляется как rich_message.html', markdown: 'отправляется как rich_message.markdown', json: 'активный формат: ' + S.format };
   $('#mode-hint').textContent = hints[mode];
@@ -158,6 +160,11 @@ function renderNotes() {
   const w = S.notes.warnings;
   /** @type {import('./components/rs-draft-notes.js').RsDraftNotes} */ ($('#draft-notes')).warnings =
     Array.isArray(w) ? w.map((x) => (typeof x === 'string' ? x : JSON.stringify(x))) : [];
+}
+
+// «В HTML» in the visual mode: the post as HTML source in its tab (html-export.js); the blocks stay in theirs
+export function bindHtmlExport() {
+  $('#to-html').onclick = () => exportToHtml(() => { setMode('html', true); renderAll(); changed(); });
 }
 
 // ---------- after publishing: pin, first comment, poll ----------

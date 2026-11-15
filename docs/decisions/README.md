@@ -24,3 +24,4 @@
 | [0014](0014-vendored-api-docs.md) | Swagger UI для `/docs` вендорен в `app/static/vendor/`, без CDN и ReDoc |
 | [0015](0015-forward-import.md) | Пост из Telegram в черновик пересылкой боту, а не через MTProto или веб-виджет |
 | [0017](0017-codemirror-vendored-modules.md) | CodeMirror 6 для вкладок исходника: файлы из npm с переписанными импортами (`make vendor`), без сборщика |
+| [0018](0018-html-export-on-request.md) | Визуальный пост в HTML по кнопке «В HTML», а не синхронизация вкладок |

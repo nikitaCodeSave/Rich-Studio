@@ -35,6 +35,7 @@ check-js:
 	npm run --silent test:render
 	npm run --silent test:parity
 	npm run --silent test:shots
+	PYTHON=$(PY) npm run --silent test:export
 
 fmt:
 	$(PY) -m ruff check --fix .

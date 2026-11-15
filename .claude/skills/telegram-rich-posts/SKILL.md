@@ -22,7 +22,7 @@ curl -s $S/api/spec | jq '{version, release_date, source, changes: .changes[0]}'
 curl -s https://raw.githubusercontent.com/PaulSonOfLars/telegram-bot-api-spec/main/api.json | jq '{version, release_date}'
 ```
 
-- With the `rich-studio` MCP tools: `bot_api_status`, and `refresh_bot_api` to download the newest spec right now (the studio otherwise checks at startup and every 12 hours; a server studio answers `pinned`: its spec changes only with an image update, so say that instead of retrying). Both report `gaps`: blocks the editor has no Russian label or preview for yet. Such blocks still send fine; tell the user the preview may show them as a JSON stub.
+- With the `rich-studio` MCP tools: `bot_api_status`, and `refresh_bot_api` to download the newest spec right now (the studio otherwise checks at startup and every 12 hours; a server studio answers `pinned`: its spec changes only with an image update, so say that instead of retrying). Both report `gaps`: blocks the editor has no Russian label, preview or «В HTML» export for yet (`part`: `labels`, `preview`, `export`). Such blocks still send fine; tell the user the preview may show them as a JSON stub and the editor's «В HTML» button refuses a post with them.
 - If the version is newer than 10.4, read what changed before writing the post: `POST $S/api/spec/refresh` returns the diff (new types, fields, methods), and https://core.telegram.org/bots/api-changelog has the human description. Prefer the new features when they fit the user's goal and say which ones you used.
 - Exact fields of any type or method, from the current spec:
   `curl -s $S/api/spec/type/InputRichBlockTable | jq` (or `jq '.types.InputRichBlockTable' api.json`).
