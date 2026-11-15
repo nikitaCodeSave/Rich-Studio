@@ -1085,3 +1085,17 @@ def test_a_poll_that_may_have_gone_stays_listed(client, tg, monkeypatch):
         assert post_json(client, "/api/send", {"post": post, "draft_id": did}).status_code == 200
     gone = [x for x in client.get("/api/posts").json() if x["kind"] == "poll"]
     assert len(gone) == 2 and all("Опрос мог уйти" in x["error"] for x in gone)
+
+
+def test_put_draft_keeps_studio_notes_unless_the_editor_sends_its_own(client):
+    studio = {"source": {"link": "l"}, "warnings": ["w"], "format": "html", "buffers": {"html": "x"}}
+    d = post_json(client, "/api/drafts", {"title": "t", "post": {**BLOCKS_POST, "_studio": studio}}).json()
+    new = {"rich_message": {"html": "<p>x</p>"}}
+    # an agent (no _studio): the notes stay, the editor buffers go
+    client.put("/api/drafts/" + d["id"], json={"title": "t", "post": new})
+    kept = client.get("/api/drafts/" + d["id"]).json()["payload"]["_studio"]
+    assert kept == {"source": {"link": "l"}, "warnings": ["w"]}
+    # the editor sends _studio whole: saved as sent
+    own = {"format": "html", "buffers": {"html": "y"}}
+    client.put("/api/drafts/" + d["id"], json={"title": "t", "post": {**new, "_studio": own}})
+    assert client.get("/api/drafts/" + d["id"]).json()["payload"]["_studio"] == own
