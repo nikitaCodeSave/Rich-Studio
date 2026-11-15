@@ -1,9 +1,18 @@
 .env
+.env.*
+**/.env
+**/*.env
+**/secrets/
+.git/
+test-results/
 data/
 **/__pycache__
 .claude/
+.claude/worktrees/
 # the one file of .claude/ the image needs: agents read it over MCP (Dockerfile)
 !.claude/skills/telegram-rich-posts/SKILL.md
 node_modules/
 **/AGENTS.md
 .venv/
+*.pem
+*.key
