@@ -133,7 +133,10 @@ def list_posts(status: str | None = None, chat: str | None = None, limit: int = 
     """Для каждого поста: `title`, `thumb`, `link`, нажатия (`clicks`) и текст кнопки каждого `callback_data`
     (`buttons`). Отправка, которой Telegram отказал, — статус `failed` с ошибкой. `outcome_unknown: true` у `failed`:
     исход неизвестен (Telegram не ответил, студия остановилась или упала посреди отправки), пост мог уйти. Такая
-    запись не уходит после успешной отправки того же черновика и видна в `/api/health`, пока её не уберут `DELETE`."""
+    запись не уходит после успешной отправки того же черновика и видна в `/api/health`, пока её не уберут `DELETE`.
+    `comment_status: sending` и `comment_in_flight: true`: первый комментарий отправляется сейчас; `false`: он не
+    подтверждён (Telegram его принял, а база не приняла запись, `message_id` есть только в журнале, событие
+    `send.unrecorded`; или отправку оборвало падение студии) — мог уйти, заново его не публикуйте."""
     return listing.list_posts(limit, status=status, chat=chat)
 
 

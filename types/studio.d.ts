@@ -205,6 +205,9 @@ interface PostRow {
   /** a failed send that may be in the channel all the same (no answer, a stop or a crash mid-send): stays until removed */
   outcome_unknown: boolean;
   comment_status: string | null;
+  /** with comment_status "sending": true while the request is under way, false when nobody sends it any more (Telegram
+   * may have it, the record is missing: a database that refused it, or a crash mid-send) */
+  comment_in_flight: boolean;
   reactions: Json | null;
   clicks: Json | null;
   /** callback_data → the text on its button */

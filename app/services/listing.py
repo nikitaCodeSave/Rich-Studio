@@ -5,7 +5,7 @@ import re
 
 import store
 
-from . import channels, kinds
+from . import channels, kinds, publisher
 
 TITLE_LEN = 120
 # a closing block tag or a line break ends a line of the post
@@ -132,5 +132,8 @@ def list_posts(limit: int = 100, status: str | None = None, chat: str | None = N
         p["buttons"] = button_texts(payload, p.get("kind"))
         p["link"] = link(p["chat_id"], p["message_id"])
         p["pinned"] = bool(p.get("pinned"))
+        # a first comment "sending" is a request under way, or one nobody sends any more: Telegram took it and the
+        # database refused the record (its message_id is in the log, send.unrecorded), or a crash cut it off
+        p["comment_in_flight"] = p.get("comment_status") == "sending" and p["id"] in publisher.in_flight
         out.append(p)
     return out

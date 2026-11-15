@@ -3,10 +3,12 @@
 Run standalone: uvicorn mock_telegram:app --port 8081 (from tests/), then start the studio with
 TG_BOT_TOKEN=1:x TG_API_BASE=http://127.0.0.1:8081. GET /log shows every call;
 POST /push queues an update that the studio will receive through getUpdates;
-POST /fail makes a method answer 400 (for checks of refused sends).
+POST /fail makes a method answer 400 (for checks of refused sends);
+POST /hold keeps the answers of a method back until POST /release (for checks of a request under way).
 """
 
 import asyncio
+import contextlib
 import json
 import time
 from pathlib import Path
@@ -16,6 +18,7 @@ from fastapi import FastAPI, Request
 # real answers of Telegram to known HTML/Markdown sources (scripts/capture_telegram_parse.py)
 CAPTURED = Path(__file__).resolve().parent / "telegram_parse" / "captured.json"
 _parsed_cache: dict = {}
+HOLD_MAX = 15  # seconds a held request waits for /release at most: a check that fails midway does not hang the stand
 
 TRUE_METHODS = {
     "deleteMessage",
@@ -90,6 +93,7 @@ class FakeTelegram:
         self.updates: list[dict] = []  # what the next getUpdates returns
         self.messages: dict[tuple, dict] = {}  # (chat_id, message_id) -> content, to answer edits like Telegram
         self.links: dict[str, dict] = {}  # invite_link -> ChatInviteLink
+        self.held: dict[str, asyncio.Event] = {}  # method -> set by /release: its requests wait for it, then answer
         self.app = self._build()
 
     def reset(self):
@@ -100,6 +104,9 @@ class FakeTelegram:
         self.updates.clear()
         self.messages.clear()
         self.links.clear()
+        for released in self.held.values():
+            released.set()
+        self.held.clear()
 
     def last(self, method: str) -> dict:
         return [c for c in self.calls if c["method"] == method][-1]
@@ -243,6 +250,9 @@ class FakeTelegram:
             if method == "getUpdates" and not self.queue.get(method):  # a queued answer: an error of the long poll
                 return await self._get_updates(body)
             self.calls.append({"method": method, "token": token, "body": body, "files": files})
+            if (released := self.held.get(method)) is not None:  # in the log already: the request is under way
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(released.wait(), HOLD_MAX)
             return self.answer(method, body)  # a queued starlette Response (e.g. an HTML 502) goes out as is
 
         @app.post("/push")
@@ -259,6 +269,19 @@ class FakeTelegram:
             else:
                 self.fail.pop(req["method"], None)
                 self.fail_code.pop(req["method"], None)
+            return {"ok": True}
+
+        @app.post("/hold")
+        async def hold(req: dict):
+            """{"method": ...}: its requests get their answer only after /release (or HOLD_MAX seconds)."""
+            self.held.setdefault(req["method"], asyncio.Event())
+            return {"ok": True}
+
+        @app.post("/release")
+        async def release(req: dict):
+            """{"method": ...}: the held requests of that method get their answers, the next ones go through."""
+            if (released := self.held.pop(req["method"], None)) is not None:
+                released.set()
             return {"ok": True}
 
         @app.get("/log")
