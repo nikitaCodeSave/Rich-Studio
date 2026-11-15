@@ -73,5 +73,6 @@
 - `tests/e2e_ui.mjs` — раннер браузерных проверок против запущенной студии и `tests/mock_telegram.py`; сами проверки — по файлу на каждую в `tests/e2e/`.
 - `npm run test:render` — `tests/render_unit.mjs`: очистка HTML/Markdown в render.js на враждебных примерах (script, on*, javascript:, svg, mXSS), без студии. Новая дыра в санитайзере → сначала пример сюда.
 - `npm run test:parity` — `tests/render_parity.mjs`: предпросмотр каждого примера из `tests/telegram_parse/captured.json` совпадает с предпросмотром блоков, которые для него вернул настоящий Telegram. Новый пример: добавить в `cases.json` и записать `scripts/capture_telegram_parse.py` (нужен токен и чат, сообщения сразу удаляются). Осознанное расхождение помечается `known_gap` с причиной.
+- `npm run test:export` — `tests/html_export.mjs`: «В HTML» (`static/js/html-export.js`) на блоках настоящего Telegram из `captured.json` (через `spec/convert.py`, нужен Python студии) даёт HTML, который предпросмотр рисует как те же блоки; отказы перечисляют всё, что не попало бы в HTML.
 - `npm run lint` — ESLint для `app/static` и тестов на JS: ловит неопределённые имена и забытые импорты, которые браузер покажет только при клике.
-- Перед изменением и перед PR: `make check` (ruff, формат, mypy, `lint-imports`, pytest, ESLint, tsc, `test:render`, `test:parity`, `test:shots`).
+- Перед изменением и перед PR: `make check` (ruff, формат, mypy, `lint-imports`, pytest, ESLint, tsc, `test:render`, `test:parity`, `test:shots`, `test:export`).
