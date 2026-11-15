@@ -33,8 +33,8 @@ def test_a_fresh_database_runs_every_step():
     assert {"meta", "idempotency", "post_versions", "channels"} <= tables
 
 
-def test_an_old_database_gets_only_the_new_steps():
-    """A database left at step 4 (before post history) gets steps 5 and on; what it had stays."""
+def _database_at(step: int) -> sqlite3.Connection:
+    """This test's database as a studio left it after `step` steps; the caller adds rows, commits and closes."""
     path = settings.get().db_path
     path.unlink()
     for extra in ("-wal", "-shm"):
@@ -43,7 +43,13 @@ def test_an_old_database_gets_only_the_new_steps():
     old.executescript(db.SCHEMA)
     for col, decl in db.EXTRA_COLUMNS.items():
         old.execute(f"alter table posts add column {col} {decl}")
-    old.executescript("".join(db.MIGRATIONS[:4]) + "pragma user_version = 4;")
+    old.executescript("".join(db.MIGRATIONS[:step]) + f"pragma user_version = {step};")
+    return old
+
+
+def test_an_old_database_gets_only_the_new_steps():
+    """A database left at step 4 (before post history) gets steps 5 and on; what it had stays."""
+    old = _database_at(4)
     old.execute("insert into meta(key, value) values ('kept', '1')")
     old.commit()
     old.close()
@@ -52,6 +58,36 @@ def test_an_old_database_gets_only_the_new_steps():
         assert c.execute("pragma user_version").fetchone()[0] == len(db.MIGRATIONS)
         assert c.execute("select value from meta where key='kept'").fetchone()[0] == "1"
         c.execute("select post_id, chat_ids from drafts")
+
+
+# what the studio wrote before the flag: the trace of "may have gone" was only in the text of the error
+OLD_ROWS = [
+    ("crash", "failed", "сервис остановился во время отправки; проверьте канал, пост мог уйти", 1),
+    ("timeout", "failed", "ReadTimeout: timeout. Пост мог уйти в канал, проверьте перед повтором", 1),
+    ("stop", "failed", "студия остановилась во время отправки. Пост мог уйти в канал, проверьте перед повтором", 1),
+    ("poll", "failed", "TimeoutError: read timeout. Опрос мог уйти в канал, проверьте перед повтором", 1),
+    ("refused", "failed", "Bad Request: chat not found", 0),
+    ("no text", "failed", None, 0),
+    # sent: the outcome of the post is known, whatever its later steps say
+    ("comment", "sent", "первый комментарий: ReadTimeout: x. Он мог уйти, проверьте обсуждение", 0),
+    ("its poll", "sent", "опрос после поста: TimeoutError: x. Опрос мог уйти в канал, проверьте перед повтором", 0),
+]
+
+
+def test_rows_that_may_have_gone_get_the_flag_from_their_text():
+    files = sorted(db.MIGRATIONS_DIR.glob("*.sql"))
+    step = next(i for i, f in enumerate(files) if f.name.endswith("_outcome_unknown.sql"))
+    old = _database_at(step)
+    old.executemany(
+        "insert into posts(id, chat_id, payload, status, error, created_at) values (?, '@c', '{}', ?, ?, 0)",
+        [r[:3] for r in OLD_ROWS],
+    )
+    old.commit()
+    old.close()
+    db.init()
+    with store.conn() as c:
+        flags = dict(c.execute("select id, outcome_unknown from posts").fetchall())
+    assert flags == {pid: flag for pid, _, _, flag in OLD_ROWS}
 
 
 def test_a_step_that_fails_halfway_leaves_nothing_and_runs_again(monkeypatch):

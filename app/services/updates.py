@@ -1,5 +1,5 @@
 """Incoming Telegram updates (getUpdates): button clicks, first comments, reactions, poll results, joins,
-suggested posts."""
+suggested posts, posts the owner forwards to the bot."""
 
 import asyncio
 import json
@@ -14,7 +14,7 @@ import settings
 import store
 import telegram as tg
 
-from . import channels, invite_links, suggested_posts
+from . import channels, forward_import, invite_links, suggested_posts
 
 log = logging.getLogger("rich-studio.updates")
 # tests replace this one name; patching asyncio.sleep itself would also stop the fake Telegram server
@@ -158,6 +158,8 @@ async def handle_update(u: dict) -> str | None:
         return "join" if invite_links.on_member(cm) else None
     if jr := u.get("chat_join_request"):
         return "join_request" if invite_links.on_join_request(jr) else None
+    if (m := u.get("message")) and forward_import.wanted(m):  # the owner forwarded a post: a draft of it
+        return await forward_import.on_message(m)
     return None
 
 

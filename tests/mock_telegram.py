@@ -24,6 +24,7 @@ TRUE_METHODS = {
     "answerCallbackQuery",
     "approveSuggestedPost",
     "declineSuggestedPost",
+    "setMessageReaction",
 }
 
 
@@ -145,6 +146,9 @@ class FakeTelegram:
             else:
                 media = {"paid_media": {"star_count": int(body.get("star_count") or 0), "paid_media": []}}
             return {"ok": True, "result": _message(self.next_id, caption=body.get("caption"), **media)}
+        if method == "sendMessage":  # the studio's short answers in the owner's chat
+            self.next_id += 1
+            return {"ok": True, "result": _message(self.next_id, text=body.get("text"))}
         if method in ("sendRichMessage", "sendPoll"):
             self.next_id += 1
             res = _message(self.next_id)

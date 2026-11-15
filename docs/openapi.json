@@ -2082,7 +2082,7 @@
   },
   "/api/posts": {
    "get": {
-    "description": "Для каждого поста: `title`, `thumb`, `link`, нажатия (`clicks`) и текст кнопки каждого `callback_data`\n(`buttons`). Отправка, которой Telegram отказал, — статус `failed` с ошибкой.",
+    "description": "Для каждого поста: `title`, `thumb`, `link`, нажатия (`clicks`) и текст кнопки каждого `callback_data`\n(`buttons`). Отправка, которой Telegram отказал, — статус `failed` с ошибкой. `outcome_unknown: true` у `failed`:\nисход неизвестен (Telegram не ответил, студия остановилась или упала посреди отправки), пост мог уйти. Такая\nзапись не уходит после успешной отправки того же черновика и видна в `/api/health`, пока её не уберут `DELETE`.",
     "operationId": "list_posts_api_posts_get",
     "parameters": [
      {
