@@ -44,7 +44,9 @@
     } else if (kind === 'photo') {
       node = el('img', { src, alt: '', loading: 'lazy' });
     } else if (kind === 'video' || kind === 'animation') {
-      node = el('video', { src, controls: kind === 'video', autoplay: kind === 'animation', loop: kind === 'animation', muted: true, playsinline: true });
+      node = el('video', { src, controls: kind === 'video', autoplay: kind === 'animation', loop: kind === 'animation', playsinline: true });
+      // autoplay policy looks at the property; the muted attribute only sets the default after parsing
+      node.defaultMuted = node.muted = true;
     } else if (kind === 'audio' || kind === 'voice_note' || kind === 'voice') {
       node = el('audio', { src, controls: true });
     } else {
@@ -216,8 +218,10 @@
   // Slides turn by touch (native scroll), by a click on a dot, by ← → on the focused slides and by
   // dragging with the mouse. Moves are physical (scroll deltas), so RTL posts turn the right way too.
   function slideshow(contentFrag, cap) {
-    const track = el('div', { class: 'tg-slides', tabindex: 0, role: 'group', 'aria-label': 'Слайдшоу: листается стрелками ← →, мышью и точками' }, contentFrag);
+    const track = el('div', { class: 'tg-slides' }, contentFrag);
     const count = track.children.length;
+    // nothing to turn in a single slide: no focus stop, no hint about arrows
+    if (count > 1) Object.entries({ tabindex: 0, role: 'group', 'aria-label': 'Слайдшоу: листается стрелками ← →, мышью и точками' }).forEach(([k, v]) => track.setAttribute(k, String(v)));
     const dots = el('div', { class: 'tg-dots', 'aria-hidden': 'true' });
     for (let i = 0; i < count; i++) dots.append(el('span', { class: i ? '' : 'on' }));
     const by = (left) => track.scrollBy({ left, behavior: 'smooth' });
