@@ -2158,7 +2158,7 @@
   },
   "/api/posts/{pid}": {
    "delete": {
-    "description": "`DELETE` неудачной отправки убирает её из списка.",
+    "description": "`DELETE` неудачной отправки убирает только её запись из списка, в канале ничего не удаляется. Запись с\n`outcome_unknown: true` (пост мог уйти) так и решают: проверили канал и убрали её, тогда она уходит и из\n`/api/health`.",
     "operationId": "delete_post_api_posts__pid__delete",
     "parameters": [
      {

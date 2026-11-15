@@ -53,7 +53,10 @@ def problem_posts(
                 where {where} order by at desc limit ?""",  # noqa: S608 - placeholders only
             (*args, limit),
         )
-        return _brief(rows), total
+        found = _brief(rows)
+    for p in found:  # a bool, as in /api/posts
+        p["outcome_unknown"] = bool(p["outcome_unknown"])
+    return found, total
 
 
 def uncertain_sends(since: int) -> list[dict]:
