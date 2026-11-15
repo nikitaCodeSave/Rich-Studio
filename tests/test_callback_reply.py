@@ -157,6 +157,18 @@ def test_a_press_that_waited_past_the_window_gets_only_the_answer(client, tg):
     assert next(x for x in logs.read("WARNING", text="callback.reply_failed"))["outcome"] == "late"
 
 
+def test_a_broken_stored_reply_never_stops_the_answer(client, tg):
+    """A payload stored before the check (or by hand in the database) still gets its answer; the reply is a failure."""
+    sent = _publish(client, "Спасибо")
+    pid = sent["post"]["id"]
+    broken = {"text": "ок", "reply": {"rich_message": {"html": "<p>x</p>"}, "ephemeral_message_parameters": "yes"}}
+    store.update_post(pid, payload={**store.get_post(pid)["payload"], "callbacks": {"like": broken}})
+    start = len(tg.calls)
+    _press(sent)
+    assert _methods(tg, start) == ["answerCallbackQuery"]
+    assert client.get(f"/api/posts/{pid}").json()["reply_errors"]["like"]["n"] == 1
+
+
 def test_the_buttons_of_a_preview_send_its_reply_too(client, tg):
     post = {**BLOCKS_POST, "reply_markup": LIKE, "callbacks": {"like": {"reply": REPLY}}}
     mid = client.post("/api/preview-send", json={"post": post}).json()["message_id"]

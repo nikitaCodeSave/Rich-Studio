@@ -179,13 +179,11 @@ async def _reply(cq_id: str, data: str, reply: dict, post_id: str | None, chat, 
             f"{WINDOW:.0f} с после нажатия: rich-ответ не отправлен",
         )
         return
-    params = {
-        **reply,
-        "ephemeral_message_parameters": {
-            **(reply.get("ephemeral_message_parameters") or {}),
-            "callback_query_id": cq_id,
-        },
-    }
+    own = reply.get("ephemeral_message_parameters") or {}
+    if not isinstance(own, dict):  # the check refuses it; a payload stored before the check must not stop the answer
+        _failed(post_id, chat, data, "not_sent", "ephemeral_message_parameters не объект: rich-ответ не отправлен")
+        return
+    params = {**reply, "ephemeral_message_parameters": {**own, "callback_query_id": cq_id}}
     try:
         await asyncio.wait_for(tg.call("sendRichMessage", params, timeout=left), left)
     except tg.Unreachable as e:  # no connection was made: nothing went
@@ -199,7 +197,6 @@ async def _reply(cq_id: str, data: str, reply: dict, post_id: str | None, chat, 
     except Exception as e:  # noqa: BLE001 - mid-request: it may have reached the person, so it is not sent again
         _failed(post_id, chat, data, "may_have_gone", f"{type(e).__name__}: {e}. Ответ мог дойти")
     else:
-        replace = bool((reply.get("ephemeral_message_parameters") or {}).get("replace_callback_query_message"))
         log.info(
             "rich reply to button %s sent",
             data,
@@ -208,7 +205,7 @@ async def _reply(cq_id: str, data: str, reply: dict, post_id: str | None, chat, 
                 "post_id": post_id,
                 "chat_id": chat,
                 "callback_data": data,
-                "replace": replace,
+                "replace": bool(own.get("replace_callback_query_message")),
             },
         )
 
