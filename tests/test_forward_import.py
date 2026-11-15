@@ -243,6 +243,18 @@ def test_an_album_is_one_draft(client, tg):
     assert _calls(tg) == ["setMessageReaction"] * 3
 
 
+def test_an_album_draft_edited_meanwhile_is_not_overwritten(client, tg):
+    size = {"file_id": "a1", "file_unique_id": "a1", "width": 800, "height": 600}
+    _handle(_forward(40, media_group_id="album-2", photo=[size], caption="Было"))
+    [d] = store.list_drafts()
+    mine = {"rich_message": {"blocks": [{"type": "paragraph", "text": "Моя правка"}]}}
+    store.save_draft(d["id"], d["title"], mine, d["version"])  # the person edits it before the next item comes
+    _handle(_forward(41, media_group_id="album-2", photo=[{**size, "file_id": "a2", "file_unique_id": "a2"}]))
+    assert store.get_draft(d["id"])["payload"] == mine
+    [rest] = [x for x in store.list_drafts() if x["id"] != d["id"]]
+    assert store.get_draft(rest["id"])["payload"]["rich_message"]["blocks"][0]["photo"]["media"] == "a2"
+
+
 @pytest.mark.parametrize(
     "change",
     [

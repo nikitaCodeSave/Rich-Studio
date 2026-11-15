@@ -131,15 +131,16 @@ def _save(m: dict, media: list, text: list, rich: dict, warnings: list[str]) -> 
     if d is None:  # only a save with a version can miss; this is a new draft
         raise RuntimeError("черновик не записан")
     if group:
-        albums[group] = {"draft": d["id"], "media": media, "text": text, "above": above}
+        albums[group] = {"draft": d["id"], "version": d["version"], "media": media, "text": text, "above": above}
         store.set_meta(ALBUMS_KEY, json.dumps(dict(list(albums.items())[-ALBUMS_KEPT:]), ensure_ascii=False))
     return d
 
 
 def _add_to_album(album: dict, media: list, text: list, warnings: list[str]) -> dict | None:
-    """The next item of an album into the draft of its first one; None if that draft was changed or deleted since."""
+    """The next item of an album into the draft of its first one; None if the person changed or deleted that draft
+    since: their edit is kept, the rest of the album goes to a new draft."""
     d = store.get_draft(album["draft"])
-    if not d:
+    if not d or d["version"] != album.get("version"):
         return None
     album["media"] += media
     album["text"] += text
@@ -147,7 +148,10 @@ def _add_to_album(album: dict, media: list, text: list, warnings: list[str]) -> 
     payload["rich_message"]["blocks"] = _blocks(album["media"], album["text"], album["above"])
     studio = payload.setdefault("_studio", {})
     studio["warnings"] = list(dict.fromkeys([*studio.get("warnings", []), *warnings]))
-    return store.save_draft(d["id"], d["title"], payload, d["version"], d.get("post_id"), d.get("chat_ids"))
+    saved = store.save_draft(d["id"], d["title"], payload, d["version"], d.get("post_id"), d.get("chat_ids"))
+    if saved:
+        album["version"] = saved["version"]
+    return saved
 
 
 def _bot_only(button) -> bool:
