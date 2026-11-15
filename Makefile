@@ -87,7 +87,7 @@ lock:
 	$(UV) pip compile requirements.txt --universal --python-version 3.12 --generate-hashes \
 	  --annotation-style line --custom-compile-command "make lock" -o requirements.lock
 
-# CodeMirror for the source editor (docs/decisions/0016): app/static/vendor/codemirror-<hash>/ and codemirror.js
+# CodeMirror for the source editor (docs/decisions/0017): app/static/vendor/codemirror-<hash>/ and codemirror.js
 # from node_modules as package-lock.json pins it; make check compares them byte for byte. After a Dependabot PR of the
 # group codemirror (package.json and the lock only) run it in the PR's branch and push the result, as `make lock`.
 vendor:
