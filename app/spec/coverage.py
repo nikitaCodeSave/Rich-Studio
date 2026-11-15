@@ -1,10 +1,11 @@
 """What the hand-maintained parts of the editor lack for a given Bot API spec.
 
 The block palette, forms and validation come from the spec and need no code. Only the Russian
-labels (static/js/labels.js) and the preview (static/render.js) are written by hand. This module
-reads those two files and lists the block and inline types of the spec they do not know yet.
-Without a label the editor shows the spec's own name; without a renderer the preview shows a stub
-with the block's JSON. Telegram gets the post either way.
+labels (static/js/labels.js), the preview (static/render.js) and the table of the «В HTML» export
+(static/js/html-export.js) are written by hand. This module reads those files and lists the block
+and inline types of the spec they do not know yet. Without a label the editor shows the spec's own
+name; without a renderer the preview shows a stub with the block's JSON; without an export entry
+«В HTML» refuses a post that has it. Telegram gets the post either way.
 
 Used by GET /api/spec (the editor shows the list), by tests/test_spec_coverage.py and by
 scripts/update_spec.py.
@@ -24,6 +25,8 @@ PARTS = (
     ("labels", "js/labels.js", "RichText", "RT_LABELS"),
     ("preview", "render.js", "InputRichBlock", "renderBlock"),
     ("preview", "render.js", "RichText", "renderRT"),
+    ("export", "js/html-export.js", "InputRichBlock", "BLOCK_FIELDS"),
+    ("export", "js/html-export.js", "RichText", "INLINE_FIELDS"),
 )
 
 
@@ -71,7 +74,7 @@ def read_static(rel: str) -> str:
 
 
 def gaps(types: dict) -> list[dict]:
-    """[{"part": "labels"|"preview", "file", "kind": "block"|"inline", "name", "type"}] sorted."""
+    """[{"part": "labels"|"preview"|"export", "file", "kind": "block"|"inline", "name", "type"}] sorted."""
     out = []
     for part, rel, base, where in PARTS:
         have = known(where, read_static(rel))

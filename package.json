@@ -11,6 +11,7 @@
     "test:render": "node tests/render_unit.mjs",
     "test:parity": "node tests/render_parity.mjs",
     "test:shots": "node tests/preview_shots.mjs",
+    "test:export": "node tests/html_export.mjs",
     "test:e2e": "node tests/e2e_ui.mjs"
   },
   "devDependencies": {

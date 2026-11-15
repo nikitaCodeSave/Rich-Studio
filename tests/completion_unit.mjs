@@ -3,7 +3,7 @@
 // fields and the method parameters come from the server as in the browser. Each case goes through a real
 // CompletionContext of an EditorState, then checks what CodeMirror filters by (the text from `from` to the cursor:
 // after the opening quote, or CodeMirror compares '"ty' with 'type') and what picking an option writes.
-// Run: npm run test:completion (Python with requirements.txt: .venv/bin/python, or PY=…)
+// Run: npm run test:completion (PYTHON=… with requirements.txt, else .venv or python3)
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -13,7 +13,7 @@ import * as cm from '../app/static/vendor/codemirror.js';
 import { htmlCatalog, htmlSource, jsonSource } from '../app/static/js/completion.js';
 
 const repo = fileURLToPath(new URL('..', import.meta.url));
-const py = process.env.PY || (existsSync(join(repo, '.venv/bin/python')) ? join(repo, '.venv/bin/python') : 'python3');
+const py = process.env.PYTHON || (existsSync(join(repo, '.venv/bin/python')) ? join(repo, '.venv/bin/python') : 'python3');
 const dump = 'import sys; sys.path.insert(0, "."); import json, spec; spec.current.load_initial(); from api.specs import get_spec; print(json.dumps(get_spec()))';
 const spec = JSON.parse(execFileSync(py, ['-I', '-c', dump], {
   cwd: join(repo, 'app'), env: { ...process.env, DATA_DIR: mkdtempSync(join(tmpdir(), 'rs-completion-')), SPEC_PIN: 'on' }, maxBuffer: 1 << 26,

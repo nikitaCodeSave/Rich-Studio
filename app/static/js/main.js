@@ -20,7 +20,7 @@ import './components/rs-health.js';
 import './components/rs-parse-check.js';
 import { editPost, leaveEditing, reschedulePost, showHistory, updatePost } from './editing.js';
 import { loadDrafts, newDraft, openDraft, renderDrafts, saveDraft, watchDrafts } from './drafts.js';
-import { autosave, bindJson, buildPost, changed, parsedToBlocks, parseKey, renderPreview, setMode } from './editor.js';
+import { autosave, bindHtmlExport, bindJson, buildPost, changed, parsedToBlocks, parseKey, renderPreview, setMode } from './editor.js';
 import { watchHealth } from './health.js';
 import { canRedo, canUndo, redo, undo } from './history.js';
 import { STATUS_LABELS } from './labels.js';
@@ -172,6 +172,7 @@ function bindActions() {
   $('#posts-filter').onchange = () => loadPosts().catch((e) => toast(e.message, 'err'));
   $$('#mode-tabs button').forEach((b) => b.onclick = () => setMode(b.dataset.mode));
   bindJson();
+  bindHtmlExport();
   $('#media-add').onclick = () => { addMediaEntry('photo', ''); changed(); };
   $('#upload').onchange = (e) => upload([...e.target.files]);
   const side = $('.side');
