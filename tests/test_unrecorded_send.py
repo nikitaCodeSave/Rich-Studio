@@ -250,20 +250,34 @@ def test_mcp_publish_says_the_same_and_a_retry_sends_nothing(client, tg, monkeyp
     assert sends(tg) == 1
 
 
-def test_a_poll_after_the_post_that_could_not_be_recorded_is_a_warning_with_its_id(client, tg, monkeypatch, log_file):
-    real = store.add_post
+def test_a_poll_after_the_post_that_could_not_be_recorded_is_a_warning_and_written_later(
+    client, tg, monkeypatch, log_file
+):
+    """The poll's row is written "sending" before the request (issue #98): its "sent" is written later like a post's,
+    and recovery leaves it alone meanwhile."""
+    monkeypatch.setattr(loops, "STATE", loops.State(owner="me"))
+    real = store.update_post
 
-    def add(chat, payload, *a, **kw):
-        if kw.get("kind") == "poll" and (a[1:2] == ("sent",) or kw.get("status") == "sent"):
+    def update(pid, **fields):
+        if fields.get("status") == "sent" and (store.get_post(pid) or {}).get("kind") == "poll":
             raise sqlite3.OperationalError(FULL)
-        return real(chat, payload, *a, **kw)
+        return real(pid, **fields)
 
-    monkeypatch.setattr(store, "add_post", add)
+    monkeypatch.setattr(store, "update_post", update)
     r = client.post("/api/send", json={"post": {**BLOCKS_POST, "poll_after": POLL}})
     assert r.status_code == 200 and r.json()["post"]["status"] == "sent"
     [w] = [w for w in r.json()["warnings"] if "опрос" in w]
     assert UNRECORDED in w and str(tg.next_id) in w
-    assert [x["message_id"] for x in _unrecorded_events()] == [tg.next_id]
+    [poll] = [p for p in store.list_posts() if p["kind"] == "poll"]
+    assert [(x["message_id"], x["post_id"]) for x in _unrecorded_events()] == [(tg.next_id, poll["id"])]
+    real_confirm = store.confirm_sent
+    monkeypatch.setattr(store, "confirm_sent", _broken)  # the database still refuses the late record
+    loops.Loops([])._lead()
+    assert store.get_post(poll["id"])["status"] == "sending"
+    monkeypatch.setattr(store, "confirm_sent", real_confirm)
+    assert publisher.write_unrecorded() == 0
+    p = store.get_post(poll["id"])
+    assert (p["status"], p["message_id"], p["poll_id"]) == ("sent", tg.next_id, f"poll{tg.next_id}")
 
 
 # ---------- the steps after the record ----------

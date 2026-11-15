@@ -29,8 +29,9 @@ RESERVED_PARAMS = {"chat_id", "rich_message", "reply_markup", "message_id"}
 MAY_HAVE_GONE = "Пост мог уйти в канал, проверьте перед повтором"
 POLL_MAY_HAVE_GONE = "Опрос мог уйти в канал, проверьте перед повтором"
 UNRECORDED = "опубликован, студия не смогла записать — не публикуйте повторно"
-# ids of posts this process is sending right now (now or from the scheduler): their "sending" status is normal,
-# not stuck; health reads it, and startup recovery only exists because a crash empties it
+# ids of posts this process is sending right now (now or from the scheduler, the poll after a post too, and posts
+# whose first comment it is sending): their "sending" status is normal, not stuck; health reads it, a stop waits for
+# it to empty, and startup recovery only exists because a crash empties it
 in_flight: set[str] = set()
 # sends Telegram accepted whose "sent" the database refused (a full or read-only disk): post id → what to write.
 # write_unrecorded tries again before each send, each pass of the scheduler and the recovery of "sending" rows, which
@@ -212,33 +213,49 @@ async def after_send(pid: str, post: dict, res: dict, actor: str = "api", kind: 
 
 
 async def _send_poll_after(pid: str, post: dict, res: dict, actor: str) -> list[str]:
-    """The poll that goes right after the post, as its own row in the list of posts; a failure is only a warning."""
+    """The poll that goes right after the post, as its own row in the list of posts; a failure is only a warning.
+
+    Sent like a post: its row is written as "sending" before Telegram is asked and the request is in `in_flight`, so
+    a stop or a crash mid-request leaves "may have gone" (and the flag), never no trace; it is never resent."""
     rec = store.get_post(pid) or {}
     chat = rec.get("chat_id") or res["chat"]["id"]
     sent = {"poll": poll_after(post)}
     try:
+        poll_pid = store.add_post(chat, sent, rec.get("draft_id"), "sending", kind=kinds.POLL, actor=actor)["id"]
+    except Exception as e:  # no row, no request: nothing went out
+        log.exception("could not write the row of the poll after post %s; not sent", pid)
+        return [f"опрос после поста не отправлен: студия не смогла записать его строку ({_reason(e)})"]
+    in_flight.add(poll_pid)
+    try:
         r = await send(res["chat"]["id"], sent, kinds.POLL)
     except tg.TelegramError as e:
-        _record_failure(chat, sent, rec.get("draft_id"), e.description, kinds.POLL, actor)
+        _mark_failed(poll_pid, e.description)
         return [f"опрос после поста не отправлен: {e.description}"]
+    except StudioError as e:  # the request itself is wrong (e.g. a missing upload): nothing went out
+        _mark_failed(poll_pid, str(e))
+        return [f"опрос после поста не отправлен: {e}"]
     except Exception as e:  # noqa: BLE001 - never resent on its own, like any send that may have gone
-        err = f"{type(e).__name__}: {e}. {POLL_MAY_HAVE_GONE}"
-        _record_failure(chat, sent, rec.get("draft_id"), err, kinds.POLL, actor, unknown=True)
+        err = f"{_reason(e)}. {POLL_MAY_HAVE_GONE}"
+        _mark_failed(poll_pid, err, unknown=True)
         return [f"опрос после поста: {err}"]
-    try:
-        poll_rec = store.add_post(
-            chat, sent, rec.get("draft_id"), "sent", r["message_id"], kind=kinds.POLL, actor=actor
-        )
-    except Exception as e:  # noqa: BLE001 - in the channel all the same: its id goes to the log and the answer
-        _log_unrecorded(chat, r["message_id"], None, e)
-        return [f"опрос после поста {UNRECORDED} (message_id {r['message_id']}): {_reason(e)}"]
+    except asyncio.CancelledError:  # shutdown mid-send: the request may have reached Telegram
+        _mark_failed(poll_pid, f"студия остановилась во время отправки. {POLL_MAY_HAVE_GONE}", unknown=True)
+        raise
+    finally:
+        in_flight.discard(poll_pid)
+    sent_at = int(time.time())
     try:
         store.update_post(
-            poll_rec["id"], chat_num=(r.get("chat") or {}).get("id"), poll_id=(r.get("poll") or {}).get("id")
+            poll_pid,
+            status="sent",
+            message_id=r["message_id"],
+            sent_at=sent_at,
+            chat_num=(r.get("chat") or {}).get("id"),
+            poll_id=(r.get("poll") or {}).get("id"),
         )
-    except Exception as e:
-        log.exception("could not record the id of the poll after post %s", pid)
-        return [f"итоги опроса после поста не будут видны в студии: {_reason(e)}"]
+    except Exception as e:  # noqa: BLE001 - in the channel all the same: written later, like an unrecorded post
+        gone = unrecorded_send(poll_pid, chat, sent, r, sent_at, e)
+        return [f"опрос после поста {UNRECORDED} (message_id {gone['message_id']}): {gone['error']}"]
     return []
 
 
@@ -246,9 +263,11 @@ def _reason(e: BaseException) -> str:
     return f"{type(e).__name__}: {e}"
 
 
-def _log_unrecorded(chat, message_id: int, pid: str | None, e: BaseException) -> None:
+def log_unrecorded(chat, message_id: int, pid: str | None, e: BaseException, what: str = "post") -> None:
+    """Telegram accepted it, the database refused the record: the message id stays in the log (send.unrecorded)."""
     log.error(
-        "sent to %s as message %s, but the studio could not record it: %s",
+        "%s sent to %s as message %s, but the studio could not record it: %s",
+        what,
         chat,
         message_id,
         _reason(e),
@@ -268,7 +287,7 @@ def unrecorded_send(pid: str, chat, post: dict, res: dict, sent_at: int, e: Base
         "chat_num": (res.get("chat") or {}).get("id"),
         "poll_id": (res.get("poll") or {}).get("id"),
     }
-    _log_unrecorded(chat, mid, pid, e)
+    log_unrecorded(chat, mid, pid, e)
     skipped = _steps_asked(post)
     error = _reason(e) + (f"; не сделано: {', '.join(skipped)}" if skipped else "")
     return {

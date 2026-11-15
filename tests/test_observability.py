@@ -684,11 +684,12 @@ def test_first_comment_that_expired_is_in_the_report(client, tg, monkeypatch):
     assert health.posts()["status"] == "warn" and _flagged_posts() == [pid]
 
 
-def test_first_comment_failure_leaves_the_report_a_day_after_it_could_last_fail(client, tg, monkeypatch):
-    """A comment fails at the latest when its wait ends; a day after that the report no longer shows it (the
-    studio has nothing to resolve it with)."""
+def test_first_comment_failure_leaves_the_report_a_day_after_it_failed(client, tg, monkeypatch):
+    """A day after the comment failed the report no longer shows it (the studio has nothing to resolve it with);
+    the day counts from the failure, however old the post (issue #98)."""
     pid = _expired_comment(client, monkeypatch, 24 * 3600 + 120)
-    store.update_post(pid, sent_at=int(time.time()) - 2 * 24 * 3600 - 120)
+    with store.conn() as c:
+        c.execute("update posts set comment_failed_at=? where id=?", (int(time.time()) - 24 * 3600 - 120, pid))
     assert health.posts()["status"] == "ok"
 
 

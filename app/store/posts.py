@@ -238,8 +238,9 @@ def list_versions(pid: str) -> list[dict]:
 
 
 def recover_stale_sending(keep: set[str] | frozenset[str] = frozenset()) -> int:
-    """Posts stuck in 'sending' after a crash: never retry blindly, they may already be in the channel (flagged like
-    mark_outcome_unknown). `keep`: the ones this process is sending right now."""
+    """Posts (the poll after a post too) and first comments stuck in 'sending' after a crash: never retry blindly,
+    they may already be out. A post is flagged like mark_outcome_unknown; a comment fails like fail_comment, its post
+    is in the channel. `keep`: the ones this process is sending right now. Returns how many rows were marked."""
     marks = ",".join("?" * len(keep))
     with conn() as c:
         cur = c.execute(
@@ -247,7 +248,16 @@ def recover_stale_sending(keep: set[str] | frozenset[str] = frozenset()) -> int:
                 where status='sending' and id not in ({marks})""",  # noqa: S608 - placeholders only
             ("сервис остановился во время отправки; проверьте канал, пост мог уйти", *keep),
         )
-        return cur.rowcount
+        comments = c.execute(
+            f"""update posts set comment_status='failed', comment_failed_at=?, error=coalesce(error || '; ', '') || ?
+                where comment_status='sending' and id not in ({marks})""",  # noqa: S608 - placeholders only
+            (
+                int(time.time()),
+                "первый комментарий: сервис остановился во время отправки; проверьте обсуждение, он мог уйти",
+                *keep,
+            ),
+        ).rowcount
+        return cur.rowcount + comments
 
 
 def confirm_sent(pid: str, message_id: int, sent_at: int, chat_num=None, poll_id=None) -> bool:
@@ -334,14 +344,36 @@ def replace_sent(pid: str, payload: dict, old: dict, actor: str | None) -> None:
 
 
 def expire_comments(sent_before: int, error: str) -> int:
-    """First comments still waiting for the forward long after the post: Telegram no longer delivers it."""
+    """First comments still waiting for the forward long after the post: Telegram no longer delivers it. Failed now,
+    like fail_comment: one being sent ('sending') is not waiting any more."""
     with conn() as c:
         cur = c.execute(
-            """update posts set comment_status='failed', error=coalesce(error || '; ', '') || ?
+            """update posts set comment_status='failed', comment_failed_at=?, error=coalesce(error || '; ', '') || ?
                where comment_status='waiting' and sent_at<?""",
-            (error, sent_before),
+            (int(time.time()), error, sent_before),
         )
         return cur.rowcount
+
+
+def claim_comment(pid: str) -> bool:
+    """Take the first comment of a post for sending: 'sending' before Telegram is asked, so that a stop or a crash
+    mid-request leaves "may have gone" rather than a comment still waiting for its forward. Only if it still waits:
+    False if it was taken, failed or never asked for."""
+    with conn() as c:
+        cur = c.execute("update posts set comment_status='sending' where id=? and comment_status='waiting'", (pid,))
+        return cur.rowcount == 1
+
+
+def fail_comment(pid: str, error: str) -> None:
+    """The first comment did not go out, or may have: failed now (`comment_failed_at`, the health report counts its
+    day from there). The reason is added to the post's error, never replacing what is there (the scheduler keeps the
+    warnings of a sent post in it)."""
+    with conn() as c:
+        c.execute(
+            """update posts set comment_status='failed', comment_failed_at=?, error=coalesce(error || '; ', '') || ?
+               where id=?""",
+            (int(time.time()), error, pid),
+        )
 
 
 def using_upload(ref: str) -> list[dict]:
