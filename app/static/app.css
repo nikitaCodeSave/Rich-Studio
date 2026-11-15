@@ -135,6 +135,15 @@ textarea.code { width: 100%; min-height: 380px; font: 13px/1.5 ui-monospace, SFM
   color: var(--warn); border: 1px solid var(--warn); border-radius: 8px; background: var(--panel); }
 .json-stale[hidden] { display: none; }
 .json-stale span { flex: 1 1 260px; }
+/* a narrow editor (a phone; three columns on a laptop) has no room for the check pill next to the four tabs:
+   it stands above them on the right, the tabs keep their line */
+@media (max-width: 700px), (min-width: 1101px) and (max-width: 1360px) {
+  .mode-tabs { flex-wrap: wrap; }
+  .mode-tabs .check-pill { order: -2; margin-left: auto; padding: 2px 4px 0; }
+  .mode-tabs .grow { order: -1; flex-basis: 100%; }
+  #mode-hint { display: none; }
+}
+@media (max-width: 700px) { .mode-tabs button[data-mode] { padding: 8px; } }
 .snip-bar { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-bottom: 6px; }
 .snip-group { display: flex; flex-wrap: wrap; gap: 3px; align-items: center; }
 .snip-group > span { font-size: 11px; color: var(--muted); margin-right: 2px; }

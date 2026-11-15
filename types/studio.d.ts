@@ -232,6 +232,9 @@ interface EditorState {
   /** the JSON tab's text not applied yet (kept in the draft as `_studio.json`, never sent) and `base`, the post
    * (JSON.stringify of buildPost) it was typed over: they differ when the post changed after the JSON was typed */
   json: { text: string; base: string } | null;
+  /** the keys of the draft's `_studio` the editor does not write (`source` and `warnings` of a forwarded post, and
+   * whatever comes next): kept as they are and saved back with the draft, never sent */
+  notes: Json;
   media: Json[];
   flags: Json;
   keyboard: ButtonRow[];

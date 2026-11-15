@@ -15,6 +15,7 @@ import { $, $$, act, debounce, h, sentReport, store, toast } from './dom.js';
 import { effect } from '../vendor/signals-core.js';
 import './components/rs-preview.js';
 import './components/rs-edit-bar.js';
+import './components/rs-draft-notes.js';
 import './components/rs-health.js';
 import './components/rs-parse-check.js';
 import { editPost, leaveEditing, reschedulePost, showHistory, updatePost } from './editing.js';
