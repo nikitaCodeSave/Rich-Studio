@@ -431,7 +431,7 @@ def test_an_unconfirmed_comment_is_not_under_way_while_the_scheduler_holds_its_p
 def test_a_comment_cut_off_while_the_scheduler_holds_its_post_leaves_the_post_in_flight(client, tg, monkeypatch):
     """A stop cuts the comment off (CancelledError) while the scheduler still sends the poll after the post: the
     comment is "may have gone" and no longer in flight, the post stays in flight for the scheduler until it is
-    done, and a stop still waits for that."""
+    done (that a stop waits for it: ..._keeps_its_post_in_flight above)."""
     pid, gates = _scheduler_held(monkeypatch, "poll_after")
 
     async def scenario():
