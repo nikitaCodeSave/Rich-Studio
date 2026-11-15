@@ -19,7 +19,7 @@ import './components/rs-health.js';
 import './components/rs-parse-check.js';
 import { editPost, leaveEditing, reschedulePost, showHistory, updatePost } from './editing.js';
 import { loadDrafts, newDraft, openDraft, renderDrafts, saveDraft, watchDrafts } from './drafts.js';
-import { autosave, buildPost, changed, loadPost, parsedToBlocks, parseKey, renderPreview, setMode } from './editor.js';
+import { autosave, bindJson, buildPost, changed, parsedToBlocks, parseKey, renderPreview, setMode } from './editor.js';
 import { watchHealth } from './health.js';
 import { canRedo, canUndo, redo, undo } from './history.js';
 import { STATUS_LABELS } from './labels.js';
@@ -169,9 +169,7 @@ function bindActions() {
   });
   $('#posts-filter').onchange = () => loadPosts().catch((e) => toast(e.message, 'err'));
   $$('#mode-tabs button').forEach((b) => b.onclick = () => setMode(b.dataset.mode));
-  $('#json-apply').onclick = () => {
-    try { const v = JSON.parse($('#src-json').value); loadPost(v); setMode('json', true); changed(); toast('JSON применён', 'ok'); } catch (e) { $('#json-err').textContent = e.message; }
-  };
+  bindJson();
   $('#media-add').onclick = () => { addMediaEntry('photo', ''); changed(); };
   $('#upload').onchange = (e) => upload([...e.target.files]);
   const side = $('.side');
