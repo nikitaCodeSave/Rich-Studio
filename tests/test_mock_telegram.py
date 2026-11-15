@@ -24,10 +24,12 @@ def _hold() -> None:
 
 
 def test_a_forgotten_release_holds_only_until_the_hold_runs_out(tg, monkeypatch):
-    monkeypatch.setattr(mock_telegram, "HOLD_MAX", 0.3)
+    monkeypatch.setattr(mock_telegram, "HOLD_MAX", 0.5)
+    start = time.monotonic()  # the hold's timer starts at /hold, not at the request
     _hold()
-    assert _send() >= 0.25
-    assert _send() < 0.25  # the hold is over: the next request is not slowed down
+    _send()
+    assert 0.35 <= time.monotonic() - start < 5  # answered once the hold ran out: not before, not never
+    assert not tg.held and _send() < 5  # the hold is over: the next request goes straight through
 
 
 def test_release_and_reset_let_a_held_request_through(tg, monkeypatch):
