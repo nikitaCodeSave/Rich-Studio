@@ -93,6 +93,27 @@ interface DraftRow {
   chat_ids: string[] | null;
 }
 
+/** a field of a post template: in the post it stands as {{key}} */
+interface TemplateField {
+  key: string;
+  label: string;
+  type: 'text' | 'multiline' | 'url';
+  required: boolean;
+  default: string;
+}
+
+/** GET /api/templates item; GET /api/templates/{id} adds `payload`, the post with {{key}} in it */
+interface TemplateRow {
+  id: string;
+  title: string;
+  fields: TemplateField[];
+  /** grows with every save: an edit, a delete or a fill based on an older one gets 409 */
+  version: number;
+  created_at: number;
+  updated_at: number;
+  payload?: Json;
+}
+
 /** GET /api/channels item */
 interface Channel {
   chat_id: string;

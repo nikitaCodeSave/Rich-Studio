@@ -29,6 +29,7 @@ import { showPoll } from './poll.js';
 import { loadPosts, replacePost } from './posts.js';
 import { refreshSpec, showSpec, updateBadge } from './spec-dialog.js';
 import { chat, chatLabel, chats, dark, dirty, editing, parsed, S, saveState, showParsed, target, targetLabel } from './state.js';
+import { bindTemplates } from './templates.js';
 import { whenPicker } from './when.js';
 
 const isTextField = (el) => el instanceof HTMLElement && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName));
@@ -185,6 +186,7 @@ function bindActions() {
   };
   $('#btn-poll').onclick = showPoll;
   $('#btn-media-post').onclick = showMediaPost;
+  bindTemplates();
 }
 
 // ---------- boot ----------
