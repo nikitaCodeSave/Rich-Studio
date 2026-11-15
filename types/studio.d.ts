@@ -16,8 +16,16 @@ interface SpecType {
   description: string;
   fields: SpecField[];
   subtypes: string[];
+  /** the field that tells this member of a union from the others, and its value */
+  const_field: string | null;
   const: string | null;
   href?: string | null;
+}
+
+/** `post` in GET /api/spec: the studio's post and the method parameters behind its options and poll_after */
+interface SpecPost {
+  root: string;
+  types: Record<string, { description: string; fields: SpecField[] }>;
 }
 
 interface SpecMethod {
@@ -38,6 +46,7 @@ interface SpecSummary {
   changes: Json[];
   gaps: SpecGap[];
   last_check: { at: number; error: string | null } | null;
+  post: SpecPost;
 }
 
 /** What labels.js or render.js does not know yet (spec/coverage.py) */

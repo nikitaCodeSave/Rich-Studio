@@ -15,11 +15,10 @@ export function rtTypes() {
   const base = T('RichText');
   return ((base && base.subtypes) || []).filter((n) => T(n)).map((n) => ({ name: n, const: constOf(n), desc: T(n).description }));
 }
+/** The field that tells this member of a union from the others ("type" of a block), as /api/spec says. */
 export function constField(name) {
   const t = T(name);
-  if (!t || !t.const) return null;
-  const f = t.fields.find((f) => f.name === 'type' || f.name === 'source' || f.name === 'status');
-  return f && f.name;
+  return (t && t.const && t.const_field) || null;
 }
 export const isNewType = (name) => (S.spec.changes || []).some((c) => (c.items || []).some((i) => i.name === name || (i.name || '').endsWith('→ ' + name)));
 

@@ -48,7 +48,9 @@ export function insertUpload(u) {
     renderBlocksPane();
   } else {
     const id = addMediaEntry(u.kind, u.ref);
-    const tag = u.kind === 'photo' ? `<img src="tg://photo?id=${id}">` : u.kind === 'document' ? `<tg-document src="tg://document?id=${id}"></tg-document>` : u.kind === 'audio' || u.kind === 'voice_note' ? `<audio src="tg://${u.kind === 'audio' ? 'audio' : 'voice_note'}?id=${id}"></audio>` : `<video src="tg://${u.kind}?id=${id}"></video>`;
+    // the documented links are tg://photo, video, document and audio: a GIF goes as a video, a voice note as an
+    // audio, and what the file is, its entry in media says
+    const tag = u.kind === 'photo' ? `<img src="tg://photo?id=${id}">` : u.kind === 'document' ? `<tg-document src="tg://document?id=${id}"></tg-document>` : u.kind === 'audio' || u.kind === 'voice_note' ? `<audio src="tg://audio?id=${id}"></audio>` : `<video src="tg://video?id=${id}"></video>`;
     insertAtCursor($('#src-' + S.format), S.format === 'markdown' && u.kind === 'photo' ? `![](tg://photo?id=${id})` : tag);
   }
   changed();
