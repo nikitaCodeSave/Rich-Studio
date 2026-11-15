@@ -250,6 +250,9 @@ interface EditorState {
   format: 'blocks' | 'html' | 'markdown';
   mode: string;
   buf: { blocks: Json[]; html: string; markdown: string };
+  /** the JSON tab's text not applied yet (kept in the draft as `_studio.json`, never sent) and `base`, the post
+   * (JSON.stringify of buildPost) it was typed over: they differ when the post changed after the JSON was typed */
+  json: { text: string; base: string } | null;
   media: Json[];
   flags: Json;
   keyboard: ButtonRow[];

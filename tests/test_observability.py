@@ -261,6 +261,22 @@ def test_health_of_a_fresh_studio_is_ok_where_it_matters(client, log_file):
     }
 
 
+@pytest.mark.parametrize(
+    ("version", "bad"),
+    [("3.34.1", True), ("3.51.0", True), ("3.51.1", True), ("3.35.0", False), ("3.45.1", False), ("3.51.2", False)],
+)
+def test_health_database_flags_sqlite_versions_with_known_problems(client, monkeypatch, version, bad):
+    monkeypatch.setattr(health.sqlite3, "sqlite_version", version)
+    c = health.database()
+    assert (c["status"] == "fail") == bad
+    if bad:
+        assert version in c["summary"] and c["action"]
+
+
+def test_health_database_ok_on_the_installed_sqlite(client):
+    assert health.database()["status"] == "ok"
+
+
 def test_health_names_what_needs_a_person_and_what_to_do(client, log_file):
     now = int(time.time())
     store.add_post("@c", BLOCKS_POST, status="failed", error="Telegram: chat not found")
@@ -325,7 +341,7 @@ def test_cleanup_removes_service_data_always_and_user_data_only_when_asked(clien
     cfg = settings.get()
     store.idempotency.claim("old", "send", "fp")
     with store.conn() as c:
-        c.execute("update idempotency set created_at=0")
+        c.execute("update idempotency set created_at=0, status='done'")
     pid = client.post("/api/send", json={"post": BLOCKS_POST}).json()["post"]["id"]
     for i in range(4):
         store.add_version(pid, {"v": i}, "ui")

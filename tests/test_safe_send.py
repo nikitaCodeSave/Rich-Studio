@@ -100,6 +100,137 @@ def test_pending_key_left_by_a_crash_is_may_have_gone(client, tg):
     assert sends(tg) == 1
 
 
+DAY_AND_HOUR = 25 * 3600
+
+
+def _age_keys(seconds: int) -> None:
+    with store.conn() as c:
+        c.execute("update idempotency set created_at=created_at-?", (seconds,))
+
+
+def _lose_answers(monkeypatch):
+    """The post reaches Telegram, the answer is lost on the way back."""
+    import telegram
+
+    real = telegram.call
+
+    async def lost(method, params=None, timeout=60):
+        result = await real(method, params, timeout)
+        if method == "sendRichMessage":
+            raise httpx.ReadTimeout("timed out")
+        return result
+
+    monkeypatch.setattr(telegram, "call", lost)
+    return lambda: monkeypatch.setattr(telegram, "call", real)
+
+
+def _crash_mid_send(client, key):
+    """The process died after the post went: the claim stays "pending"."""
+    assert client.post("/api/send", json={"post": BLOCKS_POST}, headers={"Idempotency-Key": key}).status_code == 200
+    with store.conn() as c:
+        c.execute("update idempotency set status='pending', response=null where key=?", (key,))
+
+
+def test_key_after_which_the_post_may_have_gone_never_expires(client, tg, monkeypatch):
+    from services import housekeeping
+
+    h = {"Idempotency-Key": "gone-1"}
+    restore = _lose_answers(monkeypatch)
+    assert client.post("/api/send", json={"post": BLOCKS_POST}, headers=h).status_code == 502
+    restore()
+    _crash_mid_send(client, "gone-2")
+    assert sends(tg) == 2
+    _age_keys(DAY_AND_HOUR)
+    housekeeping.cleanup()
+    for key in ("gone-1", "gone-2"):
+        r = client.post("/api/send", json={"post": BLOCKS_POST}, headers={"Idempotency-Key": key})
+        assert r.status_code == 502, r.text
+        detail = r.json()["detail"]
+        # what to do instead; the agent cannot see the channel, the person looks
+        assert "мог уйти" in detail and "вместе с пользователем" in detail and "новым ключом" in detail
+    assert sends(tg) == 2
+
+
+def test_several_channels_that_may_have_got_the_post_keep_their_errors_on_retry(client, tg, monkeypatch):
+    body, h = {"post": BLOCKS_POST, "chat_ids": ["@a", "@b"]}, {"Idempotency-Key": "gone-3"}
+    restore = _lose_answers(monkeypatch)
+    first = client.post("/api/send", json=body, headers=h)
+    restore()
+    again = client.post("/api/send", json=body, headers=h)
+    assert first.status_code == again.status_code == 502
+    assert again.json()["detail"]["errors"] == first.json()["detail"]["errors"] and sends(tg) == 2
+    assert "новым ключом" in again.json()["detail"]["message"]
+
+
+def test_scheduling_cut_off_by_a_crash_points_to_the_list_of_posts(client, tg):
+    body, h = {"post": BLOCKS_POST, "at": "2099-01-01T09:00:00+03:00"}, {"Idempotency-Key": "sched-gone"}
+    assert client.post("/api/schedule", json=body, headers=h).status_code == 200
+    with store.conn() as c:
+        c.execute("update idempotency set status='pending', response=null")
+    _age_keys(3600)
+    r = client.post("/api/schedule", json=body, headers=h)
+    assert r.status_code == 502 and "отложите заново" in r.json()["detail"]
+    assert len(store.list_posts()) == 1
+
+
+def test_approval_without_an_answer_is_not_sent_again_with_a_new_key_either(client, tg, monkeypatch):
+    # the hint must not send the agent to a dead end: only the person's «Решить снова» opens the decision again
+    import asyncio
+
+    import telegram
+    from services import updates
+    from test_suggested_posts import _suggestion
+
+    real = telegram.call
+
+    async def timeout(method, params=None, *a, **kw):
+        if method == "approveSuggestedPost":
+            raise TimeoutError("read timeout")
+        return await real(method, params, *a, **kw)
+
+    asyncio.run(updates.handle_update(_suggestion(80, {"state": "pending"})))
+    url, h = "/api/suggested-posts/-1009:80/approve", {"Idempotency-Key": "approve-80"}
+    monkeypatch.setattr(telegram, "call", timeout)
+    assert client.post(url, json={}, headers=h).status_code == 502
+    monkeypatch.setattr(telegram, "call", real)
+    r = client.post(url, json={}, headers=h)
+    assert r.status_code == 502 and "Решить снова" in r.json()["detail"] and "канал вместе" not in r.json()["detail"]
+    assert client.post(url, json={}, headers={"Idempotency-Key": "approve-80b"}).status_code == 400
+    assert client.post("/api/suggested-posts/-1009:80/reopen").status_code == 200
+    assert client.post(url, json={}, headers={"Idempotency-Key": "approve-80c"}).status_code == 200
+    assert len([c for c in tg.calls if c["method"] == "approveSuggestedPost"]) == 1
+
+
+def test_done_key_is_forgotten_after_a_day(client, tg):
+    from services import housekeeping
+
+    h = {"Idempotency-Key": "done-1"}
+    assert client.post("/api/send", json={"post": BLOCKS_POST}, headers=h).status_code == 200
+    _age_keys(DAY_AND_HOUR)
+    assert housekeeping.cleanup()["idempotency_keys"] == 1
+    assert client.post("/api/send", json={"post": BLOCKS_POST}, headers=h).status_code == 200
+    assert sends(tg) == 2
+
+
+def test_agent_without_key_is_told_to_pass_a_new_one(client, tg, monkeypatch):
+    # MCP turns the request into the key: the same draft and version stay blocked after a day too
+    from test_mcp import call
+
+    _, d, _ = call(client, "save_draft", post=BLOCKS_POST, title="Анонс")
+    publish = {"draft_id": d["id"], "version": d["version"]}
+    restore = _lose_answers(monkeypatch)
+    res, _, text = call(client, "publish_post", **publish)
+    assert res["isError"] and "мог уйти" in text
+    restore()
+    _age_keys(DAY_AND_HOUR)
+    store.idempotency.purge()
+    res, _, text = call(client, "publish_post", **publish)
+    assert res["isError"] and "мог уйти" in text and "idempotency_key" in text
+    assert sends(tg) == 1
+    res, _, _ = call(client, "publish_post", **publish, idempotency_key="anons-2")
+    assert not res.get("isError") and sends(tg) == 2
+
+
 def test_schedule_and_poll_accept_keys(client, tg):
     h = {"Idempotency-Key": "sched-1"}
     body = {"post": BLOCKS_POST, "at": "2099-01-01T09:00:00+03:00"}

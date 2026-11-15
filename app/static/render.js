@@ -44,7 +44,9 @@
     } else if (kind === 'photo') {
       node = el('img', { src, alt: '', loading: 'lazy' });
     } else if (kind === 'video' || kind === 'animation') {
-      node = el('video', { src, controls: kind === 'video', autoplay: kind === 'animation', loop: kind === 'animation', muted: true, playsinline: true });
+      node = el('video', { src, controls: kind === 'video', autoplay: kind === 'animation', loop: kind === 'animation', playsinline: true });
+      // autoplay policy looks at the property; the muted attribute only sets the default after parsing
+      node.defaultMuted = node.muted = true;
     } else if (kind === 'audio' || kind === 'voice_note' || kind === 'voice') {
       node = el('audio', { src, controls: true });
     } else {
@@ -213,15 +215,76 @@
     return q;
   }
 
+  // Slides turn by touch (native scroll), by a click on a dot, by ← → on the focused slides and by
+  // dragging with the mouse. Moves are physical (scroll deltas), so RTL posts turn the right way too.
   function slideshow(contentFrag, cap) {
     const track = el('div', { class: 'tg-slides' }, contentFrag);
     const count = track.children.length;
-    const dots = el('div', { class: 'tg-dots' });
+    // nothing to turn in a single slide: no focus stop, no hint about arrows
+    if (count > 1) Object.entries({ tabindex: 0, role: 'group', 'aria-label': 'Слайдшоу: листается стрелками ← →, мышью и точками' }).forEach(([k, v]) => track.setAttribute(k, String(v)));
+    const dots = el('div', { class: 'tg-dots', 'aria-hidden': 'true' });
     for (let i = 0; i < count; i++) dots.append(el('span', { class: i ? '' : 'on' }));
+    const by = (left) => track.scrollBy({ left, behavior: 'smooth' });
     track.addEventListener('scroll', () => {
-      const i = Math.round(track.scrollLeft / Math.max(1, track.clientWidth));
-      [...dots.children].forEach((d, j) => d.className = j === i ? 'on' : '');
+      const i = Math.round(Math.abs(track.scrollLeft) / Math.max(1, track.clientWidth));
+      [...dots.children].forEach((d, j) => d.classList.toggle('on', j === i));
     });
+    dots.addEventListener('click', (ev) => {
+      const s = track.children[[...dots.children].indexOf(/** @type {Element} */ (ev.target))];
+      if (s) by(s.getBoundingClientRect().left - track.getBoundingClientRect().left);
+      track.focus({ preventScroll: true });
+    });
+    track.addEventListener('keydown', (ev) => {
+      const step = ev.key === 'ArrowLeft' ? -1 : ev.key === 'ArrowRight' ? 1 : 0;
+      if (!step || ev.target !== track) return; // arrows inside a slide (video controls) stay theirs
+      ev.preventDefault();
+      track.scrollBy({ left: step * track.clientWidth }); // at once: a smooth turn would eat a quick second press
+    });
+    // While dragging snapping is off; the click that ends a drag is swallowed, so it does not open
+    // a spoiler or start a video under the pointer
+    /** @type {{ x: number, left: number, dx: number, moved: boolean } | null} */
+    let drag = null;
+    let swallow = false;
+    track.addEventListener('dragstart', (ev) => ev.preventDefault());
+    track.addEventListener('pointerdown', (ev) => {
+      swallow = false;
+      if (ev.pointerType === 'mouse' && ev.button === 0 && count > 1) drag = { x: ev.clientX, left: track.scrollLeft, dx: 0, moved: false };
+    });
+    track.addEventListener('pointermove', (ev) => {
+      if (!drag) return;
+      if (!(ev.buttons & 1)) { end(); return; } // the button went up where we did not see it
+      drag.dx = ev.clientX - drag.x;
+      if (!drag.moved) {
+        if (Math.abs(drag.dx) < 5) return;
+        drag.moved = true;
+        track.classList.add('tg-dragging');
+        track.setPointerCapture(ev.pointerId);
+      }
+      track.scrollLeft = drag.left - drag.dx;
+    });
+    const end = () => {
+      const d = drag;
+      drag = null;
+      if (!d || !d.moved) return;
+      swallow = true;
+      setTimeout(() => { swallow = false; });
+      // to the nearest slide, or to the next one when the drag went a fifth of a slide, as a swipe does
+      const w = track.clientWidth, from = track.scrollLeft;
+      let to = Math.round(from / w) * w;
+      if (to === Math.round(d.left / w) * w && Math.abs(d.dx) > w / 5) to -= Math.sign(d.dx) * w;
+      // snapping comes back once the slide is in place: turned on midway it jumps to the nearest slide
+      const t0 = performance.now();
+      const step = (now) => {
+        if (drag && drag.moved) return; // a new drag took over
+        const k = Math.min(1, (now - t0) / 200);
+        track.scrollLeft = from + (to - from) * (1 - (1 - k) ** 3);
+        if (k < 1) requestAnimationFrame(step); else track.classList.remove('tg-dragging');
+      };
+      requestAnimationFrame(step);
+    };
+    track.addEventListener('pointerup', end);
+    track.addEventListener('pointercancel', end);
+    track.addEventListener('click', (ev) => { if (swallow) { swallow = false; ev.preventDefault(); ev.stopPropagation(); } }, true);
     return el('figure', { class: 'tg-slideshow' }, track, count > 1 ? dots : null, cap);
   }
 
@@ -337,11 +400,12 @@
         if (!node.textContent.trim()) { node.remove(); return; }
         rep = el('span', { class: 'tg-time', title: formatTime(u, 'wDT') + ' (у читателя: его часовой пояс)' }, kids());
       }
-      else if (tag === 'tg-collage') {
+      else if (tag === 'tg-collage' || tag === 'tg-slideshow') {
+        // the caption goes under the media, wherever it was written: it is neither a cell nor a slide
         const caps = kids().filter((k) => k.nodeType === 1 && k.tagName.toLowerCase() === 'figcaption');
-        rep = el('figure', { class: 'tg-collage' }, el('div', { class: 'tg-collage-grid' }, kids().filter((k) => !caps.includes(k))), caps);
+        const items = kids().filter((k) => !caps.includes(k));
+        rep = tag === 'tg-slideshow' ? slideshow(items, caps) : el('figure', { class: 'tg-collage' }, el('div', { class: 'tg-collage-grid' }, items), caps);
       }
-      else if (tag === 'tg-slideshow') rep = slideshow(kids(), null);
       else if (tag === 'tg-map') rep = mapEl(attr('lat') ?? attr('latitude'), attr('long') ?? attr('lon') ?? attr('longitude'), attr('zoom'), attr('width'), attr('height'));
       else if (tag === 'tg-thinking') rep = el('div', { class: 'tg-thinking' }, kids());
       else if (tag === 'tg-reference') rep = el('span', { class: 'tg-ref', id: 'ref-' + attr('name') }, kids());

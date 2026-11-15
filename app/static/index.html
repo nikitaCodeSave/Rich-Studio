@@ -89,7 +89,12 @@
       <textarea id="src-markdown" class="code" spellcheck="false" placeholder="# Заголовок&#10;&#10;Текст поста"></textarea>
     </div>
     <div id="pane-json" class="pane" hidden>
-      <p class="muted small">Полный запрос: <code>rich_message</code>, <code>reply_markup</code> и <code>options</code> (любые параметры sendRichMessage). Поля, которых студия ещё не знает, тоже уйдут в Telegram.</p>
+      <p class="muted small">Полный запрос: <code>rich_message</code>, <code>reply_markup</code> и <code>options</code> (любые параметры sendRichMessage). Поля, которых студия ещё не знает, тоже уйдут в Telegram. Пока JSON не применён, он хранится в черновике, но в предпросмотр и отправку не попадает.</p>
+      <div id="json-stale" class="json-stale" role="status" hidden>
+        <span>Пост изменился после ваших правок JSON: «Применить мои» заменит его этим текстом, «Отбросить» покажет текущий пост.</span>
+        <button id="json-mine" type="button" class="small-btn">Применить мои</button>
+        <button id="json-drop" type="button" class="ghost small-btn">Отбросить</button>
+      </div>
       <textarea id="src-json" class="code" spellcheck="false"></textarea>
       <div class="row"><button id="json-apply">Применить JSON</button><span id="json-err" class="err small"></span></div>
     </div>

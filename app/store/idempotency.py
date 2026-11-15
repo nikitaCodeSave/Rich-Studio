@@ -1,18 +1,23 @@
-"""Idempotency keys: one row per key, claimed atomically before the action runs."""
+"""Idempotency keys: one row per key, claimed atomically before the action runs.
+
+Only finished keys (done) are forgotten after TTL. A key after which the post may have gone (uncertain, or pending
+left by a crash) stays for good: a retry with it, even a week later, must not post a second time. Such keys are
+rare (one per network error or crash mid-send) and small, so the table does not need a limit for them."""
 
 import json
 import time
 
 from .db import conn, row
 
-TTL = 24 * 3600  # keys older than a day are forgotten
+TTL = 24 * 3600  # done keys older than a day are forgotten
+EXPIRED = "delete from idempotency where status='done' and created_at < ?"
 
 
 def claim(key: str, scope: str, fingerprint: str) -> dict | None:
     """Claim the key for this request. None if claimed now, else the existing row."""
     now = int(time.time())
     with conn() as c:
-        c.execute("delete from idempotency where created_at < ?", (now - TTL,))
+        c.execute(EXPIRED, (now - TTL,))
         cur = c.execute(
             "insert or ignore into idempotency(key, scope, fingerprint, status, created_at) values(?,?,?,'pending',?)",
             (key, scope, fingerprint, now),
@@ -41,6 +46,6 @@ def release(key: str) -> None:
 
 
 def purge(now: int | None = None) -> int:
-    """Forget keys older than TTL (claim does it too, but only when someone sends)."""
+    """Forget done keys older than TTL (claim does it too, but only when someone sends)."""
     with conn() as c:
-        return c.execute("delete from idempotency where created_at < ?", (int(now or time.time()) - TTL,)).rowcount
+        return c.execute(EXPIRED, (int(now or time.time()) - TTL,)).rowcount

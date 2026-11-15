@@ -73,7 +73,7 @@ def test_same_buttons_again_is_not_an_error(client, tg):
 
 def test_edit_of_a_post_already_taken_by_the_scheduler_is_refused(client, tg):
     rec = schedule(client, at=int(time.time()) + 3600)
-    assert store.claim_post(rec["id"])
+    assert store.claim_post(rec["id"], due_by=None)
     r = client.post(f"/api/posts/{rec['id']}/edit", json={"rich_message": {"markdown": "новое"}})
     assert r.status_code == 400 and "sending" in r.json()["detail"]
     # the same check inside the update itself, for an edit that read the post just before the claim

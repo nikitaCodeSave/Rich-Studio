@@ -4,6 +4,7 @@ import json
 import time
 import uuid
 
+from .backup import refs_in
 from .db import conn, row
 
 
@@ -58,11 +59,10 @@ def save_draft(
 
 def drafts_using(ref: str) -> list[dict]:
     """Drafts whose content mentions the upload reference (e.g. "upload:cat.png")."""
+    name = ref.removeprefix("upload:")
     with conn() as c:
-        rows = c.execute(
-            "select id, title from drafts where instr(payload, ?) > 0", (json.dumps(ref, ensure_ascii=False),)
-        )
-        return [dict(r) for r in rows]
+        rows = c.execute("select id, title, payload from drafts where instr(payload, ?) > 0", (name,)).fetchall()
+    return [{"id": r["id"], "title": r["title"]} for r in rows if name in refs_in(r["payload"])]
 
 
 def delete_draft(did: str) -> None:

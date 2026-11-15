@@ -685,3 +685,12 @@ def test_a_template_fills_into_a_new_draft_through_mcp(client, tg):
     )
     assert res["isError"] and "Markdown" in text
     assert not tg.calls
+
+
+def test_get_draft_hides_the_editors_json_buffer(client):
+    d = {"rich_message": {"markdown": "x"}}
+    studio = {"json": {"text": "{}", "base": "{}"}, "buffers": {"html": "<p>x</p>"}, "source": {"link": "t.me/c/1"}}
+    saved = store.save_draft(None, "T", {**d, "_studio": studio})
+    _, got, _ = call(client, "get_draft", draft_id=saved["id"])
+    assert got["payload"]["_studio"] == {"source": {"link": "t.me/c/1"}}
+    assert store.get_draft(saved["id"])["payload"]["_studio"] == studio  # the stored draft is untouched

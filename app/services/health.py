@@ -6,6 +6,7 @@ here changes data.
 """
 
 import shutil
+import sqlite3
 import time
 from collections.abc import Callable
 from typing import Any
@@ -38,7 +39,34 @@ def _check(name: str, status: str, summary: str, action: str | None = None, deta
     return out
 
 
+# The store needs RETURNING (3.35.0; upsert 3.24 and iif 3.32 are older). 3.51.0 and 3.51.1 can deadlock in WAL:
+# the broken-posix-lock detection added in 3.51.0 was fixed only in 3.51.2
+# (https://www.sqlite.org/releaselog/3_51_2.html).
+SQLITE_MIN = (3, 35, 0)
+SQLITE_BAD = ((3, 51, 0), (3, 51, 1))
+
+
+def sqlite_problem(version: str | None = None) -> str | None:
+    """Why the SQLite library in use is unfit, or None. Library version, not the Python module's."""
+    version = version or sqlite3.sqlite_version
+    try:
+        parts = tuple(int(x) for x in version.split(".")[:3])
+    except ValueError:
+        return None
+    parts += (0,) * (3 - len(parts))
+    if parts < SQLITE_MIN:
+        return f"SQLite {version} старше 3.35.0: хранилищу нужен RETURNING"
+    if parts in SQLITE_BAD:
+        return f"SQLite {version}: известная взаимная блокировка в WAL, исправлена в 3.51.2"
+    return None
+
+
 def database() -> dict:
+    problem = sqlite_problem()
+    if problem:
+        return _check(
+            "database", "fail", problem, "обновите образ или системную SQLite (нужна 3.35–3.50 или от 3.51.2)"
+        )
     have, want = store.stats.schema_ok()
     counts = store.stats.post_counts()
     if have != want:

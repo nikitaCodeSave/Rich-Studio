@@ -76,7 +76,24 @@ def test_a_file_of_a_missed_post_is_not_deleted_without_force(client, tg):
     rec = client.post(
         "/api/schedule", json={"post": _photo("later.png"), "chat_id": "@c", "at": int(time.time()) + 3600}
     ).json()
-    store.mark_missed(rec["id"], "студия не работала")
+    store.update_post(rec["id"], status="missed", error="студия не работала")
     r = client.delete("/api/media/later.png")
     assert r.status_code == 409 and r.json()["detail"]["used_by"] == ["пропущенный пост в @c"]
     assert client.delete("/api/media/later.png?force=true").status_code == 200
+
+
+def _unapplied(text: str) -> dict:
+    return {"rich_message": {"markdown": "x"}, "_studio": {"json": {"text": text, "base": "{}"}}}
+
+
+def test_file_only_the_unapplied_json_mentions_is_used(client, tg):
+    """The editor's JSON buffer is a string, maybe not valid JSON: its upload:<name> still keeps the file."""
+    for name in ("buf.png", "free.png"):
+        client.post("/api/media", files={"file": (name, b"\x89PNG", "image/png")})
+    client.post("/api/drafts", json={"title": "Буфер", "post": _unapplied('{"photo": "upload:buf.png",')})
+    used = {f["name"]: f["used"] for f in client.get("/api/media").json()}
+    assert used == {"buf.png": True, "free.png": False}
+    assert client.post("/api/media/cleanup").json()["deleted"] == ["free.png"]
+    r = client.delete("/api/media/buf.png")
+    assert r.status_code != 200 or "Буфер" in r.text
+    assert any(f["name"] == "buf.png" for f in client.get("/api/media").json())
