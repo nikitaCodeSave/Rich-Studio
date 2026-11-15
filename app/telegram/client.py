@@ -12,6 +12,7 @@ from typing import Any
 import httpx
 
 import metrics
+import redact
 import settings
 from errors import StudioError
 
@@ -141,8 +142,11 @@ async def _post(url: str, params: dict, files: dict[str, Path], timeout: float) 
         body = r.json()
     except ValueError:
         body = None
-    # a proxy's or a wrong TG_API_BASE's error page may echo the URL: hide the token before cutting the text
-    detail = body.get("description") if isinstance(body, dict) else r.text.replace(_token(), "<token>")[:300]
+    # a proxy, a wrong TG_API_BASE or an own Bot API server may echo the URL with the token: whatever goes up as an
+    # error is masked here, before anything above sees it (a page before the text is cut, so no tail is left)
+    if isinstance(body, dict) and not body.get("ok"):
+        body = redact.scrub_all(body)
+    detail = body.get("description") if isinstance(body, dict) else redact.scrub(r.text)[:300]
     if r.status_code >= 500 or (isinstance(body, dict) and (body.get("error_code") or 0) >= 500):
         raise NoAnswer(f"Telegram ответил HTTP {r.status_code}: {detail}")
     if not isinstance(body, dict):  # a 4xx page from a proxy or a wrong TG_API_BASE: refused, not executed

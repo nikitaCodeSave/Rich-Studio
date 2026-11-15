@@ -9,6 +9,7 @@ from dataclasses import asdict, dataclass
 
 import logs
 import metrics
+import redact
 import settings
 import store
 import telegram as tg
@@ -43,7 +44,8 @@ class Status:
     handled: int = 0
 
     def as_dict(self) -> dict:
-        return asdict(self)
+        """For /api/config, /api/updates and studio_status: the error text without secrets (redact.py)."""
+        return {**asdict(self), "error": redact.scrub(self.error) if self.error else self.error}
 
 
 STATUS = Status()

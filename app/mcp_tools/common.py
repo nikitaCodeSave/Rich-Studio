@@ -9,6 +9,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
+import redact
 import security
 import settings
 import store
@@ -145,7 +146,7 @@ def request_key(given: str | None, scope: str, body: dict) -> str:
 
 
 def errors_as_tool_errors(fn: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitable[Any]]:
-    """Studio and Telegram errors become tool errors the agent can read and fix."""
+    """Studio and Telegram errors become tool errors the agent can read and fix, without secrets (redact.py)."""
 
     @functools.wraps(fn)
     async def wrapper(*args, **kwargs):
@@ -153,9 +154,9 @@ def errors_as_tool_errors(fn: Callable[..., Awaitable[Any]]) -> Callable[..., Aw
             return await fn(*args, **kwargs)
         except StudioError as e:
             detail = e.detail if isinstance(e.detail, str) else json.dumps(e.detail, ensure_ascii=False)
-            raise ToolError(detail) from None
+            raise ToolError(redact.scrub(detail)) from None
         except tg.TelegramError as e:
             wait = f" (повторить не раньше чем через {e.retry_after} с)" if e.retry_after else ""
-            raise ToolError(f"Telegram: {e.description}{wait}") from None
+            raise ToolError(redact.scrub(f"Telegram: {e.description}{wait}")) from None
 
     return wrapper
