@@ -590,6 +590,92 @@ def test_post_being_sent_right_now_is_not_a_problem(client, monkeypatch):
     store.update_post(p["id"], status="failed", error="test")
 
 
+def _flagged_posts() -> list[str]:
+    return [p["id"] for p in health.posts().get("details", {}).get("posts", [])]
+
+
+def _missed_after_outage(client, hours: float) -> dict:
+    """A post scheduled for a time the studio was off, then the scheduler's first round after the start."""
+    import asyncio
+
+    from services import scheduler
+
+    rec = client.post("/api/schedule", json={"post": BLOCKS_POST, "at": "2099-01-01T09:00:00+03:00"}).json()
+    store.update_post(rec["id"], scheduled_at=int(time.time() - hours * 3600))
+    asyncio.run(scheduler.run_due_posts())
+    assert store.get_post(rec["id"])["status"] == "missed"
+    return rec
+
+
+def test_post_missed_after_more_than_a_day_off_needs_a_person(client, tg):
+    """ADR 0005 with an outage longer than the report's day: the missed post waits for a decision all the same."""
+    rec = _missed_after_outage(client, 30)
+    check = health.posts()
+    assert check["status"] == "warn" and _flagged_posts() == [rec["id"]]
+    assert "reschedule" in check["action"]
+
+
+def test_missed_post_leaves_the_report_once_rescheduled_or_cancelled(client, tg):
+    moved, cancelled = _missed_after_outage(client, 30), _missed_after_outage(client, 30)
+    assert set(_flagged_posts()) == {moved["id"], cancelled["id"]}
+    r = client.post(f"/api/posts/{moved['id']}/reschedule", json={"at": int(time.time()) + 3600})
+    assert r.json()["status"] == "scheduled"
+    assert _flagged_posts() == [cancelled["id"]]
+    assert client.delete(f"/api/posts/{cancelled['id']}").json()["status"] == "cancelled"
+    assert health.posts()["status"] == "ok"
+
+
+def test_many_old_missed_posts_are_counted_honestly(client, tg):
+    """Missed posts pile up without a limit: the summary counts them all, the details show the newest 20."""
+    import asyncio
+
+    from services import scheduler
+
+    chats = [f"@channel_{i}" for i in range(25)]
+    store.add_scheduled(chats, BLOCKS_POST, int(time.time()) - 30 * 3600)
+    asyncio.run(scheduler.run_due_posts())
+    check = health.posts()
+    assert check["summary"].startswith("25 постов") and len(check["details"]["posts"]) == 20
+
+
+def test_failed_post_older_than_a_day_is_not_in_the_report(client, tg):
+    """A failure has a day in the report (the post stays in «Посты» with its error), unlike a missed post."""
+    now = int(time.time())
+    old = store.add_post(
+        "@test_channel", BLOCKS_POST, status="failed", scheduled_at=now - health.DAY - 60, error="отказ"
+    )
+    recent = store.add_post("@test_channel", BLOCKS_POST, status="failed", scheduled_at=now - 3600, error="отказ")
+    assert _flagged_posts() == [recent["id"]]
+    assert old["id"] not in _flagged_posts()
+
+
+def _expired_comment(client, monkeypatch, sent_ago: int) -> str:
+    """A post with a first comment whose forward never came, and the expiry the next getUpdates round runs."""
+    from services import updates
+
+    monkeypatch.setattr(settings.get(), "updates_on", True)
+    r = client.post("/api/send", json={"post": {**BLOCKS_POST, "comment": {"html": "<p>x</p>"}}}).json()
+    pid = r["post"]["id"]
+    assert r["post"]["comment_status"] == "waiting"
+    store.update_post(pid, sent_at=int(time.time()) - sent_ago)
+    assert store.expire_comments(int(time.time()) - updates.COMMENT_WAIT, "первый комментарий: не пришла") == 1
+    return pid
+
+
+def test_first_comment_that_expired_is_in_the_report(client, tg, monkeypatch):
+    """The comment fails a day after the post: the report's day counts from then, not from the post."""
+    pid = _expired_comment(client, monkeypatch, 24 * 3600 + 120)
+    assert health.posts()["status"] == "warn" and _flagged_posts() == [pid]
+
+
+def test_first_comment_failure_leaves_the_report_a_day_after_it_could_last_fail(client, tg, monkeypatch):
+    """A comment fails at the latest when its wait ends; a day after that the report no longer shows it (the
+    studio has nothing to resolve it with)."""
+    pid = _expired_comment(client, monkeypatch, 24 * 3600 + 120)
+    store.update_post(pid, sent_at=int(time.time()) - 2 * 24 * 3600 - 120)
+    assert health.posts()["status"] == "ok"
+
+
 @pytest.mark.parametrize(
     ("refusal", "status"),
     [
