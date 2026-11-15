@@ -6,6 +6,7 @@ here changes data.
 """
 
 import shutil
+import sqlite3
 import time
 from collections.abc import Callable
 from typing import Any
@@ -38,7 +39,34 @@ def _check(name: str, status: str, summary: str, action: str | None = None, deta
     return out
 
 
+# The store needs RETURNING (3.35.0; upsert 3.24 and iif 3.32 are older). 3.51.0 and 3.51.1 can deadlock in WAL:
+# the broken-posix-lock detection added in 3.51.0 was fixed only in 3.51.2
+# (https://www.sqlite.org/releaselog/3_51_2.html).
+SQLITE_MIN = (3, 35, 0)
+SQLITE_BAD = ((3, 51, 0), (3, 51, 1))
+
+
+def sqlite_problem(version: str | None = None) -> str | None:
+    """Why the SQLite library in use is unfit, or None. Library version, not the Python module's."""
+    version = version or sqlite3.sqlite_version
+    try:
+        parts = tuple(int(x) for x in version.split(".")[:3])
+    except ValueError:
+        return None
+    parts += (0,) * (3 - len(parts))
+    if parts < SQLITE_MIN:
+        return f"SQLite {version} старше 3.35.0: хранилищу нужен RETURNING"
+    if parts in SQLITE_BAD:
+        return f"SQLite {version}: известная взаимная блокировка в WAL, исправлена в 3.51.2"
+    return None
+
+
 def database() -> dict:
+    problem = sqlite_problem()
+    if problem:
+        return _check(
+            "database", "fail", problem, "обновите образ или системную SQLite (нужна 3.35–3.50 или от 3.51.2)"
+        )
     have, want = store.stats.schema_ok()
     counts = store.stats.post_counts()
     if have != want:
@@ -156,16 +184,20 @@ def scheduler() -> dict:
 
 
 def posts() -> dict:
-    found = store.stats.problem_posts(int(time.time()) - DAY)
+    since = int(time.time()) - DAY
+    # a missed post waits for the person however long the studio was off; a first comment fails at the latest when
+    # its wait ends, and a day from then is the window for it, not a day from the post
     # a post the scheduler is sending this second is "sending" in the table; only one left behind is a problem
-    found = [p for p in found if not (p["status"] == "sending" and p["id"] in publisher.in_flight)]
-    if not found:
-        return _check("posts", "ok", "за сутки без сбоев")
+    found, total = store.stats.problem_posts(since, since - updates.COMMENT_WAIT, frozenset(publisher.in_flight))
+    if not total:
+        return _check("posts", "ok", "пропущенных нет, за сутки без сбоев")
+    shown = f", показаны {len(found)} последних" if total > len(found) else ""
     return _check(
         "posts",
         "warn",
-        f"{len(found)} постов за сутки требуют внимания (не ушли, пропущены или без первого комментария)",
-        "прочитайте error у каждого; пропущенный отложите заново (POST /api/posts/{id}/reschedule) или опубликуйте",
+        f"{total} постов требуют внимания (не ушли, пропущены или без первого комментария){shown}",
+        "прочитайте error у каждого; пропущенный виден здесь, пока его не решат: отложить заново или отправить сейчас "
+        "(POST /api/posts/{id}/reschedule), а не нужен или уже опубликован копией — отменить (DELETE /api/posts/{id})",
         details={"posts": found},
     )
 

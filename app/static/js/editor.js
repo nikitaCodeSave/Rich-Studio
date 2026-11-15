@@ -16,7 +16,7 @@ export const refreshPreview = debounce(() => { renderPreview(); validate(); }, 2
 // a new post becomes a draft on its first change, so a reload or a crashed tab never loses it
 export const autosave = debounce(() => { if (dirty.value && !S.conflict) saveDraft(true).catch((e) => toast('Автосохранение не удалось: ' + e.message, 'err')); }, 2500);
 export async function flushSave() { if (dirty.value && !S.conflict) await saveDraft(true); }
-export function changed() { dirty.value = true; saveState.value = 'есть изменения'; refreshPreview(); autosave(); recordHistory(); }
+export function changed() { dirty.value = true; saveState.value = 'есть изменения'; refreshPreview(); autosave(); recordHistory(); if (S.mode === 'json') renderJson(); }
 
 export function buildPost() {
   const rm = {};
@@ -47,9 +47,9 @@ export function callbacksFor(kb) {
   return out;
 }
 
-// Drafts keep the text of every mode, not only the one that is sent
+// Drafts keep the text of every mode, not only the one that is sent, and the JSON not applied yet
 export function draftPayload() {
-  return { ...buildPost(), _studio: { format: S.format, buffers: { blocks: S.buf.blocks, html: S.buf.html, markdown: S.buf.markdown } } };
+  return { ...buildPost(), _studio: { format: S.format, buffers: { blocks: S.buf.blocks, html: S.buf.html, markdown: S.buf.markdown }, ...(S.json && { json: S.json }) } };
 }
 
 export function loadPost(post) {
@@ -76,6 +76,8 @@ export function loadPost(post) {
     if (typeof b.html === 'string' && rm.html === undefined) S.buf.html = b.html;
     if (typeof b.markdown === 'string' && rm.markdown === undefined) S.buf.markdown = b.markdown;
   }
+  const j = studio && studio.json;
+  S.json = j && typeof j.text === 'string' && typeof j.base === 'string' ? { text: j.text, base: j.base } : null;
   setMode(S.format, true);
   renderAll();
 }
@@ -84,6 +86,7 @@ export function renderAll() {
   renderBlocksPane();
   $('#src-html').value = S.buf.html;
   $('#src-markdown').value = S.buf.markdown;
+  renderJson();
   renderMedia();
   renderKeyboard();
   renderOptions();
@@ -99,10 +102,42 @@ export function setMode(mode, silent) {
   $$('#mode-tabs button').forEach((b) => b.classList.toggle('on', b.dataset.mode === mode));
   ['blocks', 'html', 'markdown', 'json'].forEach((m) => { $('#pane-' + m).hidden = m !== mode; });
   $('#panel-media').hidden = mode === 'blocks';
-  if (mode === 'json') { $('#src-json').value = JSON.stringify(buildPost(), null, 2); $('#json-err').textContent = ''; }
+  if (mode === 'json') { renderJson(); $('#json-err').textContent = ''; }
   const hints = { blocks: 'отправляется как rich_message.blocks', html: 'отправляется как rich_message.html', markdown: 'отправляется как rich_message.markdown', json: 'активный формат: ' + S.format };
   $('#mode-hint').textContent = hints[mode];
   if (!silent) changed();
+}
+
+// ---------- the JSON tab: what is typed there stays with the draft until «Применить» or «Отбросить» ----------
+// It is not the post: the preview, the check and the send take buildPost(), never this text.
+/** The unapplied text if there is one, else the post as it is; the bar says the post changed after that text was
+ * typed, so applying it would undo those changes. */
+export function renderJson() {
+  const post = buildPost();
+  const text = S.json ? S.json.text : JSON.stringify(post, null, 2);
+  const ta = /** @type {HTMLTextAreaElement} */ ($('#src-json'));
+  if (ta.value !== text) ta.value = text;
+  $('#json-stale').hidden = !S.json || S.json.base === JSON.stringify(post);
+  $('#mode-tabs [data-mode=json]').classList.toggle('pending', !!S.json);
+}
+
+function applyJson() {
+  try { loadPost(JSON.parse($('#src-json').value)); } catch (e) { $('#json-err').textContent = e.message; return; }
+  S.json = null;
+  setMode('json', true); changed(); toast('JSON применён', 'ok');
+}
+
+export function bindJson() {
+  const ta = /** @type {HTMLTextAreaElement} */ ($('#src-json'));
+  ta.addEventListener('input', () => {
+    const post = buildPost();
+    // base: the post the text was typed over; typed back to the post as it is, there is nothing to apply
+    S.json = ta.value === JSON.stringify(post, null, 2) ? null : { text: ta.value, base: S.json ? S.json.base : JSON.stringify(post) };
+    changed();
+  });
+  $('#json-apply').onclick = applyJson;
+  $('#json-mine').onclick = applyJson;
+  $('#json-drop').onclick = () => { S.json = null; $('#json-err').textContent = ''; changed(); };
 }
 
 // ---------- after publishing: pin, first comment, poll ----------

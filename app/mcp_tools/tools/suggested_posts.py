@@ -4,10 +4,18 @@ from typing import Annotated
 
 from pydantic import Field
 
-from mcp_tools.common import PUBLIC, READ, KeyArg, ToolDecorator, actor, request_key
+from mcp_tools.common import PUBLIC, READ, ToolDecorator, actor, request_key
 from services import idempotency, suggested_posts
 
 SuggestionArg = Annotated[str, Field(description="id предложения из list_suggested_posts")]
+DecisionKeyArg = Annotated[
+    str | None,
+    Field(
+        description="Один ключ на решение. При повторе после ошибки передайте тот же ключ: решение не уйдёт в Telegram "
+        "второй раз. Без ключа ключом считается сам запрос. После ответа «могло дойти» новый ключ тоже не поможет: "
+        "пусть пользователь проверит личные сообщения канала и, если решение не дошло, нажмёт «Решить снова» в редакторе"
+    ),
+]
 
 
 def register(tool: ToolDecorator) -> None:
@@ -32,7 +40,7 @@ def register(tool: ToolDecorator) -> None:
         send_date: Annotated[
             str | None, Field(description="Когда опубликовать (ISO 8601), если автор не выбрал; пусто — сразу")
         ] = None,
-        idempotency_key: KeyArg = None,
+        idempotency_key: DecisionKeyArg = None,
     ) -> dict:
         """Принять предложенный пост: Telegram опубликует его в канале, платный спишет звёзды с автора. Только после
         явного подтверждения пользователя для этого предложения."""

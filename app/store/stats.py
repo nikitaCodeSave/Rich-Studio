@@ -30,24 +30,34 @@ def overdue(before: int) -> list[dict]:
         )
 
 
-def problem_posts(since: int) -> list[dict]:
-    """Posts that need a person: failed or missed (since `since`), first comments that failed, still sending."""
+def problem_posts(
+    since: int, comments_sent_since: int, sending_now: set[str] | frozenset[str] = frozenset(), limit: int = 20
+) -> tuple[list[dict], int]:
+    """Posts that need a person: missed (until rescheduled or cancelled, however old), still sending (except
+    `sending_now`, the ones being sent this second), failed since `since`, and first comments that failed on posts
+    sent since `comments_sent_since` (a comment fails at the latest when its wait for the forward ends, so the
+    caller counts its window from there). Returns the newest `limit` of them and how many there are in all."""
+    marks = ",".join("?" * len(sending_now))
+    where = f"""status='missed'
+                or (status='sending' and id not in ({marks}))
+                or (status='failed' and coalesce(sent_at, scheduled_at, created_at) >= ?)
+                or (comment_status='failed' and coalesce(sent_at, created_at) >= ?)"""
+    args = (*sending_now, since, comments_sent_since)
     with conn() as c:
-        return _brief(
-            c.execute(
-                """select id, chat_id, status, comment_status, error,
-                          coalesce(sent_at, scheduled_at, created_at) as at from posts
-                   where (status in ('failed', 'missed') and coalesce(sent_at, scheduled_at, created_at) >= ?)
-                      or status='sending'
-                      or (comment_status='failed' and coalesce(sent_at, created_at) >= ?)
-                   order by at desc limit 20""",
-                (since, since),
-            )
+        total = c.execute(f"select count(*) from posts where {where}", args).fetchone()[0]  # noqa: S608 - placeholders only
+        rows = c.execute(
+            f"""select id, chat_id, status, comment_status, error,
+                       coalesce(sent_at, scheduled_at, created_at) as at from posts
+                where {where} order by at desc limit ?""",  # noqa: S608 - placeholders only
+            (*args, limit),
         )
+        return _brief(rows), total
 
 
 def uncertain_sends(since: int) -> list[dict]:
-    """Idempotency keys whose request ended with "the post may have gone": someone has to look at the channel."""
+    """Idempotency keys whose request ended with "the post may have gone": someone has to look at the channel.
+    The keys themselves stay for good (store.idempotency), the report shows only those since `since`: it asks to
+    look at the channel now, and a key cannot be cleared, so one network error would keep the report in warn."""
     with conn() as c:
         return _brief(
             c.execute(
