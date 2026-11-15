@@ -625,6 +625,30 @@ def test_missed_post_leaves_the_report_once_rescheduled_or_cancelled(client, tg)
     assert health.posts()["status"] == "ok"
 
 
+def test_many_old_missed_posts_are_counted_honestly(client, tg):
+    """Missed posts pile up without a limit: the summary counts them all, the details show the newest 20."""
+    import asyncio
+
+    from services import scheduler
+
+    chats = [f"@channel_{i}" for i in range(25)]
+    store.add_scheduled(chats, BLOCKS_POST, int(time.time()) - 30 * 3600)
+    asyncio.run(scheduler.run_due_posts())
+    check = health.posts()
+    assert check["summary"].startswith("25 постов") and len(check["details"]["posts"]) == 20
+
+
+def test_failed_post_older_than_a_day_is_not_in_the_report(client, tg):
+    """A failure has a day in the report (the post stays in «Посты» with its error), unlike a missed post."""
+    now = int(time.time())
+    old = store.add_post(
+        "@test_channel", BLOCKS_POST, status="failed", scheduled_at=now - health.DAY - 60, error="отказ"
+    )
+    recent = store.add_post("@test_channel", BLOCKS_POST, status="failed", scheduled_at=now - 3600, error="отказ")
+    assert _flagged_posts() == [recent["id"]]
+    assert old["id"] not in _flagged_posts()
+
+
 def _expired_comment(client, monkeypatch, sent_ago: int) -> str:
     """A post with a first comment whose forward never came, and the expiry the next getUpdates round runs."""
     from services import updates
