@@ -14,7 +14,8 @@ own note (`_studio.source`), not part of the post. An album comes as one message
 
 import json
 import logging
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
 
 import settings
 import spec
@@ -28,6 +29,8 @@ REACTION = "✍"  # one of the emoji ReactionTypeEmoji allows: «written down»
 BOT_ACTIONS = {"callback_data", "callback_game", "pay"}  # answered by the bot that sent the original, not by ours
 MESSAGE_KEYS = {"voice_note": "voice"}  # media field of an InputRichBlock -> the Message field, where they differ
 GRID = ("photo", "video")  # an album of these is a grid in Telegram: a collage in the draft
+# a Message field holding content of its own, by the spec's wording («Message is a sticker…», «contains paid media»)
+CONTENT_FIELD = re.compile(r"Optional\. (The )?[Mm]essage (is|contains)\b")
 ALBUMS_KEY = "forward_albums"
 ALBUMS_KEPT = 5  # albums still being received; their items come within seconds of each other
 
@@ -59,6 +62,7 @@ class _Post:
     rich: dict  # the rest of rich_message (is_rtl)
     markup: dict | None  # the keyboard under it, without buttons only the original's bot works with
     dropped: int  # how many such buttons were removed
+    lost: list[str] = field(default_factory=list)  # content no rich block holds (Live Photo, paid media, sticker…)
 
 
 async def on_message(m: dict) -> str:
@@ -69,7 +73,8 @@ async def on_message(m: dict) -> str:
         warnings: list[str] = []
         post = _content(m, warnings)
         if not post.media and not post.text:  # checked after the buttons are gone: a post of them alone is empty
-            why = "в посте только кнопки, которые работают у его бота" if post.dropped else ""
+            why = f"{', '.join(post.lost)} в rich-пост не переносится" if post.lost else ""
+            why = why or ("в посте только кнопки, которые работают у его бота" if post.dropped else "")
             why = why or "в сообщении нет текста, фото, видео, файла или rich-блоков"
             return await _refuse(m, f"нечего перенести: {why}")
         d = _save(m, post, warnings)
@@ -94,12 +99,14 @@ def _content(m: dict, warnings: list[str]) -> _Post:
     if isinstance(rich, dict):
         fields = {f["name"] for f in sp.types.get("InputRichMessage", {}).get("fields", [])}
         extra = {k: v for k, v in rich.items() if k != "blocks" and k in fields}
-        media, text = [], spec.to_input_blocks(sp, rich.get("blocks") or [])
+        media, text, lost = [], spec.to_input_blocks(sp, rich.get("blocks") or []), []
     else:
         extra = {}
         entities = m.get("entities") or m.get("caption_entities") or []
         text = spec.text_blocks(sp, m.get("text") or m.get("caption") or "", entities, warnings)
-        media = _media(sp, m)
+        media, lost = _media(sp, m), _lost(sp, m)
+        if lost and (media or text):
+            warnings.append(f"не перенесено, в rich-посте для этого нет блока: {', '.join(lost)}")
     dropped: list = []
     media, text = _without_bot_buttons(media, dropped), _without_bot_buttons(text, dropped)
     markup = _keyboard(m.get("reply_markup"), dropped)
@@ -107,20 +114,40 @@ def _content(m: dict, warnings: list[str]) -> _Post:
         warnings.append(
             f"убраны кнопки ({len(dropped)}), на которые отвечал бот исходного поста: студия на них не ответит"
         )
-    return _Post(media, text, extra, markup, len(dropped))
+    return _Post(media, text, extra, markup, len(dropped), lost)
+
+
+def _media_fields(sp: spec.Spec) -> list[tuple[str, str]]:
+    """(block type, its media field) of every InputRichBlock that holds an InputMedia, in the spec's order."""
+    out = []
+    for name in sp.types.get("InputRichBlock", {}).get("subtypes", []):
+        const = sp.type_const(name)
+        for f in sp.types[name].get("fields", []):
+            if const and (f["types"] or [""])[0].startswith("InputMedia"):
+                out.append((const[1], f["name"]))
+    return out
 
 
 def _media(sp: spec.Spec, m: dict) -> list:
     """The message's photo, video, file… as an input block that reuses its file_id (at most one: an animation also
     comes as a document, so the first InputRichBlock with media wins)."""
-    for name in sp.types.get("InputRichBlock", {}).get("subtypes", []):
-        const = sp.type_const(name)
-        for f in sp.types[name].get("fields", []):
-            sent = m.get(MESSAGE_KEYS.get(f["name"], f["name"]))
-            if const and sent and (f["types"] or [""])[0].startswith("InputMedia"):
-                block = {"type": const[1], f["name"]: sent, "has_spoiler": bool(m.get("has_media_spoiler"))}
-                return spec.to_input_blocks(sp, [block])
+    for kind, key in _media_fields(sp):
+        if sent := m.get(MESSAGE_KEYS.get(key, key)):
+            block = {"type": kind, key: sent, "has_spoiler": bool(m.get("has_media_spoiler"))}
+            return spec.to_input_blocks(sp, [block])
     return []
+
+
+def _lost(sp: spec.Spec, m: dict) -> list[str]:
+    """Message fields with content of their own that no block takes: Live Photo (its still photo does go in), paid
+    media, a sticker, a poll…"""
+    taken = {"rich_message", *(MESSAGE_KEYS.get(key, key) for _, key in _media_fields(sp))}
+    fields = sp.types.get("Message", {}).get("fields", [])
+    return [
+        f["name"]
+        for f in fields
+        if f["name"] not in taken and m.get(f["name"]) and CONTENT_FIELD.match(f.get("description", ""))
+    ]
 
 
 def _blocks(media: list, text: list, above: bool) -> list:

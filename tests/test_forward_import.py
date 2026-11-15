@@ -234,6 +234,24 @@ def test_a_photo_with_a_caption(client, tg):
     assert [b["type"] for b in above] == ["paragraph", "photo"]
 
 
+def test_content_a_rich_post_has_no_block_for_is_named(client, tg):
+    still = [{"file_id": "still", "file_unique_id": "s", "width": 720, "height": 960}]
+    live = {"file_id": "lp", "file_unique_id": "lp", "width": 720, "height": 960, "duration": 2}
+    _handle(_forward(50, live_photo=live, photo=still, caption="Живое фото"))  # Telegram also sends the still photo
+    paid = {"star_count": 5, "paid_media": [{"type": "preview", "width": 10, "height": 10}]}
+    _handle(_forward(51, paid_media=paid, caption="За звёзды"))
+    by_title = {d["title"]: store.get_draft(d["id"])["payload"] for d in store.list_drafts()}
+    live_draft = by_title["Канал друга: Живое фото"]
+    assert [b["type"] for b in live_draft["rich_message"]["blocks"]] == ["photo", "paragraph"]
+    assert any("live_photo" in w for w in live_draft["_studio"]["warnings"])
+    paid_draft = by_title["Канал друга: За звёзды"]
+    assert paid_draft["rich_message"]["blocks"] == [{"type": "paragraph", "text": "За звёзды"}]
+    assert any("paid_media" in w for w in paid_draft["_studio"]["warnings"])
+    # nothing but such content: a refusal that names it
+    _handle(_forward(52, paid_media=paid))
+    assert len(store.list_drafts()) == 2 and "paid_media" in tg.last("sendMessage")["body"]["text"]
+
+
 def test_an_album_is_one_draft(client, tg):
     def item(mid, file_id, **extra):
         size = {"file_id": file_id, "file_unique_id": file_id, "width": 800, "height": 600}
