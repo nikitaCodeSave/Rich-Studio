@@ -213,12 +213,24 @@ for (const [name, rm] of Object.entries(SLIDESHOWS)) {
   await page.evaluate(() => Object.assign(window, { __videoClicks: 0, __clicks: 0 }));
   await drag(-0.3);
   check('slideshow: dragging with the mouse a third of a slide turns it', await shows(1));
+  // passes even without the click suppression (Chromium hands the click to the track after setPointerCapture);
+  // the check below ("reaches neither the video nor the page") is what guards the suppression
   check('slideshow: the click that ends a drag does not open the spoiler', await spoilered());
   await drag(0.6);
   check('slideshow: the click that ends a drag reaches neither the video nor the page', await shows(0) && await clicks() === '0,0', await clicks());
   const b = await track.boundingBox();
   await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2);
   check('slideshow: a plain click still opens the spoiler', !await spoilered() && await clicks() === '0,1', await clicks());
+}
+
+// ---------- video / animation muted ----------
+{
+  await render({ blocks: [{ type: 'animation', animation: { type: 'animation', media: 'upload:a.gif' } }, { type: 'video', video: { type: 'video', media: 'upload:v.mp4' } }] });
+  const m = await page.evaluate(() => [...document.querySelectorAll('#out video')].map((v) => [v.muted, v.defaultMuted]));
+  check('video and animation are muted as a property, not only an attribute', m.length === 2 && m.every(([a, b]) => a === true && b === true), JSON.stringify(m));
+  await render({ blocks: [{ type: 'slideshow', blocks: [photo('a.png')] }] });
+  const one = await page.evaluate(() => { const t = document.querySelector('#out .tg-slides'); return [t.hasAttribute('tabindex'), t.hasAttribute('aria-label')]; });
+  check('slideshow of one slide is not focusable and has no arrows hint', !one[0] && !one[1], one.join());
 }
 
 check('no script ran and no page errors', (await page.evaluate(() => window.__xss)) === 0 && pageErrors.length === 0, pageErrors.join(' | '));

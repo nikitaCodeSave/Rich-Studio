@@ -5,7 +5,7 @@ PY ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 LINT_IMPORTS = $(if $(wildcard .venv/bin/lint-imports),.venv/bin/lint-imports,lint-imports)
 UV = $(if $(wildcard .venv/bin/uv),.venv/bin/uv,uv)
 
-.PHONY: check check-fast check-py check-js fmt test openapi docs e2e e2e-local mock dev spec-update token tokens token-revoke lock
+.PHONY: check check-fast check-py check-js fmt test openapi docs e2e e2e-local mock dev spec-update token tokens token-revoke lock vendor vendor-update
 
 check: check-py check-js
 
@@ -18,6 +18,7 @@ check-fast:
 	$(PY) -m pytest -q -x
 	npx eslint .
 	npx tsc -p .
+	node scripts/vendor_codemirror.mjs --check
 
 check-py:
 	$(PY) -m ruff check .
@@ -29,6 +30,8 @@ check-py:
 check-js:
 	npx eslint .
 	npx tsc -p .
+	node scripts/vendor_codemirror.mjs --check
+	npm run --silent test:codemirror
 	npm run --silent test:render
 	npm run --silent test:parity
 	npm run --silent test:shots
@@ -83,6 +86,16 @@ e2e-local:
 lock:
 	$(UV) pip compile requirements.txt --universal --python-version 3.12 --generate-hashes \
 	  --annotation-style line --custom-compile-command "make lock" -o requirements.lock
+
+# CodeMirror for the source editor (docs/decisions/0017): app/static/vendor/codemirror-<hash>/ and codemirror.js
+# from node_modules as package-lock.json pins it; make check compares them byte for byte. After a Dependabot PR of the
+# group codemirror (package.json and the lock only) run it in the PR's branch and push the result, as `make lock`.
+vendor:
+	node scripts/vendor_codemirror.mjs
+
+# newest version of every package of the set (exact, in package.json and the lock), then the same as make vendor
+vendor-update:
+	node scripts/vendor_codemirror.mjs --update
 
 # newer Bot API spec into app/bundled/api.json; exit 10 = updated, then make tests/test_spec_coverage.py green
 spec-update:
