@@ -650,6 +650,13 @@ ATTR_RE = re.compile(r"""(?<=[\s"'/])([^\s"'=/>]+)(?:\s*=\s*("[^"]*"|'[^']*'|[^\
 HTML_TAG_RE = re.compile(r"""</?[A-Za-z](?=([^\s/<>]*))\1(?:[^<>"']|"[^"<]*"|'[^'<]*')*>""")
 MD_FENCE_RE = re.compile(r"[ \t]{0,3}(`{3,}|~{3,})")
 MD_INDENT_RE = re.compile(r" {4}| {0,3}\t")
+# A line that is a block by itself, in a quote too: an ATX heading or a thematic break; and after a line of text the
+# underline of a setext heading. The line after it starts anew, so an indented one is code (as CommonMark and
+# markdown-it in the preview read it; not measured on Telegram, issue #192). The «>» of the quote are taken
+# possessively: a space after one could go to it or to the next, and on a miss every way of it would be tried.
+MD_HEADING_RE = re.compile(r"(?: {0,3}> ?)*+ {0,3}#{1,6}(?:[ \t]|$)")
+MD_BREAK_RE = re.compile(r"(?: {0,3}> ?)*+ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$")
+MD_UNDERLINE_RE = re.compile(r"(?: {0,3}> ?)*+ {0,3}(?:=+|-+)[ \t]*$")
 # `code`: a run of backticks and the next run of as many, as CommonMark reads it; only a whole run opens one, so a
 # long run without its closing run is looked through once, not from each of its backticks
 MD_CODE_RE = re.compile(r"(?<!`)(`+)(?!`).*?(?<!`)\1(?!`)", re.S)
@@ -698,16 +705,18 @@ def html_pieces(src: str) -> Iterator[tuple[str, bool]]:
     yield src[at:], False
 
 
-def md_paragraphs(src: str) -> list[str]:
-    """The paragraphs of markdown as written, without its code: fences and indented blocks (4 spaces or a tab in front
-    of a line where no paragraph goes on, and the lines after it so indented), where Telegram decodes no entity. In a
-    list such a line may be a paragraph of the item: it is left out all the same, an error missed rather than a false
-    one."""
-    paras: list[str] = []
-    lines: list[str] = []
+def md_paragraphs(src: str) -> list[tuple[int, int]]:
+    """Where the paragraphs of markdown are, as (start, end) in src, without its code: fences and indented blocks
+    (4 spaces or a tab in front of a line where no paragraph goes on, and the lines after it so indented), where
+    Telegram decodes no entity. A heading is a paragraph by itself (MD_HEADING_RE). In a list such an indented line may
+    be a paragraph of the item: it is left out all the same, an error missed rather than a false one."""
+    paras: list[tuple[int, int]] = []
+    start = end = -1  # the paragraph read so far, -1: none
     fence = ""
     indented = False
+    at = 0
     for line in src.split("\n"):
+        here, at = at, at + len(line) + 1
         blank = not line.strip()
         if fence:
             f = MD_FENCE_RE.match(line)
@@ -717,16 +726,23 @@ def md_paragraphs(src: str) -> list[str]:
         if indented and (blank or MD_INDENT_RE.match(line)):
             continue
         f = MD_FENCE_RE.match(line)
-        indented = not (f or blank or lines) and bool(MD_INDENT_RE.match(line))
-        if f or blank or indented:
+        indented = not (f or blank or start >= 0) and bool(MD_INDENT_RE.match(line))
+        heading = not (f or blank or indented) and bool(MD_HEADING_RE.match(line))
+        if start >= 0 and MD_UNDERLINE_RE.match(line):  # the paragraph is a setext heading, and it ends here
+            paras.append((start, here + len(line)))
+            start = -1
+        elif f or blank or indented or heading or MD_BREAK_RE.match(line):
             fence = f[1] if f else ""
-            if lines:
-                paras.append("\n".join(lines))
-                lines = []
+            if start >= 0:
+                paras.append((start, end))
+                start = -1
+            if heading:
+                paras.append((here, here + len(line)))
         else:
-            lines.append(line)
-    if lines:
-        paras.append("\n".join(lines))
+            start = here if start < 0 else start
+            end = here + len(line)
+    if start >= 0:
+        paras.append((start, end))
     return paras
 
 
@@ -740,15 +756,20 @@ def erased_texts(src: str, markdown: bool) -> tuple[list[tuple[str, str]], list[
         return [], []
     if not markdown:
         return [(p, e) for p, tag in html_pieces(src) if not tag and (e := vanishing(p))], []
-    sure: list[tuple[str, str]] = []
-    maybe: list[tuple[str, str]] = []
-    for p in md_paragraphs(src):
-        text = MD_TARGET_RE.sub("]", p)
+    found = _md_erased(src)
+    return [(src[a:b], e) for a, b, e, sure in found if sure], [(src[a:b], e) for a, b, e, sure in found if not sure]
+
+
+def _md_erased(src: str) -> list[tuple[int, int, str, bool]]:
+    """The paragraphs of markdown that Telegram erases (erased_texts): where, for which entity, whether for sure."""
+    found = []
+    for a, b in md_paragraphs(src):
+        text = MD_TARGET_RE.sub("]", src[a:b])
         if e := vanishing(MD_CODE_RE.sub("", text)):
-            sure.append((p, e))
+            found.append((a, b, e, True))
         elif e := vanishing(text):
-            maybe.append((p, e))
-    return sure, maybe
+            found.append((a, b, e, False))
+    return found
 
 
 def _erased(found: list[tuple[str, str]], markdown: bool, maybe: bool = False) -> str:
@@ -960,15 +981,19 @@ def _html_shape(v: Validator, src: str) -> int:
     return walk.sure
 
 
-TAG_RE = re.compile(r"<[^>]+>")
-MD_TARGET_RE = re.compile(r"\]\([^)]*\)")  # where a link or an image points: [text](url "title")
+# The regular expressions of the count look from an opening («<», «](», «[^», «![») for its end, and none goes past
+# the next opening of its kind: otherwise a run of openings without an end was looked through to the end of the
+# source from each one (100 000 bytes of «](» took 1 s, of «<img» 9 s; issue #192)
+TAG_RE = re.compile(r"<[^<>]+>")
+# where a link or an image points: [text](url "title"); the address may have a «]», not a «](»
+MD_TARGET_RE = re.compile(r"\]\((?:[^)\]]|\](?!\())*+\)")
 # surely not text in Markdown: footnote names, reference definitions, code fence lines, list numbers, checkboxes;
 # and any line with a "|": Telegram cuts table rows to the width of the header, which only a parser can tell
 MD_MARKUP_RE = re.compile(
-    r"^.*\|.*$|\[\^[^\]]*\]|^[ \t]*\[[^\]]+\]:.*$|^[ \t]*(?:```|~~~).*$|^[ \t]*\d+[.)][ \t]|\[[ xX]\]", re.M
+    r"^.*\|.*$|\[\^[^[\]]*\]|^[ \t]*\[[^\]]+\]:.*$|^[ \t]*(?:```|~~~).*$|^[ \t]*\d+[.)][ \t]|\[[ xX]\]", re.M
 )
 HTTP_MEDIA_RE = re.compile(
-    r"<(?:img|video|audio|tg-document)\b[^>]*\bsrc\s*=\s*[\"']?https?://|!\[[^\]]*\]\(\s*<?https?://", re.I
+    r"<(?:img|video|audio|tg-document)\b[^<>]*\bsrc\s*=\s*[\"']?https?://|!\[[^[\]]*\]\(\s*<?https?://", re.I
 )
 
 
@@ -976,18 +1001,18 @@ def source_chars(src: str, markdown: bool) -> tuple[int, int]:
     """Text characters of html or markdown as far as the source tells without Telegram's parser: about how many
     (without tags and link addresses), and at least how many (also without spaces and, in Markdown, markup and table
     lines). tests/test_rich_limits.py keeps the second one under Telegram's own count for every captured parse. The
-    text Telegram erases for a numeric entity (erased_texts, in markdown both kinds: at least stays at least) is not
-    counted."""
-    if not markdown:
-        if vanishing(src) is not None:
+    text Telegram erases for a numeric entity (erased_texts, in markdown both kinds: at least stays at least) is cut
+    out of the source before the count: once, as a tag of the count may go over it (issue #192)."""
+    if vanishing(src) is not None:
+        if markdown:
+            kept, at = [], 0
+            for a, b, _, _ in _md_erased(src):
+                kept.append(src[at:a])
+                at = b
+            src = "".join(kept) + src[at:]
+        else:
             src = "".join(p for p, tag in html_pieces(src) if tag or not vanishing(p))
-        return _chars(src, markdown)
-    about, at_least = _chars(src, markdown)
-    sure, maybe = erased_texts(src, markdown)
-    for erased, _ in sure + maybe:
-        less, less_at_least = _chars(erased, markdown)
-        about, at_least = about - less, at_least - less_at_least
-    return about, at_least
+    return _chars(src, markdown)
 
 
 def _chars(src: str, markdown: bool) -> tuple[int, int]:

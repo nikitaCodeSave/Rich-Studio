@@ -460,6 +460,29 @@ def test_a_post_with_text_telegram_erases_is_checked_in_linear_time(current, rm)
     assert time.perf_counter() - started < 2
 
 
+# 100 000 bytes: there is no limit on the body of a request, and the check runs in the event loop of the studio
+HOSTILE = {
+    "markdown: ]( without its )": {"markdown": "](" * 50000},
+    "markdown: ]( and an entity Telegram erases": {"markdown": "x&#xD800; " + "](" * 50000},
+    "markdown: < without its >": {"markdown": "<" * 100000},
+    "markdown: < and an entity Telegram erases": {"markdown": "x&#xD800; " + "<" * 100000},
+    "html: < without its >": {"html": "<" * 100000},
+    "markdown: [^ without its ]": {"markdown": "[^" * 50000},
+    "markdown: ![ without its ]": {"markdown": "![" * 50000},
+    "html: <img without its >": {"html": "<img" * 25000},
+    "markdown: a line of quote marks that is no heading": {"markdown": "x&#xD800;\n" + "> " * 50000},
+}
+
+
+@pytest.mark.parametrize("rm", HOSTILE.values(), ids=HOSTILE.keys())
+def test_a_run_of_openings_without_their_end_is_checked_in_linear_time(current, rm):
+    """Issue #192: from each «](» the link address was looked for up to the end of the source, so 100 000 bytes of
+    them took 1 s, and 4 s with an entity Telegram erases; «<img» took 9 s."""
+    started = time.perf_counter()
+    assert not check(current, **rm)["ok"]
+    assert time.perf_counter() - started < 0.5
+
+
 def test_the_preview_tells_tags_from_text_the_same_way():
     """render.js keeps its own copy of HTML_TAG_RE (TAG): the text Telegram erases is the same piece in both."""
     found = re.search(r"const TAG = /(.+)/g;", RENDER_JS)
@@ -654,6 +677,44 @@ def test_in_markdown_code_entities_stay_as_typed(current):
         assert r["ok"] and not r["warnings"], (src, r)
     assert not check(current, markdown="```\nкод\n```\n\na&#xD800;b")["ok"]
     assert not check(current, markdown="    код\n\na&#xD800;b")["ok"]
+
+
+AFTER_A_HEADING = [
+    "# h\n    a&#xD800;b",
+    "до\n## h ##\n\ta&#xD800;b",
+    "h\n===\n    a&#xD800;b",
+    "h\n---\n    a&#xD800;b",
+    "***\n    a&#xD800;b",
+    "до\n- - -\n    a&#xD800;b",
+    "> # h\n    a&#xD800;b",
+    "> h\n> ===\n    a&#xD800;b",
+]
+
+
+@pytest.mark.parametrize("src", AFTER_A_HEADING)
+def test_in_markdown_a_line_indented_right_after_a_heading_is_code(current, src):
+    """Issue #192: a heading or a thematic break is a block of its own, so an indented line right after it starts a
+    code block, not the next line of a paragraph (CommonMark; markdown-it in the preview reads it so). Not measured on
+    Telegram."""
+    r = check(current, markdown=src)
+    assert r["ok"] and not r["warnings"], r
+
+
+@pytest.mark.parametrize(
+    "src", ["#h\n    a&#xD800;b", "- # h\n    a&#xD800;b", "    # h\n\na&#xD800;b", "# h&#xD800;\n    a"]
+)
+def test_in_markdown_what_is_no_heading_or_the_heading_itself_is_still_erased(current, src):
+    r = check(current, markdown=src)
+    assert not r["ok"] and has(r["errors"], "стирает"), r
+
+
+def test_text_telegram_erases_in_markdown_is_taken_out_of_the_count_once(current):
+    """Issue #192: «<x…d>» over three paragraphs is one tag for the count, and the erased paragraph in the middle was
+    taken out of the count a second time: chars -6, at least -5."""
+    src = "a <x\n\nb&#xD800;c\n\nd> e"
+    assert source_chars(src, markdown=True) == (len("a  e"), 2)
+    r = check(current, markdown=src)
+    assert not r["ok"] and r["stats"]["chars"] == len("a  e"), r
 
 
 def test_in_markdown_inline_code_an_entity_telegram_erases_for_is_a_warning(current):
