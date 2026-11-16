@@ -355,7 +355,9 @@
     const b = { ...box };
     if (css.overflowX !== 'visible') { b.left = Math.max(b.left, x); b.right = Math.min(b.right, x + e.clientWidth); }
     if (css.overflowY !== 'visible') { b.top = Math.max(b.top, y); b.bottom = Math.min(b.bottom, y + e.clientHeight); }
-    if (b.left > b.right || b.top > b.bottom) return NONE; // nothing of it is seen: nothing to scroll into view either
+    // nothing of it is seen, an edge of no width too (the next slide starts right on the slideshow's edge): nothing
+    // to scroll into view either
+    if (b.right - b.left < 1 || b.bottom - b.top < 1) return NONE;
     const scrolls = (v) => /^(auto|scroll)$/.test(v) && !e.classList.contains('tg-slides');
     if (scrolls(css.overflowX)) {
       const more = e.scrollWidth - e.clientWidth;
