@@ -4,18 +4,21 @@ import asyncio
 import base64
 import binascii
 import ipaddress
+import os
 import re
 import secrets
 import socket
+import stat
 import urllib.request
 from pathlib import Path
-from urllib.parse import unquote, urljoin, urlsplit
+from urllib.parse import quote, unquote, urljoin, urlsplit
 
 import httpx
 
 import settings
 import store
 from errors import Conflict, NotFound, StudioError
+from telegram import uploads
 
 # served inline; everything else is a download so uploaded html/svg never renders on the studio origin
 INLINE = {
@@ -56,18 +59,37 @@ def kind(name: str) -> str:
     return "document"
 
 
+def shown(name: str) -> str:
+    """The name for JSON (answers, the log, a search in the database): one that is not UTF-8 (after an unzip, by
+    hand; Python keeps it with surrogates) has «�» in place of its bytes. Its URL (_url) keeps the bytes."""
+    return name.encode("utf-8", "surrogateescape").decode("utf-8", "replace")
+
+
 def describe(name: str) -> dict:
-    return {"name": name, "kind": kind(name), "url": f"/media/{name}", "ref": f"upload:{name}"}
+    return {"name": shown(name), "kind": kind(name), "url": _url(name), "ref": f"upload:{shown(name)}"}
+
+
+def _files() -> list[tuple[Path, os.stat_result, bool]]:
+    """The files of the uploads, newest first, each looked at once (a file deleted meanwhile, say by the DELETE the
+    editor reads the list after, is left out) and with whether a draft, template or live post mentions it."""
+    files = []
+    for p in media_dir().iterdir():
+        if p.name.startswith("."):  # .name.part: a download in progress
+            continue
+        try:
+            st = p.stat()
+        except OSError:  # gone meanwhile, a symlink loop (ELOOP), no access: not a file to list
+            continue
+        if stat.S_ISREG(st.st_mode):
+            files.append((p, st))
+    files.sort(key=lambda f: -f[1].st_mtime)
+    refs = store.backup.upload_refs()
+    return [(p, st, p.name in refs) for p, st in files]
 
 
 def list_files() -> list[dict]:
     """Uploads, newest first; `used` is false when no draft, template or live post mentions the file."""
-    files = [
-        p for p in media_dir().iterdir() if p.is_file() and not p.name.startswith(".")
-    ]  # .name.part: a download in progress
-    files.sort(key=lambda p: -p.stat().st_mtime)
-    refs = store.backup.upload_refs()
-    return [{**describe(p.name), "size": p.stat().st_size, "used": p.name in refs} for p in files]
+    return [{**describe(p.name), "size": st.st_size, "used": used} for p, st, used in _files()]
 
 
 def delete_unused(older_than: float | None = None) -> list[str]:
@@ -75,14 +97,10 @@ def delete_unused(older_than: float | None = None) -> list[str]:
 
     older_than: unix time; only files last changed before it (housekeeping keeps fresh uploads).
     """
-    gone = [
-        f["name"]
-        for f in list_files()
-        if not f["used"] and (older_than is None or (media_dir() / f["name"]).stat().st_mtime < older_than)
-    ]
-    for name in gone:
-        path_of(name, must_exist=False).unlink(missing_ok=True)
-    return gone
+    gone = [p for p, st, used in _files() if not used and (older_than is None or st.st_mtime < older_than)]
+    for p in gone:  # the folder's own files: also one put there by hand that no post can use (path_of)
+        p.unlink(missing_ok=True)
+    return [shown(p.name) for p in gone]
 
 
 def usage() -> dict:
@@ -109,7 +127,8 @@ def free_name(filename: str | None) -> str:
 
 
 def used_by(name: str) -> list[str]:
-    """What still needs the file: scheduled or missed posts, drafts and templates that mention upload:<name>."""
+    """What still needs the file: scheduled or missed posts, drafts and templates that mention upload:<name>. The
+    stored content is UTF-8: a name that is not (shown with «�») is mentioned by none of it."""
     ref = describe(name)["ref"]
     waiting = {"scheduled": "отложенный", "missed": "пропущенный"}
     posts = [f"{waiting[p['status']]} пост в {p['chat_id']}" for p in store.using_upload(ref)]
@@ -124,14 +143,37 @@ def delete(name: str, force: bool = False) -> None:
 
 
 def path_of(name: str, must_exist: bool = True) -> Path:
-    """The file inside the media folder; never a path outside it."""
-    root = media_dir().resolve()
-    p = (root / name).resolve()
-    if root not in p.parents:
-        raise StudioError("Bad Request") if not must_exist else NotFound("Not Found")
-    if must_exist and not p.exists():
-        raise NotFound("Not Found")
-    return p
+    """The file inside the media folder; never a path outside it, nor a name that is not one of an upload
+    (telegram.uploads.find: the same check as a send)."""
+    try:
+        return uploads.find(name, media_dir(), must_exist)
+    except uploads.MissingUpload:
+        raise (NotFound("Not Found") if must_exist else StudioError("Bad Request")) from None
+
+
+def url_of(name: str) -> str | None:
+    """/media/<name> for the editor's <img>, the name encoded whole; None unless it is a file of the uploads, so no
+    stored name sends the browser anywhere but to /media/."""
+    try:
+        path_of(name)
+    except StudioError:
+        return None
+    return _url(name)
+
+
+def _url(name: str) -> str:
+    # a name that is not UTF-8 (after an unzip, by hand) is kept with surrogates: its URL is its bytes as they are
+    return "/media/" + quote(name, safe="", errors="surrogateescape")
+
+
+def check_refs(post: dict, must_exist: bool = True) -> None:
+    """Every upload:<name> in a file field of `post` (as a send finds them, telegram.uploads) names a file of the
+    uploads: refused as a send refuses it (StudioError, 400) before anything is written or asked of Telegram.
+    must_exist=False (a draft, a template: the file may be uploaded later): only a name that is a path is refused."""
+    try:
+        uploads.collect_uploads(post, {}, media_dir(), must_exist=must_exist)
+    except uploads.MissingUpload as e:
+        raise StudioError(str(e)) from None
 
 
 def _limit() -> int:

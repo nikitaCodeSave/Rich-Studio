@@ -66,7 +66,7 @@ export async function loadUploads() {
     h('span', { class: 'name', title: u.name, text: u.name }),
     u.used ? null : h('span', { class: 'unused', title: 'Нет ни в одном черновике и ни в одном живом посте', text: 'не нужен' }),
     h('button', { class: 'ghost small-btn', text: 'в пост', onclick: () => insertUpload(u) }),
-    h('button', { class: 'ghost small-btn', text: '✕', title: 'Удалить файл', onclick: () => deleteUpload(u.name) }))));
+    h('button', { class: 'ghost small-btn', text: '✕', title: 'Удалить файл', onclick: () => deleteUpload(u) }))));
   if (!S.uploads.length) ul.append(h('li', { class: 'muted small', text: 'Файлов нет.' }));
   const unused = S.uploads.filter((u) => !u.used).length;
   const clean = $('#media-cleanup');
@@ -90,9 +90,10 @@ export async function upload(files) {
 }
 
 // a file a scheduled post or a draft still needs is deleted only after a second, explicit yes
-async function deleteUpload(name) {
-  if (!confirm('Удалить файл ' + name + '?')) return;
-  const path = '/api/media/' + encodeURIComponent(name);
+async function deleteUpload(u) {
+  if (!confirm('Удалить файл ' + u.name + '?')) return;
+  // the name as its url has it, encoded by the server: a name that is not UTF-8 is shown with «�», its url keeps the bytes
+  const path = '/api/media/' + u.url.slice('/media/'.length);
   try {
     await api('DELETE', path);
   } catch (e) {

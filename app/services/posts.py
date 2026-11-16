@@ -10,10 +10,10 @@ import spec
 import store
 import telegram as tg
 from errors import Conflict, Invalid, MayHaveGone, NotFound, StudioError, Unrecorded, Upstream
-from telegram.uploads import MissingUpload, collect_uploads
 
 from . import channels, kinds, publisher
 from .callbacks import check as check_answers
+from .callbacks import keyboard_buttons, text_buttons
 from .updates import poll_results, remember_preview
 
 log = logging.getLogger("rich-studio.posts")
@@ -109,15 +109,11 @@ def _first_sent(results: list[dict], warnings: list[str]) -> dict:
 
 
 def dry_run_report(chats: list, post: dict, warnings: list[str]) -> dict:
-    """Everything a send would do, without Telegram and without a record in the history."""
-    media_dir = settings.get().media_dir
+    """Everything a send would do, without Telegram and without a record in the history; the files of the post are
+    checked by publisher.validate before."""
     requests = []
     for chat in chats:
         method, params = publisher.request(chat, post)
-        try:
-            collect_uploads(params, {}, media_dir)
-        except MissingUpload as e:
-            raise StudioError(str(e)) from None
         requests.append({"method": method, "params": params, "chat_title": channels.title_of(chat)})
     steps = [
         s
@@ -193,9 +189,12 @@ async def edit_message(
     If the studio published it (`rec`, or found by chat and message id), the record follows the
     channel and the content before the edit is kept as a version. `claimed`: the caller already took
     the post's next version (`edit`)."""
-    publisher.validate(post, chats_hint=EDIT_MESSAGE_CHAT)
+    chat = publisher.resolve_chat(chat_id)
+    # files only of what still goes out: the poll after the post went at publish time, the comment may have too
+    sends = publisher.edit_uploads(rec or store.find_sent(chat, message_id))
+    publisher.validate(post, chats_hint=EDIT_MESSAGE_CHAT, uploads_in=sends)
     params = {
-        "chat_id": publisher.resolve_chat(chat_id),
+        "chat_id": chat,
         "message_id": message_id,
         "rich_message": post["rich_message"],
     }
@@ -255,7 +254,9 @@ async def edit(pid: str, post: dict, actor: str = "api", post_version: int | Non
         raise StudioError(k.edit_refusal)
     if p["status"] == "sent" and not p["message_id"]:
         raise StudioError(f"пост в статусе {p['status']}, редактировать нечего")
-    publisher.validate(post, chats_hint=EDIT_CHAT)
+    # a waiting post goes out whole with the new content; of a sent one only its text, buttons and what waits
+    sends = None if p["status"] in WAITING else publisher.edit_uploads(p)
+    publisher.validate(post, chats_hint=EDIT_CHAT, uploads_in=sends)
     taken = store.claim_version(pid, post_version)
     if taken is None:
         now = (store.get_post(pid) or {}).get("version")
@@ -331,28 +332,38 @@ async def unpin(pid: str) -> dict | None:
 
 async def set_buttons(pid: str, reply_markup: dict | None, callbacks: dict | None, actor: str = "api") -> dict | None:
     """Replace only the buttons (editMessageReplyMarkup); the text is untouched. Like an edit, the next version is
-    taken before Telegram is asked and the buttons before go into the post's history."""
+    taken before Telegram is asked and the buttons before go into the post's history. `callbacks` replace the answers
+    of the buttons that were under the post; every other answer stays (a button in its text, one with no button)
+    unless `callbacks` has a new one for its key. None: every answer as it was."""
     bad = spec.keyboard_errors(reply_markup)
     if bad:  # the same rule as a full send: Telegram would refuse the whole request
         raise Invalid({"message": "кнопки не прошли проверку", "ok": False, "errors": bad, "warnings": []})
-    answers = check_answers({"reply_markup": reply_markup, "callbacks": callbacks})
+    p = _get(pid)
+    payload = dict(p["payload"])
+    # checked with the text of the post: an answer of a button in it is named by that button and has one
+    with_text = {"rich_message": payload.get("rich_message"), "reply_markup": reply_markup, "callbacks": callbacks}
+    answers = check_answers(with_text)
     if answers["errors"]:  # a rich reply is checked like the post it answers for
         raise Invalid({"message": "ответ на кнопку не прошёл проверку", "ok": False, **answers})
-    p = _get(pid)
     if p["status"] not in ("sent", *WAITING):
         raise StudioError(f"пост в статусе {p['status']}")
-    payload = dict(p["payload"])
     # a Live Photo or paid media keeps its keyboard among its own parameters, where a scheduled send takes it from
     k = kinds.get(p.get("kind"))
     holder = payload
     if k.buttons_in_params:
         holder = payload[k.key] = dict(k.params(payload))
+    before = keyboard_buttons(holder.get("reply_markup"))
     if reply_markup and reply_markup.get("inline_keyboard"):
         holder["reply_markup"] = reply_markup
     else:
         holder.pop("reply_markup", None)
     if callbacks is not None:
-        payload["callbacks"] = callbacks
+        # only the answers of the keyboard before go (#196): one of a <tg-button> or a «Кнопки» block, one with no
+        # button stay as they are, whether or not the text is read for them; a key of both keeps its answer
+        old = payload.get("callbacks")
+        text = text_buttons(payload.get("rich_message"))
+        kept = {key: v for key, v in old.items() if key not in before or key in text} if isinstance(old, dict) else {}
+        payload["callbacks"] = {**kept, **callbacks}
     if payload == p["payload"]:  # nothing to change: no new version
         return p
     taken = store.claim_version(pid, None)
@@ -392,6 +403,7 @@ async def send_kind(
     if not k.prepare or not k.key:
         raise StudioError(f"{k.label}: отправляется не так (POST /api/posts)")
     post = {k.key: k.prepare(params), "pin": pin}
+    publisher.check_uploads(post)  # a waiting one too: its files are checked now, not at its time
     if at is not None:
         when = publisher.parse_at(at)
         recs = store.add_scheduled(publisher.targets(chat_id, chat_ids), post, when, kind=k.name, actor=actor)

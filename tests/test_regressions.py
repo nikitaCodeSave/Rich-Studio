@@ -2,6 +2,7 @@
 
 import asyncio
 import time
+from urllib.parse import unquote
 
 import httpx
 import pytest
@@ -348,3 +349,264 @@ def test_a_get_of_check_neither_asks_telegram_nor_remembers_the_channel(client, 
     read, draft = token("r", "read"), token("d", "draft")
     assert client.post("/api/check?chat_id=@third", headers=read).status_code == 403
     assert client.post("/api/check?chat_id=@third", headers=draft).status_code == 200
+
+
+# ---------- #204: upload:<name> is a file of the uploads, never a path or a URL of its own ----------
+# a path, not a name: the studio would read outside the uploads, and the list of posts would point the browser at
+# another route of the studio (`/media/../api/export` is GET /api/export with the editor's cookie)
+NOT_A_NAME = ["../api/export", "a/../../x.png", "%2e%2e/api/export", "/etc/passwd", "a\\..\\x.png", "a\x00b.png", ".."]
+LATER = int(time.time()) + 3600
+
+
+def _photo(ref: str) -> dict:
+    return {"rich_message": {"blocks": [{"type": "photo", "photo": {"type": "photo", "media": ref}}]}}
+
+
+def _nothing_stored_or_sent(tg) -> None:
+    import store
+
+    assert store.list_posts() == []
+    assert not [c for c in tg.calls if c["method"].startswith("send")]
+
+
+@pytest.mark.parametrize("name", NOT_A_NAME)
+def test_an_upload_that_is_no_file_name_is_refused_by_send_and_schedule_alike(client, tg, name):
+    r = client.post("/api/send", json={"post": _photo("upload:" + name)})
+    assert r.status_code == 400, r.text
+    r = client.post("/api/schedule", json={"post": _photo("upload:" + name), "at": LATER})
+    assert r.status_code == 400 and "upload:" in r.json()["detail"], r.text
+    _nothing_stored_or_sent(tg)
+
+
+def test_a_schedule_with_a_missing_upload_is_refused_like_a_send(client, tg):
+    r = client.post("/api/schedule", json={"post": _photo("upload:nope.png"), "at": LATER})
+    assert r.status_code == 400 and "nope.png" in r.json()["detail"] and "не найден" in r.json()["detail"], r.text
+    _nothing_stored_or_sent(tg)
+    client.post("/api/media", files={"file": ("nope.png", b"\x89PNG", "image/png")})
+    assert client.post("/api/schedule", json={"post": _photo("upload:nope.png"), "at": LATER}).status_code == 200
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"comment": _photo("upload:../api/export")["rich_message"]},
+        {"poll_after": {"question": "?", "options": ["a", "b"], "media": {"type": "photo", "media": "upload:no.png"}}},
+        {
+            "reply_markup": {"inline_keyboard": [[{"text": "Да", "callback_data": "yes"}]]},
+            "callbacks": {"yes": {"reply": _photo("upload:../api/export")}},
+        },
+    ],
+    ids=["comment", "poll_after", "callbacks.reply"],
+)
+def test_what_goes_out_after_a_scheduled_post_has_its_uploads_checked_too(client, tg, extra):
+    r = client.post("/api/schedule", json={"post": {**BLOCKS_POST, **extra}, "at": LATER})
+    assert r.status_code == 400, r.text
+    _nothing_stored_or_sent(tg)
+
+
+def test_a_poll_live_photo_or_paid_media_waits_only_with_files_of_the_uploads(client, tg):
+    bad = {"type": "photo", "media": "upload:../api/export"}
+    r = client.post("/api/poll", json={"poll": {"question": "?", "options": ["a", "b"], "media": bad}, "at": LATER})
+    assert r.status_code == 400, r.text
+    live = {"live_photo": "upload:clip.mp4", "photo": "upload:../api/export"}
+    r = client.post("/api/media-post", json={"kind": "live_photo", "params": live, "at": LATER})
+    assert r.status_code == 400, r.text
+    r = client.post(
+        "/api/media-post", json={"kind": "paid_media", "params": {"star_count": 5, "media": [bad]}, "at": LATER}
+    )
+    assert r.status_code == 400, r.text
+    _nothing_stored_or_sent(tg)
+
+
+def test_a_waiting_post_is_not_replaced_with_an_upload_that_is_no_file(client, tg):
+    client.post("/api/media", files={"file": ("cat.png", b"\x89PNG", "image/png")})
+    rec = client.post("/api/schedule", json={"post": _photo("upload:cat.png"), "at": LATER}).json()
+    r = client.post(f"/api/posts/{rec['id']}/edit", json=_photo("upload:../api/export"))
+    assert r.status_code == 400, r.text
+    r = client.post(f"/api/posts/{rec['id']}/edit", json=_photo("upload:gone.png"))
+    assert r.status_code == 400 and "не найден" in r.json()["detail"], r.text
+    p = client.get("/api/posts/" + rec["id"]).json()
+    assert p["payload"]["rich_message"] == _photo("upload:cat.png")["rich_message"] and p["version"] == rec["version"]
+
+
+@pytest.mark.parametrize("name", ["../api/export", "a\x00b.png", "x" * 300 + ".png"], ids=["path", "nul", "long"])
+def test_a_scheduled_post_stored_with_such_a_name_fails_with_the_reason_and_is_not_resent(client, tg, name):
+    """Queued before the check (or by an older studio): refused before Telegram is asked, never «may have gone»."""
+    import store
+
+    (rec,) = store.add_scheduled(["@test_channel"], _photo("upload:" + name), int(time.time()))
+    asyncio.run(scheduler.run_due_posts())
+    p = store.get_post(rec["id"])
+    assert p["status"] == "failed" and not p["outcome_unknown"] and not p["retry_at"], p
+    assert "upload:" in p["error"] or "не найден" in p["error"], p["error"]
+    assert not [c for c in tg.calls if c["method"] == "sendRichMessage"]
+
+
+def test_a_send_with_a_nul_or_an_overlong_upload_name_is_a_400_not_may_have_gone(client, tg):
+    for name in ("a\x00b.png", "x" * 300 + ".png"):
+        r = client.post("/api/send", json={"post": _photo("upload:" + name)})
+        assert r.status_code == 400, r.text
+    _nothing_stored_or_sent(tg)
+    assert client.get("/media/" + "x" * 300 + ".png").status_code == 404
+
+
+def test_the_list_of_posts_never_points_the_browser_outside_the_uploads(client, tg):
+    """Old records may hold any name: a thumbnail is only a file of the uploads, and its name is encoded."""
+    import store
+    from services import media
+
+    for name in ("../api/export", "a/../../api/export", "%2e%2e", "..", "missing.png"):
+        store.add_post("@test_channel", _photo("upload:" + name), status="sent", message_id=1)
+    (media.media_dir() / "%2e%2e").write_bytes(b"\x89PNG")  # a real file of that name: encoded, it stays itself
+    (media.media_dir() / "кот #1.png").write_bytes(b"\x89PNG")
+    store.add_post("@test_channel", _photo("upload:кот #1.png"), status="sent", message_id=2)
+    thumbs = [p["thumb"] for p in client.get("/api/posts").json()]
+    assert thumbs == ["/media/%D0%BA%D0%BE%D1%82%20%231.png", None, None, "/media/%252e%252e", None, None], thumbs
+    assert client.get(thumbs[0]).content == b"\x89PNG"
+    # the server decodes a path once (TestClient decodes twice, so this one is checked by hand)
+    assert unquote(thumbs[3].removeprefix("/media/")) == "%2e%2e"
+    names = {f["name"]: f["url"] for f in client.get("/api/media").json()}
+    assert names == {"%2e%2e": "/media/%252e%252e", "кот #1.png": thumbs[0]}
+
+
+def test_a_file_put_in_the_uploads_by_hand_under_a_name_no_post_can_use_is_still_cleaned_up(client):
+    from services import media
+
+    (media.media_dir() / "a\\b\n.png").write_bytes(b"\x89PNG")
+    assert client.post("/api/media/cleanup").json()["deleted"] == ["a\\b\n.png"]
+    assert not list(media.media_dir().iterdir())
+
+
+def test_a_file_with_a_name_that_is_not_utf8_does_not_break_health_or_the_cleanup(client):
+    """After an unzip or by hand: Python keeps such a name with surrogates, and its URL is the bytes as they are."""
+    import os
+
+    from services import health, media
+
+    name = os.fsdecode(b"\xff-bad.png")
+    (media.media_dir() / name).write_bytes(b"\x89PNG")
+    assert media.describe(name)["url"] == "/media/%FF-bad.png"
+    assert next(c for c in health.report()["checks"] if c["name"] == "storage")["status"] == "ok"
+    assert media.delete_unused(older_than=time.time() - 3600) == []  # as the hourly one: too fresh yet
+    r = client.post("/api/media/cleanup")
+    assert r.status_code == 200 and r.json()["deleted"] == ["�-bad.png"], r.text
+    assert not list(media.media_dir().iterdir())
+
+
+def test_a_symlink_loop_in_the_uploads_does_not_break_the_list_health_or_the_cleanup(client):
+    """Put there by hand (ln -s loop.png loop.png): its stat fails with ELOOP, not FileNotFoundError. Path.is_file()
+    used to swallow that, so the file was left out; after #204 the list read stat itself and answered 500."""
+    import os
+
+    from services import health, media
+
+    os.symlink("loop.png", media.media_dir() / "loop.png")
+    (media.media_dir() / "ok.png").write_bytes(b"\x89PNG")
+    r = client.get("/api/media")
+    assert r.status_code == 200 and [f["name"] for f in r.json()] == ["ok.png"], r.text
+    assert next(c for c in health.report()["checks"] if c["name"] == "storage")["status"] == "ok"
+    assert client.post("/api/media/cleanup").status_code == 200
+
+
+def test_a_file_with_a_name_that_is_not_utf8_is_listed_opens_and_is_deleted_by_its_url(client):
+    """The list shows the name with «�» (JSON has no such bytes) and gives its URL with the bytes as they are: the
+    picture opens by it, and DELETE /api/media/ takes the same segment (the editor's ✕ sends it)."""
+    import os
+
+    from services import media
+
+    (media.media_dir() / os.fsdecode(b"\xff-bad.png")).write_bytes(b"\x89PNG")
+    (media.media_dir() / os.fsdecode(b"\xfe-notes.txt")).write_bytes(b"text")  # a download, with its name
+    r = client.get("/api/media")
+    assert r.status_code == 200, r.text
+    f, txt = (next(x for x in r.json() if x["kind"] == k) for k in ("photo", "document"))
+    assert f["name"] == "�-bad.png" and f["url"] == "/media/%FF-bad.png" and f["used"] is False, f
+    assert client.get(f["url"]).content == b"\x89PNG"
+    assert txt["url"] == "/media/%FE-notes.txt" and client.get(txt["url"]).content == b"text"
+    for x in (f, txt):
+        assert client.delete("/api/media/" + x["url"].removeprefix("/media/")).status_code == 200
+    assert not list(media.media_dir().iterdir())
+
+
+def test_a_file_deleted_while_the_list_of_uploads_is_read_does_not_fail_it(client, monkeypatch):
+    """The editor reads the list again right after its own DELETE: a file gone between the folder's listing and its
+    size is no 500 (found by e2e/54-delete-upload-by-its-url)."""
+    from pathlib import Path
+
+    from services import media
+
+    for name in ("stays.png", "gone.png"):
+        (media.media_dir() / name).write_bytes(b"\x89PNG")
+    real, seen = Path.stat, []
+
+    def deleted_after_its_first_look(self, *a, **kw):
+        if self.name == "gone.png":
+            seen.append(1)
+            if len(seen) > 1:
+                raise FileNotFoundError(2, "No such file or directory", str(self))
+        return real(self, *a, **kw)
+
+    monkeypatch.setattr(Path, "stat", deleted_after_its_first_look)
+    r = client.get("/api/media")
+    assert r.status_code == 200 and "stays.png" in [f["name"] for f in r.json()], r.text
+    assert client.post("/api/media/cleanup").status_code == 200
+
+
+def test_a_text_edit_of_a_sent_post_is_not_refused_for_a_file_of_what_already_went(client, tg):
+    """The editor sends poll_after and comment with every edit; the poll went at publish time and editMessageText
+    takes only the text and the buttons, so a file of the poll deleted since then is no reason to refuse."""
+    client.post("/api/media", files={"file": ("pollpic.png", b"\x89PNG", "image/png")})
+    poll = {"question": "?", "options": ["a", "b"], "media": {"type": "photo", "media": "upload:pollpic.png"}}
+    comment = _photo("upload:pollpic.png")["rich_message"]
+    sent = client.post("/api/send", json={"post": {**BLOCKS_POST, "poll_after": poll, "comment": comment}}).json()
+    pid = sent["post"]["id"]
+    assert client.delete("/api/media/pollpic.png").status_code == 200  # used_by counts only what still waits
+    new_text = {"blocks": [{"type": "paragraph", "text": "Новый текст"}]}
+    r = client.post(f"/api/posts/{pid}/edit", json={"rich_message": new_text, "poll_after": poll, "comment": comment})
+    assert r.status_code == 200, r.text  # TG_UPDATES is off in tests: the comment was skipped, it never goes
+    r = client.post(
+        "/api/edit",
+        json={"post": {"rich_message": new_text, "poll_after": poll}, "message_id": sent["post"]["message_id"]},
+    )
+    assert r.status_code == 200, r.text
+    # what goes out now is checked as before
+    r = client.post(f"/api/posts/{pid}/edit", json=_photo("upload:gone.png"))
+    assert r.status_code == 400 and "gone.png" in r.json()["detail"], r.text
+    r = client.post("/api/edit", json={"post": _photo("upload:gone.png"), "message_id": sent["post"]["message_id"]})
+    assert r.status_code == 400 and "gone.png" in r.json()["detail"], r.text
+
+
+def test_an_edit_checks_the_file_of_a_first_comment_that_still_waits_for_its_forward(client, tg):
+    import store
+
+    sent = client.post("/api/send", json={"post": BLOCKS_POST}).json()["post"]
+    store.update_post(sent["id"], comment_status="waiting")
+    edit = {**BLOCKS_POST, "comment": _photo("upload:gone.png")["rich_message"]}
+    r = client.post(f"/api/posts/{sent['id']}/edit", json=edit)
+    assert r.status_code == 400 and "gone.png" in r.json()["detail"], r.text
+    assert not [c for c in tg.calls if c["method"] == "editMessageText"]
+
+
+def test_a_draft_or_a_template_may_name_a_file_not_uploaded_yet_but_never_a_path(client, tg):
+    from test_mcp import call
+
+    d = client.post("/api/drafts", json={"title": "Позже", "post": _photo("upload:later.png")})
+    assert d.status_code == 200, d.text
+    r = client.post("/api/drafts", json={"title": "Путь", "post": _photo("upload:../api/export")})
+    assert r.status_code == 400 and "upload:" in r.json()["detail"], r.text
+    r = client.put(f"/api/drafts/{d.json()['id']}", json={"title": "x", "post": _photo("upload:a/b.png")})
+    assert r.status_code == 400, r.text
+    res, _, text = call(client, "save_draft", post=_photo("upload:../api/export"))
+    assert res.get("isError") and "upload:" in text, text
+    # a template: in its post, as the default of a field and as the value it is filled with
+    r = client.post("/api/templates", json={"title": "T", "post": _photo("upload:../x.png")})
+    assert r.status_code == 400, r.text
+    field = {"key": "pic", "label": "Картинка", "type": "url", "default": "upload:../x.png"}
+    r = client.post("/api/templates", json={"title": "T", "post": _photo("{{pic}}"), "fields": [field]})
+    assert r.status_code == 422, r.text
+    field["default"] = "upload:a.png"
+    t = client.post("/api/templates", json={"title": "T", "post": _photo("{{pic}}"), "fields": [field]}).json()
+    fill = f"/api/templates/{t['id']}/draft"
+    r = client.post(fill, json={"version": t["version"], "values": {"pic": "upload:../x.png"}})
+    assert r.status_code == 422, r.text
+    assert client.post(fill, json={"version": t["version"], "values": {"pic": "upload:b.png"}}).status_code == 200
