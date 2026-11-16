@@ -1020,8 +1020,8 @@ for (const [name, rm] of Object.entries(SLIDESHOWS)) {
   };
 
   // a formula inside a formula: walked first, it gave the outer one the text of the inner one as KaTeX drew it, three
-  // times longer on every level (12 levels: 52 s). A formula is its TeX, a tag in it is not drawn: what Telegram makes
-  // of it is not measured (html-math-nested in tests/telegram_parse/cases.json), so the preview draws the plainest thing
+  // times longer on every level (12 levels: 52 s). A formula is its TeX, a tag in it is not drawn: Telegram makes the
+  // same one formula of their text (html-math-nested in tests/telegram_parse/captured.json, measured 2026-11-16)
   const formulas = (rm) => page.evaluate((rm) => [...RichRender.render({ rich_message: rm }, {}).querySelectorAll('.tg-math, .tg-math-block')]
     .map((n) => [n.className, n.querySelectorAll('.katex').length, n.querySelector('annotation')?.textContent ?? n.textContent]), rm);
   const nested = '<tg-math>a<tg-math>b<tg-math>c</tg-math></tg-math>d</tg-math>';
