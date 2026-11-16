@@ -29,7 +29,9 @@ for (const [name, c] of Object.entries(captured)) {
   if (!c.blocks) { console.log(`SKIP  ${name}: Telegram отклонил (${c.error})`); continue; }
   const gap = known[name];
   const mine = await outline({ [c.format]: c.source });
-  const theirs = await outline({ blocks: c.blocks });
+  // Telegram's blocks went through its detection already: an address it left as text stays text, so an address the
+  // preview finds and Telegram does not shows up here as a difference
+  const theirs = await outline({ blocks: c.blocks, skip_entity_detection: true });
   const ok = mine === theirs;
   if (!ok && !gap) fails++;
   if (!ok && gap) gaps++;

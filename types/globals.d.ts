@@ -12,6 +12,8 @@ declare const RichRender: {
   mediaSrc(media: unknown, ctx: object): string | null;
   safeUrl(url: string): string | null;
   outline(post: object): string;
+  /** a user-friendly TON address Telegram finds in text: the right form and checksum */
+  isTonAddress(s: unknown): boolean;
 };
 interface Window {
   RichRender: typeof RichRender;

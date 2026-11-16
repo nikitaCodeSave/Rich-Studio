@@ -41,7 +41,8 @@
     let node;
     if (!src) {
       node = el('div', { class: 'tg-media-ph' }, el('span', { class: 'tg-media-kind', text: kindLabel(kind) }), el('small', { text: label || 'нет файла' }));
-    } else if (kind === 'photo') {
+    } else if (kind === 'photo' || (kind === 'animation' && /\.gif(?:[?#]|$)/i.test(src))) {
+      // a GIF plays only in <img>; Telegram shows an animation playing by itself in a loop, without controls
       node = el('img', { src, alt: '', loading: 'lazy' });
     } else if (kind === 'video' || kind === 'animation') {
       node = el('video', { src, controls: kind === 'video', autoplay: kind === 'animation', loop: kind === 'animation', playsinline: true });
@@ -52,7 +53,8 @@
     } else {
       node = el('a', { class: 'tg-doc', href: src, target: '_blank', rel: 'noopener' }, el('span', { class: 'tg-doc-ico', text: '📄' }), (() => { const last = src.split('/').pop() || ''; try { return decodeURIComponent(last); } catch (e) { return last; } })());
     }
-    const wrap = el('div', { class: 'tg-media tg-media-' + kind + (spoiler ? ' tg-media-spoiler' : '') }, node);
+    // tg-gif: the «GIF» label over a playing animation (the placeholder names the kind by itself)
+    const wrap = el('div', { class: 'tg-media tg-media-' + kind + (src && kind === 'animation' ? ' tg-gif' : '') + (spoiler ? ' tg-media-spoiler' : '') }, node);
     if (spoiler) wrap.addEventListener('click', () => wrap.classList.remove('tg-media-spoiler'));
     if (extra) wrap.append(extra);
     return wrap;
@@ -128,7 +130,7 @@
     else if (t === 'email_address') frag.append(el('a', { href: 'mailto:' + rt.email_address }, inner()));
     else if (t === 'phone_number') frag.append(el('a', { href: 'tel:' + rt.phone_number }, inner()));
     else if (['mention', 'hashtag', 'cashtag', 'bot_command', 'bank_card_number'].includes(t)) frag.append(el('span', { class: 'tg-link' }, inner()));
-    else if (t === 'ton_address') frag.append(el('span', { class: 'tg-link', title: 'Адрес TON: ' + (rt.address || '') }, inner())); // Bot API 10.4
+    else if (t === 'ton_address') frag.append(tonEl(inner(), rt.address || '')); // Bot API 10.4
     else if (t === 'date_time') frag.append(el('span', { class: 'tg-time', title: formatTime(rt.unix_time, 'wDT') + ' (у читателя: его часовой пояс)' }, rt.text ? inner() : formatTime(rt.unix_time, rt.date_time_format)));
     else if (t === 'custom_emoji') frag.append(el('span', { class: 'tg-emoji', title: 'custom emoji ' + rt.custom_emoji_id }, rt.alternative_text || '⭐'));
     else if (t === 'mathematical_expression') frag.append(math(rt.expression || '', false));
@@ -140,6 +142,9 @@
     else frag.append(unknown('текст: ' + t, rt.text !== undefined ? inner() : JSON.stringify(rt)));
     return frag;
   }
+
+  // a TON address reads as a link; the address itself only in the title
+  const tonEl = (content, address) => el('span', { class: 'tg-link tg-ton', title: 'Адрес TON: ' + address }, content);
 
   function spoilerEl(content) {
     const s = el('span', { class: 'tg-spoiler' }, content);
@@ -172,7 +177,7 @@
     switch (b.type) {
       case 'paragraph': return el('p', {}, rt(b.text));
       case 'heading': return el('h' + Math.min(6, Math.max(1, b.size || 1)), {}, rt(b.text));
-      case 'pre': return el('pre', { 'data-lang': b.language || null }, el('code', {}, rt(b.text)));
+      case 'pre': return codeBox(el('pre', { 'data-lang': b.language || null }, el('code', {}, rt(b.text))), b.language);
       case 'footer': return el('footer', {}, rt(b.text));
       case 'divider': return el('hr');
       case 'mathematical_expression': return math(b.expression || '', true);
@@ -208,6 +213,30 @@
         return el('div', { class: 'tg-unknown tg-unknown-block', title: 'Блок, которого нет в рендере предпросмотра. Telegram его получит.' },
           el('b', { text: 'Блок «' + b.type + '»' }), el('pre', { text: JSON.stringify(b, null, 1) }));
     }
+  }
+
+  // A code block as Telegram Desktop draws it: a bar on the left, a header with the language (without one, «копировать»)
+  // and a copy icon. CSS writes the header from data-lang, so the post's text (outline, history, reply dialog) stays
+  // only the code.
+  // No syntax highlighting: docs/decisions/0022-code-block-without-highlighting.md
+  function codeBox(pre, lang) {
+    const copy = el('span', { class: 'tg-pre-copy', role: 'button', tabindex: 0, title: 'Копировать', 'aria-label': 'Копировать код' });
+    const head = el('div', { class: 'tg-pre-head', 'data-lang': lang || null }, copy);
+    const copyCode = () => {
+      const done = () => { head.classList.add('tg-copied'); setTimeout(() => head.classList.remove('tg-copied'), 1500); };
+      try { navigator.clipboard.writeText(codeText(pre)).then(done, () => {}); } catch (e) { /* no clipboard here (an MCP host's sandbox) */ }
+    };
+    // the click is the icon's: it must not also fold an expandable quote or open a spoiler around the code
+    copy.addEventListener('click', (ev) => { ev.stopPropagation(); copyCode(); });
+    copy.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); copyCode(); } });
+    return el('div', { class: 'tg-pre' }, head, pre);
+  }
+
+  // the code as the reader copies it: from blocks its line breaks are <br>
+  function codeText(node) {
+    let s = '';
+    node.childNodes.forEach((c) => { s += c.nodeType === 3 ? c.nodeValue : c.nodeName === 'BR' ? '\n' : codeText(c); });
+    return s;
   }
 
   function expandable(content, cite) {
@@ -374,11 +403,16 @@
     });
   }
 
+  // what kind the file is, its entry in media says, not the link: the docs give only tg://photo, video, audio and
+  // document, so a GIF (InputMediaAnimation) comes as tg://video and a voice note (InputMediaVoiceNote) as tg://audio
+  const MEDIA_KINDS = new Set(['photo', 'video', 'animation', 'audio', 'document', 'voice_note']);
   function mediaFromSrc(src, ctx) {
     const m = /^tg:\/\/(photo|video|audio|document|animation|voice(?:_note)?)\?id=([\w\-.]+)/.exec(src || '');
     if (!m) return null;
     const item = (ctx.mediaList || []).find((x) => x && x.id === m[2]);
-    return { kind: m[1] === 'voice' ? 'voice_note' : m[1], media: item ? item.media : null, id: m[2] };
+    const media = item ? item.media : null;
+    const type = media && typeof media === 'object' ? media.type : null;
+    return { kind: MEDIA_KINDS.has(type) ? type : m[1] === 'voice' ? 'voice_note' : m[1], media, id: m[2] };
   }
 
   function transformHtml(root, ctx) {
@@ -449,6 +483,9 @@
         const lang = node.querySelector('code[class*="language-"]');
         const m = lang && /language-([\w+#-]+)/.exec(lang.className);
         if (m) node.dataset.lang = m[1];
+        const parent = node.parentNode, next = node.nextSibling;
+        parent.insertBefore(codeBox(node, m && m[1]), next); // codeBox takes the <pre> out to put it under its header
+        return;
       } else if (tag.startsWith('tg-')) {
         rep = unknown('тег <' + tag + '>', kids());
       }
@@ -508,6 +545,57 @@
     if (m[1]) return TG_ENTITIES[m[1]];
     const n = m[2] ? parseInt(m[2], 10) : parseInt(m[3], 16);
     return n > 0 && n <= 0x10ffff && !(n >= 0xd800 && n <= 0xdfff) ? String.fromCodePoint(n) : m[0];
+  }
+
+  // ---------- TON addresses Telegram finds in the text ----------
+  // A user-friendly TON address: 48 characters of base64url or base64 for 36 bytes, that is flags, workchain, a 32-byte
+  // hash and the CRC16-XMODEM of those 34 bytes, big-endian. Telegram finds one in the text of a post by itself, in
+  // html, markdown and the strings of blocks alike, and only with a right checksum (measured for #172; captured
+  // html-detected-card-ton and html-ton-checksum). js/html-export.js checks ton_address texts with the same function.
+  const TON_START = '[EU]Q';
+  const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  const TON_FORM = new RegExp(`^${TON_START}(?:[\\w-]{46}|[A-Za-z0-9+/]{46})$`); // one alphabet, not a mix of both
+  function isTonAddress(s) {
+    if (typeof s !== 'string' || !TON_FORM.test(s)) return false;
+    const six = (c) => (c === '-' || c === '+' ? 62 : c === '_' || c === '/' ? 63 : B64.indexOf(c));
+    const bytes = [];
+    for (let i = 0; i < 48; i += 4) {
+      const n = (six(s[i]) << 18) | (six(s[i + 1]) << 12) | (six(s[i + 2]) << 6) | six(s[i + 3]);
+      bytes.push(n >> 16, (n >> 8) & 255, n & 255);
+    }
+    // EQ…/UQ…: flags 0x11 (bounceable) or 0x51 (not), workchain 0; «EQE…» with a right checksum is workchain 1
+    if ((bytes[0] !== 0x11 && bytes[0] !== 0x51) || bytes[1] !== 0) return false;
+    let crc = 0;
+    for (const b of bytes.slice(0, 34)) {
+      crc ^= b << 8;
+      for (let k = 0; k < 8; k++) crc = crc & 0x8000 ? ((crc << 1) ^ 0x1021) & 0xffff : (crc << 1) & 0xffff;
+    }
+    return crc === bytes[34] * 256 + bytes[35];
+  }
+
+  // Unless skip_entity_detection is on. Not inside code, links, formulas and other elements that already are something
+  // else. A card number with spaces Telegram does not find, and the preview finds no card numbers at all.
+  const TON_IN_TEXT = new RegExp(`(?<![\\w+/-])${TON_START}[\\w+/-]{46}(?![\\w+/-])`, 'g');
+  const NO_DETECTION = 'a, code, pre, .tg-link, .tg-math, .tg-math-block, .tg-time, .tg-emoji, .tg-btn, .tg-media, .tg-unknown-block';
+  function findTon(root) {
+    // Telegram reads neighbouring strings of RichText as one text: ['EQAA…', '…M9c'] is one address
+    root.normalize();
+    /** @type {Text[]} */
+    const texts = [];
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) if (!n.parentElement?.closest(NO_DETECTION)) texts.push(/** @type {Text} */ (n));
+    texts.forEach((n) => {
+      const s = n.data;
+      /** @type {(string | Node)[]} */
+      const parts = [];
+      let at = 0;
+      for (const m of s.matchAll(TON_IN_TEXT)) {
+        if (!isTonAddress(m[0])) continue;
+        parts.push(s.slice(at, m.index), tonEl(m[0], m[0]));
+        at = (m.index || 0) + m[0].length;
+      }
+      if (at) n.replaceWith(...[...parts, s.slice(at)].filter((p) => p !== ''));
+    });
   }
 
   function renderHtml(src, ctx) {
@@ -727,6 +815,9 @@
       else if (rm.html) body.append(renderHtml(tgEntities(rm.html), ctx));
       else if (rm.markdown) body.append(renderMarkdown(rm.markdown, ctx));
       else body.append(el('p', { class: 'tg-empty', text: 'Пустой пост' }));
+      // blocks Telegram answered with went through its detection already: an address it left as text is text, so
+      // whoever draws them (the parse check, test:parity) passes skip_entity_detection
+      if (!rm.skip_entity_detection) findTon(body);
     } catch (e) {
       body.append(el('pre', { class: 'tg-error', text: 'Ошибка рендера: ' + e.message }));
     }
@@ -766,6 +857,7 @@
       else if (c.contains('tg-pullquote')) tag = 'pullquote';
       else if (c.contains('tg-time')) tag = 'time';
       else if (c.contains('tg-ref')) tag = 'ref';
+      else if (c.contains('tg-ton')) tag = 'ton'; // a ton_address, or an address Telegram finds in the text
       else if (c.contains('tg-anchor')) { out.push('<anchor>'); return; }
       else if (n.tagName === 'A') {
         const href = n.getAttribute('href') || '';
@@ -796,5 +888,5 @@
     return out.join('').replace(/ +/g, ' ').replace(/<br> /g, '<br>').replace(/ <\/pre>/g, '</pre>').replace(/ ?(<math-block:[^>]*>|<hr>|<anchor>) ?/g, '$1').trim().replace(/ ?(<\/?(?:p|h\d|li[^>]*|ul|ol|blockquote|tr|t[hd][^>]*|table[^>]*|footer|summary|details[^>]*|pre[^>]*|caption|cite|pullquote|expandable)>) ?/g, '$1');
   }
 
-  global.RichRender = { render, renderRT, renderBlocks, formatTime, mediaSrc, safeUrl, outline };
+  global.RichRender = { render, renderRT, renderBlocks, formatTime, mediaSrc, safeUrl, outline, isTonAddress };
 })(window);

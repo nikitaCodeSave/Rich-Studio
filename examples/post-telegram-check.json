@@ -1,0 +1,4 @@
+{
+  "html": "<h3>Rich Studio · проверка глазами</h3>\n<p><b>1. Адрес TON.</b> Telegram сам находит адрес в тексте и красит его как ссылку, номер карты с пробелами остаётся текстом.</p>\n<p>Карта 4242 4242 4242 4242, адрес TON EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c и UQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAJKZ</p>\n<p><b>2. Код-блок.</b> Шапка с языком и значком копирования, полоса слева.</p>\n<pre><code class=\"language-python\">def hello(name: str) -&gt; str:\n    # комментарий\n    return f\"Привет, {name}!\"</code></pre>\n<p>Без языка в шапке подпись «копировать»:</p>\n<pre>просто код без языка\n  вторая строка</pre>\n<p><b>3. GIF через tg://video.</b> Запись в media с InputMediaAnimation: играет сама по кругу, метка GIF, без кнопок.</p>\n<video src=\"tg://video?id=gif\"></video>\n",
+  "media": [{"id": "gif", "media": {"type": "animation", "media": "upload:check.gif"}}]
+}

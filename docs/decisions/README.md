@@ -29,4 +29,5 @@
 | [0019](0019-unrecorded-send.md) | Пост ушёл, а запись не удалась: 502 «не публикуйте повторно» с `message_id`, дозапись из памяти, шаги после записи — предупреждения |
 | [0020](0020-dependabot-self-contained-prs.md) | Dependabot только для PR, готовых как пришли: npm-инструменты, digest образа, `deploy/`, actions; Python-пакеты и CodeMirror обновляются намеренно |
 | [0021](0021-ephemeral-callback-reply.md) | Rich-ответ на callback-кнопку: поле `reply` с параметрами `sendRichMessage`, ответ до `answerCallbackQuery`, окно 15 секунд от получения, без повторов |
+| [0022](0022-code-block-without-highlighting.md) | Код-блок в предпросмотре как в Telegram Desktop, но без подсветки синтаксиса; вид файла `tg://` по записи в `media`; адрес TON по контрольной сумме, в HTML, Markdown и блоках |
 | [0023](0023-chat-type-rules-from-descriptions.md) | Что не работает в чате назначения: правила из описаний спецификации, замеры отдельным списком; `ephemeral_message_parameters` в `options` запрещён |

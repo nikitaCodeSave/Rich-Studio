@@ -90,8 +90,6 @@ const ACTION_FIELDS = {
 export const NO_HTML = {};
 // found in the text by Telegram itself: in HTML they exist only as this text. A TON address has no tag, but Telegram
 // finds one in HTML text (Bot API 10.4, tests/telegram_parse/captured.json: html-detected-card-ton)
-// the TON addresses Telegram finds in text: user-friendly EQ…/UQ… of 48 characters; a raw «0:83df…» stays text
-const TON_FOUND = /^[EU]Q[A-Za-z0-9_-]{46}$/;
 const DETECTED = { mention: ['@', 'username'], hashtag: ['#', 'hashtag'], cashtag: ['$', 'cashtag'], bot_command: ['/', 'bot_command'], bank_card_number: ['', 'bank_card_number'], ton_address: ['', 'address'] };
 // <a href> Telegram reads as an e-mail, a phone, a mention or a link inside the post, not as a plain link
 /** @type {[RegExp, string][]} */
@@ -99,8 +97,6 @@ const SPECIAL_HREF = [[/^#/, 'ссылку на якорь или сноску']
 // block → [tag, tg:// link]: the spec gives the tag (InputRichBlockAnimation «<video>», VoiceNote «<audio>»), the docs
 // only tg://photo, video, document and audio links; what kind the file is, its entry in media says
 const MEDIA_TAGS = { photo: ['img', 'photo'], video: ['video', 'video'], animation: ['video', 'video'], audio: ['audio', 'audio'], voice_note: ['audio', 'audio'], document: ['tg-document', 'document'] };
-// the preview names the kind of a tg:// file by its link, so it draws such an animation as a video
-const LINKED_AS = { animation: 'video', voice_note: 'audio' };
 const DEFAULT_ALIGN = { th: 'center', td: 'left' }; // Telegram's own, as tests/telegram_parse/captured.json shows
 const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
 // a type is looked up only among the table's own keys: «constructor» or «__proto__» are not types
@@ -128,8 +124,10 @@ export function blocksToHtml(blocks, opts = {}) {
   if (tight.problems.length) return { ok: false, problems: tight.problems };
   const warnings = [...tight.squeezed];
   if (tight.html) {
-    const theirs = lookOf({ blocks });
-    const mine = lookOf({ html: tight.html, media: tight.media });
+    // Telegram finds TON addresses in the text of blocks and HTML alike, and with detection off in neither
+    const detection = opts.skipEntities ? { skip_entity_detection: true } : {};
+    const theirs = lookOf({ blocks, ...detection });
+    const mine = lookOf({ html: tight.html, media: tight.media, ...detection });
     if (mine !== theirs) return { ok: false, problems: ['В предпросмотре HTML выглядит иначе, чем визуальный пост'], diff: firstDifference(theirs, mine) };
   }
   const out = opts.layout === false ? tight : write(blocks, opts, true);
@@ -139,22 +137,10 @@ export function blocksToHtml(blocks, opts = {}) {
 /** The post as the preview reads it (RichRender.outline): structure and text, not the values of attributes (links,
  * rowspan, map points, tg-time, emoji ids), which tests/html_export.mjs checks by themselves. In code a line break
  * is a line break: from blocks the preview draws it as <br>, from HTML source as the text's own newline, which the
- * outline turns into a space. An animation and a voice note are compared as the video and audio their links say. */
+ * outline turns into a space. The kind of a tg:// file the preview takes from its entry in media, as Telegram does. */
 export function lookOf(richMessage) {
-  const rm = richMessage.blocks ? { ...richMessage, blocks: linkedKinds(richMessage.blocks) } : richMessage;
-  return RichRender.outline({ rich_message: rm })
+  return RichRender.outline({ rich_message: richMessage })
     .replace(/<pre[^>]*>.*?<\/pre>/gs, (p) => p.replace(/<br>/g, ' ').replace(/ +/g, ' ').replace(/(<pre[^>]*>) | (<\/pre>)/g, '$1$2'));
-}
-
-/** The blocks with an animation as a video and a voice note as an audio, as the preview draws their tg:// links:
- * the kind of the file is checked by the entry in media, not by the outline. */
-function linkedKinds(v) {
-  if (Array.isArray(v)) return v.map(linkedKinds);
-  if (!isObj(v)) return v;
-  const out = Object.fromEntries(Object.entries(v).map(([k, x]) => [k, linkedKinds(x)]));
-  const as = own(LINKED_AS, v.type);
-  if (as && v[v.type] !== undefined) { out.type = as; out[as] = out[v.type]; delete out[v.type]; }
-  return out;
 }
 
 function firstDifference(a, b) {
@@ -228,7 +214,9 @@ function write(blocks, opts, pretty) {
         const same = t === 'bank_card_number' ? shown.replace(/\D/g, '') === String(v[key] ?? '').replace(/\D/g, '') : shown === prefix + v[key];
         if (opts.skipEntities) say(here, 'при «Не распознавать ссылки, @, #…» (skip_entity_detection) Telegram не найдёт его в HTML');
         else if (!same) say(here, `текст «${shown}» не совпадает с ${prefix}${v[key]}: в HTML Telegram находит такие элементы только по тексту`);
-        else if (t === 'ton_address' && !TON_FOUND.test(shown)) say(here, `адрес «${shown}» Telegram в тексте не найдёт: он находит только адреса EQ… и UQ… из 48 символов`);
+        // the TON addresses Telegram finds in text are the preview's: user-friendly EQ…/UQ… of 48 characters with a right
+        // checksum (RichRender.isTonAddress); a raw «0:83df…» or a mistyped address stays text
+        else if (t === 'ton_address' && !RichRender.isTonAddress(shown)) say(here, `адрес «${shown}» Telegram в тексте не найдёт: он находит только адреса EQ… и UQ… из 48 символов с верной контрольной суммой`);
         // the text stays as the author wrote it; written without the spaces it would read otherwise than the blocks
         else if (t === 'bank_card_number' && /\D/.test(shown)) notes.push(`${here}: «${shown}» в HTML останется текстом, номером карты Telegram делает только цифры без пробелов`);
         return inner();
@@ -383,6 +371,11 @@ function write(blocks, opts, pretty) {
         const m = b[t];
         if (!isObj(m) || typeof m.media !== 'string') { say(here, 'нет файла'); return ''; }
         const [tag, link] = MEDIA_TAGS[t];
+        // the link names a video or an audio; that it is a GIF or a voice note only the type in its media entry says
+        if (link !== t && m.type !== t) {
+          say(here, `у файла нет type «${t}»: по ссылке tg://${link} Telegram не поймёт его как ${t === 'animation' ? 'GIF' : 'голосовое'}`);
+          return '';
+        }
         const src = attrs([['src', `tg://${link}?id=${mediaId(t, m)}`], ['tg-spoiler', !!m.has_spoiler]]);
         return figure(tag === 'img' ? `<img${src}/>` : `<${tag}${src}></${tag}>`, b.caption, here);
       }
