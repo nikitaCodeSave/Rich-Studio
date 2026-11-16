@@ -1,7 +1,7 @@
 // Undo/redo for the whole post: a stack of draft snapshots, one per pause in editing.
 import { computed, signal } from '../vendor/signals-core.js';
 import { autosave, draftPayload, loadPost, setMode } from './editor.js';
-import { chats, dirty, parsed, S, saveState, showParsed } from './state.js';
+import { dirty, parsed, S, saveState, showParsed, topicHome } from './state.js';
 
 const LIMIT = 100;
 const PAUSE_MS = 400; // edits closer than this become one undo step
@@ -17,13 +17,11 @@ let timer;
 export const canUndo = computed(() => past.value.length > 0);
 export const canRedo = computed(() => future.value.length > 0);
 
-// a step with a forum topic keeps the chat the topic belongs to: where it was chosen or loaded, else the one chat open
-// (as showTarget takes it)
+// a step with a forum topic keeps the chat the topic belongs to (as showTarget takes it)
 const snapshot = () => {
   const post = draftPayload();
   if (post.options?.message_thread_id === undefined) return JSON.stringify({ post });
-  const list = chats();
-  return JSON.stringify({ post, chat: S.topicChat ?? (list.length === 1 ? list[0] : undefined) });
+  return JSON.stringify({ post, chat: S.topicChat ?? topicHome() });
 };
 
 function commit() {
@@ -58,9 +56,8 @@ export function recordHistory() {
 
 function restore(snap) {
   const { post, chat } = JSON.parse(snap);
-  const list = chats();
   // undone in another chat, the step's topic would send the post to a wrong thread or nowhere: it stays behind
-  const moved = post.options?.message_thread_id !== undefined && !(list.length === 1 && list[0] === chat);
+  const moved = post.options?.message_thread_id !== undefined && (chat === undefined || chat !== topicHome());
   if (moved) delete post.options.message_thread_id;
   const inJson = S.mode === 'json';
   loadPost(post);
@@ -71,20 +68,25 @@ function restore(snap) {
   autosave();
 }
 
+// a step that differed only by a topic left behind in another chat changes nothing now: the next one goes with it
 export function undo() {
   if (timer) commit(); // an edit still waiting for its pause is the step to undo
-  const prev = past.value.at(-1);
-  if (prev === undefined) return;
-  past.value = past.value.slice(0, -1);
-  future.value = [current, ...future.value];
-  restore(prev);
+  const shown = current;
+  while (past.value.length && current === shown) {
+    const prev = past.value.at(-1);
+    past.value = past.value.slice(0, -1);
+    future.value = [current, ...future.value];
+    restore(prev);
+  }
 }
 
 export function redo() {
   if (timer) commit();
-  const next = future.value[0];
-  if (next === undefined) return;
-  future.value = future.value.slice(1);
-  past.value = [...past.value, current];
-  restore(next);
+  const shown = current;
+  while (future.value.length && current === shown) {
+    const next = future.value[0];
+    future.value = future.value.slice(1);
+    past.value = [...past.value, current];
+    restore(next);
+  }
 }

@@ -1,5 +1,6 @@
 // Published and scheduled posts.
 import { api } from './api.js';
+import { showTarget } from './channels.js';
 import { setDraft } from './drafts.js';
 import { openDialog } from './dialogs.js';
 import { $, h, toast } from './dom.js';
@@ -121,7 +122,8 @@ async function openCopy(p) {
     const full = await api('GET', '/api/posts/' + p.id);
     setDraft(null, null); editing.value = null;
     $('#title').value = 'Копия поста ' + (p.message_id || '');
-    loadPost(full.payload);
+    loadPost(full.payload, false, full.chat_id);
+    showTarget(); // the copy goes where the header says: the topic of the post's own forum stays there
     resetHistory();
     dirty.value = true; saveState.value = 'есть изменения';
     autosave();
