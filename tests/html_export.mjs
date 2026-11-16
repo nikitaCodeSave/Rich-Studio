@@ -63,7 +63,8 @@ const exportsAs = async (blocks, expected) => {
   return { ok, r, info: r.ok ? `HTML:     ${mine}\n      expected: ${expected}\n      ${r.html}` : JSON.stringify(r.problems) + (r.diff ? ' ' + JSON.stringify(r.diff) : '') };
 };
 for (const [name, blocks] of Object.entries(inputBlocks)) {
-  const { ok, info } = await exportsAs(blocks, await look({ blocks: captured[name].blocks }));
+  // Telegram's blocks went through its detection already: drawn as they are, with nothing found a second time
+  const { ok, info } = await exportsAs(blocks, await look({ blocks: captured[name].blocks, skip_entity_detection: true }));
   check(`captured ${name}: Telegram's blocks → HTML → the same post`, ok, info);
 }
 
@@ -239,13 +240,38 @@ await refused('Names of Object\'s own properties are not types', [{ type: 'const
   [/блок 1.*«constructor» не переносится/, /блок 2.*«__proto__» не переносится/, /блок 3.*без type/]);
 {
   // Telegram finds a TON address in HTML text by itself (captured html-detected-card-ton): it is written as its text
-  const ton = 'UQBvW8Z5huBkMJYdnfAEM5JqTNkuWX3diqYENkWsIL0XggGG';
+  const ton = 'EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2N';
   const r = await toHtml([{ type: 'paragraph', text: ['Кошелёк ', { type: 'ton_address', text: ton, address: ton }] }]);
   check('A TON address is written as its text, Telegram finds it there', r.ok && r.html === `<p>Кошелёк ${ton}</p>`, JSON.stringify(r));
-  await refused('A TON address shown as other text is refused: Telegram finds it only by the text', [{ type: 'paragraph', text: { type: 'ton_address', text: 'UQBv…ggGG', address: ton } }], [/«Адрес TON».*не совпадает/]);
+  await refused('A TON address shown as other text is refused: Telegram finds it only by the text', [{ type: 'paragraph', text: { type: 'ton_address', text: 'EQCD…qB2N', address: ton } }], [/«Адрес TON».*не совпадает/]);
   // measured: Telegram finds only the 48-character EQ…/UQ… form; a raw address stays text, so it is not lost quietly
   const raw = '0:83dfd552e63729b472fcbcc8c45ebcc6691702558b68ec7527e1ba403a0f31a8';
   await refused('A raw TON address is refused: Telegram does not find it in text', [{ type: 'paragraph', text: { type: 'ton_address', text: raw, address: raw } }], [/«Адрес TON».*EQ… и UQ… из 48 символов/]);
+  // measured: with a wrong checksum the address stays text (RichRender.isTonAddress, the preview's own check)
+  const bad = ton.slice(0, -1) + 'X';
+  await refused('A TON address with a wrong checksum is refused: Telegram leaves it text', [{ type: 'paragraph', text: { type: 'ton_address', text: bad, address: bad } }], [/«Адрес TON».*контрольной суммой/]);
+  // base64 and base64url spell the same 36 bytes; what the format takes, the export takes
+  for (const form of ['EQAAW7YRbMcifdgzjulEn/pVsAtmwRx30i2I4z6Z9E+qBcnt', 'EQAAW7YRbMcifdgzjulEn_pVsAtmwRx30i2I4z6Z9E-qBcnt']) {
+    const f = await toHtml([{ type: 'paragraph', text: { type: 'ton_address', text: form, address: form } }]);
+    check(`A TON address in ${form.includes('/') ? 'base64' : 'base64url'} is written as its text`, f.ok && f.html === `<p>${form}</p>`, JSON.stringify(f));
+  }
+  // a TON address typed as plain text in blocks: Telegram finds it there as in HTML (measured), so the two agree
+  for (const skipEntities of [false, true]) {
+    const p = await toHtml([{ type: 'paragraph', text: `Кошелёк ${ton}` }], { skipEntities });
+    check(`A TON address as plain text in blocks exports as it is (detection ${skipEntities ? 'off' : 'on'})`, p.ok && p.html === `<p>Кошелёк ${ton}</p>`, JSON.stringify(p));
+  }
+  // neighbouring strings are one text for Telegram, and in HTML they are one text anyway
+  const split = await toHtml([{ type: 'paragraph', text: [ton.slice(0, 20), ton.slice(20)] }]);
+  check('A TON address split between neighbouring strings exports as one address', split.ok && split.html === `<p>${ton}</p>`, JSON.stringify(split));
+}
+{
+  // in HTML a GIF and a voice note go as tg://video and tg://audio: what they are only the type of their entry says
+  for (const [kind, what] of [['animation', 'GIF'], ['voice_note', 'голосовое']]) {
+    await refused(`${kind} without its type in the file is refused by name, not as «looks otherwise»`, [{ type: kind, [kind]: { media: 'CgACAgIAAxkBAAI' } }],
+      [new RegExp(`блок 1.*у файла нет type «${kind}».*не поймёт его как ${what}`)]);
+  }
+  const typed = await toHtml([{ type: 'animation', animation: { type: 'animation', media: 'CgACAgIAAxkBAAI' } }]);
+  check('An animation with its type goes as <video src="tg://video"> and its entry', typed.ok && typed.html === '<video src="tg://video?id=animation1"></video>' && typed.media?.[0]?.media?.type === 'animation', JSON.stringify(typed));
 }
 check('Every type HTML cannot say is refused by name in this file (none now)', noHtml.length === 0, 'add a refusal check for: ' + noHtml.join(', '));
 {
