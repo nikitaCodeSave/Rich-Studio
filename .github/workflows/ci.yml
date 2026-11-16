@@ -118,5 +118,6 @@ jobs:
         run: scripts/image_smoke.sh
       - name: image scan
         run: |
-          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.58.1 image \
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD/.trivyignore:/.trivyignore:ro" \
+            aquasec/trivy:0.58.1 image --ignorefile /.trivyignore \
             --scanners vuln --severity CRITICAL --ignore-unfixed --exit-code 1 --no-progress rich-studio

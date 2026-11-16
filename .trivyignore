@@ -1,0 +1,2 @@
+# CVEs the Trivy image scan (ci.yml, job docker) skips for now. One ID per line, each with a comment above it:
+# why it is ignored, a link to the advisory or the upstream fix, and the date to look again (AGENTS.md, CVE rule).
