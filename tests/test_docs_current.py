@@ -36,7 +36,7 @@ NOT_A_FILE = re.compile(r"NN|имя|^/|^\.\./")
 # that needs more raises it and says so in its description, and the doc is tidied in a PR of its own
 BUDGET = {
     "README.md": 6350,
-    ".claude/skills/telegram-rich-posts/SKILL.md": 5700,
+    ".claude/skills/telegram-rich-posts/SKILL.md": 5100,
     "docs/ARCHITECTURE.md": 3100,
     "docs/OBSERVABILITY.md": 1650,
 }
