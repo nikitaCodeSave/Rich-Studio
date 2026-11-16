@@ -562,6 +562,8 @@
     "type": "object"
    },
    "Post": {
+    "additionalProperties": true,
+    "description": "Пост студии. Поле, которого здесь нет, остаётся в посте как пришло (черновик, запись поста), но в Telegram не\nуходит, и проверка предупреждает о нём: параметры sendRichMessage кладите в options. `_studio` — заметки\nчерновика, а не поле поста: из поста оно убирается.",
     "properties": {
      "callbacks": {
       "additionalProperties": true,
@@ -3771,7 +3773,7 @@
   },
   "/api/validate": {
    "post": {
-    "description": "Для проверенных каналов (окно «Каналы», `POST /api/channels`) ещё предупреждения о том, что Telegram в чате\nтакого типа не примет по описаниям спецификации: кнопка `web_app` вне лички, `switch_inline_query_current_chat`\nи reply-клавиатура в канале, `message_effect_id` вне лички; блок `thinking` — в любом чате.",
+    "description": "Для проверенных каналов (окно «Каналы», `POST /api/channels`) ещё предупреждения о том, что Telegram в чате\nтакого типа не примет по описаниям спецификации: кнопка `web_app` вне лички, `switch_inline_query_current_chat`\nи reply-клавиатура в канале, `message_effect_id` вне лички; блок `thinking` — в любом чате.\n\nТело — сам пост. Поле верхнего уровня, которого у поста нет (`disable_notification` вне `options`), —\nпредупреждение, а не ошибка: в Telegram оно не уходит. `chat_id`/`chat_ids` в теле — ошибка, как `chat_id` в\n`options`: каналы этого маршрута — query-параметр `chat_ids`, а публикация с ними в посте отвечает 400.",
     "operationId": "validate_api_validate_post",
     "parameters": [
      {

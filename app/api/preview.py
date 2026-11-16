@@ -16,6 +16,8 @@ from services import publisher
 
 router = APIRouter()
 TEMPLATE = Path(__file__).resolve().parent.parent / "static" / "render.html"
+# the body of /api/validate is the post itself: chat_ids put there is the post's field, not where it goes
+CHATS_IN_QUERY = "у /api/validate — query-параметр: /api/validate?chat_ids=@канал, можно несколько раз"
 
 
 def render_page(post: dict, theme: str = "auto", title: str = "Предпросмотр") -> str:
@@ -42,8 +44,12 @@ def validate(
 ):
     """Для проверенных каналов (окно «Каналы», `POST /api/channels`) ещё предупреждения о том, что Telegram в чате
     такого типа не примет по описаниям спецификации: кнопка `web_app` вне лички, `switch_inline_query_current_chat`
-    и reply-клавиатура в канале, `message_effect_id` вне лички; блок `thinking` — в любом чате."""
-    return publisher.check(post.model_dump(), publisher.checked_targets(chat_ids))
+    и reply-клавиатура в канале, `message_effect_id` вне лички; блок `thinking` — в любом чате.
+
+    Тело — сам пост. Поле верхнего уровня, которого у поста нет (`disable_notification` вне `options`), —
+    предупреждение, а не ошибка: в Telegram оно не уходит. `chat_id`/`chat_ids` в теле — ошибка, как `chat_id` в
+    `options`: каналы этого маршрута — query-параметр `chat_ids`, а публикация с ними в посте отвечает 400."""
+    return publisher.check(post.model_dump(), publisher.checked_targets(chat_ids), CHATS_IN_QUERY)
 
 
 @router.post(
