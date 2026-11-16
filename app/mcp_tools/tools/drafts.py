@@ -53,15 +53,17 @@ def register(tool: ToolDecorator) -> None:
         в редакторе, предпросмотр по адресу preview_path; дальше preview_post и publish_post принимают draft_id.
         С draft_id обновляет существующий черновик (связь с правкой опубликованного поста сохраняется).
         Заметки студии в _studio (source, warnings пересланного поста) остаются; буферы редактора сбрасываются:
-        они описывали прежний пост."""
+        они описывали прежний пост. Файл upload:<имя> может быть ещё не загружен, путь вместо имени — ошибка."""
         old = store.get_draft(draft_id) if draft_id else None
         if draft_id and not old:
             raise NotFound(f"черновика {draft_id} нет")
+        post = parse_post(post)
+        publisher.check_uploads(post, must_exist=False)
         chats = (publisher.normalize_chats(chat_ids) or None) if chat_ids is not None else (old or {}).get("chat_ids")
         d = store.save_draft(
             draft_id,
             title or (old or {}).get("title") or "",
-            keep_notes(parse_post(post), (old or {}).get("payload")),
+            keep_notes(post, (old or {}).get("payload")),
             version,
             (old or {}).get("post_id"),
             chats,

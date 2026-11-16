@@ -10,7 +10,6 @@ import spec
 import store
 import telegram as tg
 from errors import Conflict, Invalid, MayHaveGone, NotFound, StudioError, Unrecorded, Upstream
-from telegram.uploads import MissingUpload, collect_uploads
 
 from . import channels, kinds, publisher
 from .callbacks import check as check_answers
@@ -109,15 +108,11 @@ def _first_sent(results: list[dict], warnings: list[str]) -> dict:
 
 
 def dry_run_report(chats: list, post: dict, warnings: list[str]) -> dict:
-    """Everything a send would do, without Telegram and without a record in the history."""
-    media_dir = settings.get().media_dir
+    """Everything a send would do, without Telegram and without a record in the history; the files of the post are
+    checked by publisher.validate before."""
     requests = []
     for chat in chats:
         method, params = publisher.request(chat, post)
-        try:
-            collect_uploads(params, {}, media_dir)
-        except MissingUpload as e:
-            raise StudioError(str(e)) from None
         requests.append({"method": method, "params": params, "chat_title": channels.title_of(chat)})
     steps = [
         s
@@ -392,6 +387,7 @@ async def send_kind(
     if not k.prepare or not k.key:
         raise StudioError(f"{k.label}: отправляется не так (POST /api/posts)")
     post = {k.key: k.prepare(params), "pin": pin}
+    publisher.check_uploads(post)  # a waiting one too: its files are checked now, not at its time
     if at is not None:
         when = publisher.parse_at(at)
         recs = store.add_scheduled(publisher.targets(chat_id, chat_ids), post, when, kind=k.name, actor=actor)

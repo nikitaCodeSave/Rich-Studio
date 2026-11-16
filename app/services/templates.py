@@ -24,6 +24,9 @@ from urllib.parse import urlsplit
 import spec
 import store
 from errors import Conflict, Invalid, NotFound, StudioError
+from telegram.uploads import name_error
+
+from . import publisher
 
 VAR = re.compile(r"\{\{([A-Za-z_][A-Za-z0-9_]{0,31})\}\}")
 KEY = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,31}")
@@ -361,7 +364,9 @@ def _url_problem(v: str) -> str | None:
     if re.search(r"[\s\"'<>\\\x00-\x1f\x7f]", v):
         return "в ссылке пробел, кавычка или угловая скобка"
     if v.startswith("upload:"):
-        return None if len(v) > len("upload:") else "после upload: нужно имя файла"
+        if len(v) == len("upload:"):
+            return "после upload: нужно имя файла"
+        return f"upload: {why}, а нужно имя загруженного файла" if (why := name_error(v[len("upload:") :])) else None
     if v.startswith("#") or (v.startswith("/") and not v.startswith("//")):  # an anchor, a path (render.js safeUrl)
         return None
     try:
@@ -502,6 +507,7 @@ def save(title: str, post: dict, fields: list[dict], tid: str | None = None, ver
         raise _too_big("шаблон")
     clean = _fields(fields)
     _check(post, clean)
+    publisher.check_uploads(post, must_exist=False)  # the file may come later, a path never
     if tid is None:
         return store.templates.create_template(title, post, clean)
     if version is None:
@@ -555,4 +561,5 @@ def fill(tid: str, version: int, values: dict, title: str = "") -> dict:
         return out
 
     post = _map(t["payload"], put)
+    publisher.check_uploads(post, must_exist=False)  # a text field may stand where a file goes
     return store.save_draft(None, (title or "").strip() or t["title"], post)  # type: ignore[return-value]

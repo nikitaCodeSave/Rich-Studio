@@ -24,7 +24,7 @@ import store
 import telegram as tg
 from errors import Invalid, MayHaveGone, StudioError
 
-from . import callbacks, kinds
+from . import callbacks, kinds, media
 
 log = logging.getLogger("rich-studio.publisher")
 # parameters of sendRichMessage the studio sets itself, never options: where the post goes and what it is
@@ -215,6 +215,15 @@ def unused_fields(post: dict) -> list[str]:
     ]
 
 
+def check_uploads(post: dict, must_exist: bool = True) -> None:
+    """upload:<name> in whatever of the post goes to Telegram, now or later (the post or a kind's own parameters, its
+    first comment, the poll after it, the rich replies to its buttons) names a file of the uploads; StudioError (400)
+    as a send gives, before anything is written. A field the studio does not read never goes out, so is not looked
+    at. must_exist=False, a draft or a template: only a name that is a path is refused (media.check_refs)."""
+    kind_keys = {k.key for k in kinds.KINDS.values() if k.key}
+    media.check_refs({k: v for k, v in post.items() if k in POST_FIELDS or k in kind_keys}, must_exist)
+
+
 # the first comment goes to the discussion group of the channel, a supergroup
 DISCUSSION = ("supergroup", "в группе обсуждения")
 
@@ -278,8 +287,9 @@ def check(post: dict, chats: Iterable = (), chats_hint: str = CHATS_NEXT_TO_POST
 
 
 def validate(post: dict, chats: Iterable = (), chats_hint: str = CHATS_NEXT_TO_POST) -> dict:
-    """Validation report; raises Invalid if the post, its first comment or a reply to its buttons has errors. What
-    Telegram refuses in `chats`, the ones it goes to, is a warning. `chats_hint`: as in check()."""
+    """Validation report; raises Invalid if the post, its first comment or a reply to its buttons has errors, and
+    StudioError if a file it names is not in the uploads (check_uploads). What Telegram refuses in `chats`, the ones
+    it goes to, is a warning. `chats_hint`: as in check()."""
     options(post, chats_hint)
     where = places(chats)
     r = _check_post(post, where, chats_hint)
@@ -295,6 +305,7 @@ def validate(post: dict, chats: Iterable = (), chats_hint: str = CHATS_NEXT_TO_P
         raise Invalid({"message": "ответ на кнопку не прошёл проверку", **r, "ok": False, "errors": cb["errors"]})
     if post.get("poll_after") is not None and (bad := kinds.poll_error(post["poll_after"])):
         raise Invalid({"message": "опрос после поста не прошёл проверку", **r, "ok": False, "errors": [bad]})
+    check_uploads(post)
     return r
 
 

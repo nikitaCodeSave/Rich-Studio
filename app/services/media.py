@@ -9,13 +9,14 @@ import secrets
 import socket
 import urllib.request
 from pathlib import Path
-from urllib.parse import unquote, urljoin, urlsplit
+from urllib.parse import quote, unquote, urljoin, urlsplit
 
 import httpx
 
 import settings
 import store
 from errors import Conflict, NotFound, StudioError
+from telegram import uploads
 
 # served inline; everything else is a download so uploaded html/svg never renders on the studio origin
 INLINE = {
@@ -57,7 +58,7 @@ def kind(name: str) -> str:
 
 
 def describe(name: str) -> dict:
-    return {"name": name, "kind": kind(name), "url": f"/media/{name}", "ref": f"upload:{name}"}
+    return {"name": name, "kind": kind(name), "url": _url(name), "ref": f"upload:{name}"}
 
 
 def list_files() -> list[dict]:
@@ -80,8 +81,8 @@ def delete_unused(older_than: float | None = None) -> list[str]:
         for f in list_files()
         if not f["used"] and (older_than is None or (media_dir() / f["name"]).stat().st_mtime < older_than)
     ]
-    for name in gone:
-        path_of(name, must_exist=False).unlink(missing_ok=True)
+    for name in gone:  # names from the folder itself: also one put there by hand that no post can use (path_of)
+        (media_dir() / name).unlink(missing_ok=True)
     return gone
 
 
@@ -124,14 +125,36 @@ def delete(name: str, force: bool = False) -> None:
 
 
 def path_of(name: str, must_exist: bool = True) -> Path:
-    """The file inside the media folder; never a path outside it."""
-    root = media_dir().resolve()
-    p = (root / name).resolve()
-    if root not in p.parents:
-        raise StudioError("Bad Request") if not must_exist else NotFound("Not Found")
-    if must_exist and not p.exists():
-        raise NotFound("Not Found")
-    return p
+    """The file inside the media folder; never a path outside it, nor a name that is not one of an upload
+    (telegram.uploads.find: the same check as a send)."""
+    try:
+        return uploads.find(name, media_dir(), must_exist)
+    except uploads.MissingUpload:
+        raise (NotFound("Not Found") if must_exist else StudioError("Bad Request")) from None
+
+
+def url_of(name: str) -> str | None:
+    """/media/<name> for the editor's <img>, the name encoded whole; None unless it is a file of the uploads, so no
+    stored name sends the browser anywhere but to /media/."""
+    try:
+        path_of(name)
+    except StudioError:
+        return None
+    return _url(name)
+
+
+def _url(name: str) -> str:
+    return "/media/" + quote(name, safe="")
+
+
+def check_refs(post: dict, must_exist: bool = True) -> None:
+    """Every upload:<name> in a file field of `post` (as a send finds them, telegram.uploads) names a file of the
+    uploads: refused as a send refuses it (StudioError, 400) before anything is written or asked of Telegram.
+    must_exist=False (a draft, a template: the file may be uploaded later): only a name that is a path is refused."""
+    try:
+        uploads.collect_uploads(post, {}, media_dir(), must_exist=must_exist)
+    except uploads.MissingUpload as e:
+        raise StudioError(str(e)) from None
 
 
 def _limit() -> int:
