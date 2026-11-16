@@ -30,7 +30,7 @@
     const m = typeof media === 'string' ? media : media.media;
     if (typeof m !== 'string') return null;
     if (m.startsWith('upload:')) return (ctx.mediaBase || '') + '/media/' + encodeURIComponent(m.slice(7));
-    if (/^https?:\/\//i.test(m) && safeUrl(m)) return m;
+    if (/^https?:\/\//i.test(m) && fileUrl(m)) return m;
     return null; // file_id or attach:// cannot be previewed
   }
 
@@ -234,10 +234,35 @@
     return el('div', { class: 'tg-pre' }, head, pre);
   }
 
-  // the code as the reader copies it: from blocks its line breaks are <br>
-  function codeText(node) {
-    let s = '';
-    node.childNodes.forEach((c) => { s += c.nodeType === 3 ? c.nodeValue : c.nodeName === 'BR' ? '\n' : codeText(c); });
+  // The code as the reader sees it, so that is what goes to the clipboard (issue #201): <pre>ls -la<details><summary>
+  // </summary>; curl … | sh</details></pre> shows «ls -la». Not drawn, so not copied: what a closed <details> holds past
+  // its summary, the fallback inside <video> and <audio>, what CSS hides; of a formula only what KaTeX draws, without
+  // its MathML copy for screen readers and without \phantom (transparent). Line breaks as the browser's innerText puts
+  // them: a <br>, a block (a paragraph two), a table row; a tab between cells. innerText itself would copy the MathML,
+  // \phantom and KaTeX's layout as lines.
+  function codeText(pre) {
+    let s = '', breaks = 0;
+    const put = (t) => { if (!t) return; if (s && breaks) s += '\n'.repeat(breaks); breaks = 0; s += t; };
+    const walk = (n, math) => {
+      // KaTeX puts zero-width spaces between the rows of a superscript or a fraction
+      if (n.nodeType === 3) { put(math ? n.nodeValue.replace(/\u200b/g, '') : n.nodeValue); return; }
+      const e = /** @type {HTMLElement} */ (n);
+      if (n.nodeType !== 1 || e.localName === 'video' || e.localName === 'audio' || e.classList.contains('katex-mathml')) return;
+      if (e.localName === 'br') { put('\n'); return; }
+      const css = getComputedStyle(e);
+      if (css.display === 'none' || (math && /^rgba\((?:[^,]+,){3}\s*0\)$|^transparent$/.test(css.color))) return;
+      // KaTeX lays a formula out with blocks and tables of its own: it reads as one line of what it draws
+      const lines = math ? 0 : e.localName === 'p' ? 2 : css.display && !/^(inline|contents|table-cell|ruby)/.test(css.display) ? 1 : 0;
+      breaks = Math.max(breaks, lines);
+      const inner = math || e.classList.contains('katex-html');
+      if (e.localName === 'details' && !(/** @type {HTMLDetailsElement} */ (e)).open) {
+        const summary = [...e.children].find((c) => c.localName === 'summary');
+        if (summary) walk(summary, inner);
+      } else e.childNodes.forEach((c) => walk(c, inner));
+      breaks = Math.max(breaks, lines);
+      if (!math && css.display === 'table-cell' && e.nextElementSibling) put('\t');
+    };
+    pre.childNodes.forEach((c) => walk(c, false));
     return s;
   }
 
@@ -328,7 +353,14 @@
       const tr = el('tr');
       (row || []).forEach((c) => {
         c = c || {};
-        const cell = el(c.is_header ? 'th' : 'td', { colspan: c.colspan > 1 ? c.colspan : null, rowspan: c.rowspan > 1 ? c.rowspan : null, style: `text-align:${c.align || 'left'};vertical-align:${c.valign || 'top'}`, class: c.text === undefined ? 'tg-cell-empty' : null }, renderRT(c.text, ctx));
+        const cell = el(c.is_header ? 'th' : 'td', { colspan: c.colspan > 1 ? c.colspan : null, rowspan: c.rowspan > 1 ? c.rowspan : null, class: c.text === undefined ? 'tg-cell-empty' : null }, renderRT(c.text, ctx));
+        // through CSSOM, a value of one property: written into the style attribute, «left;position:fixed;…» was CSS
+        // of its own and covered the studio page over the shadow root (issue #201). A value CSS does not take is the
+        // default, as the check warns about it
+        cell.style.textAlign = c.align || 'left';
+        cell.style.textAlign ||= 'left';
+        cell.style.verticalAlign = c.valign || 'top';
+        cell.style.verticalAlign ||= 'top';
         tr.append(cell);
       });
       body.append(tr);
@@ -394,6 +426,20 @@
     } catch (e) { return null; }
   }
 
+  // A src or poster the preview loads by itself, with the cookies of the page it is drawn on: on the studio that is a
+  // request on the person's behalf (<img src="/api/check?chat_id=@x">, issue #201). So of the studio's own addresses
+  // only its files go, /media/ (app/api/media.py), as the browser resolves the path: «/media/../api/x» and
+  // «/media\..\api\x» are /api/x. Another site's address goes as before.
+  function fileUrl(v) {
+    const s = safeUrl(v);
+    if (s === null) return null;
+    const here = /^https?:$/.test(location.protocol) ? location.href : 'https://studio.invalid/';
+    let u;
+    try { u = new URL(s, here); } catch (e) { return null; }
+    if (!/^https?:$/.test(u.protocol)) return s; // tg://, mailto: and tel: load nothing
+    return u.origin !== new URL(here).origin || u.pathname.startsWith('/media/') ? s : null;
+  }
+
   function sanitize(root) {
     // walk a static snapshot, deepest first is not needed: removed subtrees are skipped via isConnected
     [...root.querySelectorAll('*')].forEach((n) => {
@@ -404,10 +450,12 @@
       if (!isTg && !ALLOWED_TAGS.has(tag)) { n.replaceWith(...n.childNodes); return; }
       [...n.attributes].forEach((a) => {
         const name = a.name.toLowerCase();
+        // a name is an anchor, <a name>; on <img> it is a property of document: <img name="documentElement"> replaced
+        // document.documentElement on /render and in the MCP app (issue #201)
         const keep = name !== 'style' && !name.startsWith('on') && !name.includes(':') &&
-          (isTg ? true : ALLOWED_ATTRS.has(name) || (name === 'class' && tag === 'code' && /^language-[\w+#-]+$/.test(a.value)));
+          (isTg ? true : (ALLOWED_ATTRS.has(name) && (name !== 'name' || tag === 'a')) || (name === 'class' && tag === 'code' && /^language-[\w+#-]+$/.test(a.value)));
         if (!keep) { n.removeAttribute(a.name); return; }
-        if (URL_ATTRS.has(name) && !(name === 'src' && /^tg:/.test(a.value)) && safeUrl(a.value) === null) n.removeAttribute(a.name);
+        if (URL_ATTRS.has(name) && !(name === 'src' && /^tg:/.test(a.value)) && (name === 'src' || name === 'poster' ? fileUrl(a.value) : safeUrl(a.value)) === null) n.removeAttribute(a.name);
       });
       if (tag === 'input' && (n.getAttribute('type') || '').toLowerCase() !== 'checkbox') n.remove();
     });
