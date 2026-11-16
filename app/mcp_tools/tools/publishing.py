@@ -52,7 +52,7 @@ def register(tool: ToolDecorator) -> None:
         poll: Annotated[
             dict[str, Any],
             Field(
-                description="Параметры sendPoll без chat_id: question, options [{text}], type quiz + correct_option_id, "
+                description="Параметры sendPoll без chat_id: question, options [{text}], type quiz + correct_option_ids, "
                 "is_anonymous, allows_multiple_answers, members_only, country_codes…"
             ),
         ],
