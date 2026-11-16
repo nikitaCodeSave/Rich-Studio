@@ -17,6 +17,7 @@ from mcp.types import ToolAnnotations
 import settings
 from mcp_tools import preview_app, skill, tools
 from mcp_tools.common import (
+    DRAFT_CHATS,
     PUBLIC,
     READ,
     DraftArg,
@@ -28,9 +29,6 @@ from mcp_tools.common import (
     post_source,
 )
 from services import publisher
-
-# preview_post takes no chats: where a chat put inside the post goes instead (publisher.target_errors)
-DRAFT_CHATS = "каналы черновика — chat_ids в save_draft, публикации — chat_id или chat_ids в publish_post"
 
 INSTRUCTIONS = """Rich Studio: write, check, preview and publish rich posts for the user's Telegram channel.
 No telegram-rich-posts among your skills? Before writing a post read the resource skill://telegram-rich-posts/SKILL.md

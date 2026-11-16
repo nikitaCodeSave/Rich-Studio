@@ -63,6 +63,11 @@ KeyArg = Annotated[
 ]
 PostIdArg = Annotated[str, Field(description="id поста из list_posts")]
 
+# where a chat put inside the post goes instead (publisher.target_errors), for tools without both chat_id and
+# chat_ids next to post: validate_post and save_draft take only chat_ids, preview_post and draft_from_template none
+CHATS_ARG = "chat_ids рядом с post"
+DRAFT_CHATS = "каналы черновика — chat_ids в save_draft, публикации — chat_id или chat_ids в publish_post"
+
 READ = ToolAnnotations(read_only_hint=True, open_world_hint=False)
 LOCAL = ToolAnnotations(read_only_hint=False, destructive_hint=False, open_world_hint=False)
 # reaches Telegram but changes nothing in the channel

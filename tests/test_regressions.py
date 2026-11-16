@@ -243,10 +243,13 @@ def test_mcp_a_chat_inside_the_post_is_an_error_and_the_draft_is_still_saved(cli
 
     post = {**BLOCKS_POST, "chat_ids": ["@x"]}
     _, v, _ = call(client, "validate_post", post=post)
-    assert v["ok"] is False and "рядом с post" in _chat_errors(v["errors"], "chat_ids")[0]
+    # these two tools take chat_ids only: the hint names that argument, not a chat_id they do not have
+    (e,) = _chat_errors(v["errors"], "chat_ids")
+    assert v["ok"] is False and "(chat_ids рядом с post)" in e and "chat_id или" not in e
     # saving is not refused, as with chat_id in options: the agent sees the error and saves again
     _, d, _ = call(client, "save_draft", post=post, title="Не туда")
-    assert d["validation"]["ok"] is False and _chat_errors(d["validation"]["errors"], "chat_ids")
+    (e,) = _chat_errors(d["validation"]["errors"], "chat_ids")
+    assert d["validation"]["ok"] is False and "(chat_ids рядом с post)" in e and "chat_id или" not in e
     assert store.get_draft(d["id"])["payload"]["chat_ids"] == ["@x"]
     for tool, extra in (("publish_post", {}), ("schedule_post", {"at": "2099-01-01T09:00:00+03:00"})):
         res, _, text = call(client, tool, draft_id=d["id"], version=d["version"], **extra)
@@ -257,6 +260,16 @@ def test_mcp_a_chat_inside_the_post_is_an_error_and_the_draft_is_still_saved(cli
     assert res["isError"] and "«chat_id»" in text and "TG_PREVIEW_CHAT" in text and "рядом с post" not in text
     assert not [c for c in tg.calls if c["method"] == "sendRichMessage"]
     assert store.list_posts() == []
+
+
+def test_a_draft_from_a_template_with_a_chat_inside_says_where_the_chats_go(client, tg):
+    from test_mcp import call
+
+    _, t, _ = call(client, "save_post_template", title="Рубрика", post={**BLOCKS_POST, "chat_ids": ["@x"]}, fields=[])
+    _, d, _ = call(client, "draft_from_template", template_id=t["id"], version=t["version"], values={})
+    # the tool takes neither post nor chats: the hint names the tools that do
+    (e,) = _chat_errors(d["validation"]["errors"], "chat_ids")
+    assert "chat_ids в save_draft" in e and "publish_post" in e and "рядом с post" not in e
 
 
 def test_a_scheduled_post_with_a_chat_inside_fails_with_the_reason(client, tg):

@@ -5,7 +5,7 @@ from typing import Annotated
 from pydantic import Field
 
 from errors import Conflict
-from mcp_tools.common import LOCAL, READ, PostArg, ToolDecorator, draft_links, parse_post
+from mcp_tools.common import DRAFT_CHATS, LOCAL, READ, PostArg, ToolDecorator, draft_links, parse_post
 from models import TemplateField
 from services import channels, publisher, templates
 
@@ -85,5 +85,5 @@ def register(tool: ToolDecorator) -> None:
             "goes_to": channels.goes_to(d["chat_ids"]),
             "preview_path": f"/render/draft/{d['id']}",
             **draft_links(d["id"]),
-            "validation": publisher.check(d["payload"], publisher.checked_targets(d["chat_ids"])),
+            "validation": publisher.check(d["payload"], publisher.checked_targets(d["chat_ids"]), DRAFT_CHATS),
         }
