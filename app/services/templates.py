@@ -3,7 +3,8 @@
 A field is {key, label, type: text | multiline | url, required, default}. {{key}} stands only in string values of
 the post, never in its JSON keys. A value is always text, never markup: escaped (html.escape) in HTML, a plain JSON
 string anywhere else (Telegram does not parse the text of a block). In HTML a {{key}} stands in text or in a quoted
-attribute value; a link attribute (href, src) takes only a url field, as its whole value. Markdown is not filled in
+attribute value. A link (an HTML link attribute such as href or src, a JSON string under the key url) takes only a url
+field, as its whole value. Markdown is not filled in
 this version: how to escape a value for Telegram's Markdown was never checked against Telegram, so such a template is
 refused with a hint to use the visual mode or HTML.
 Filling changes nothing in the post but the {{key}} marks (AGENTS.md rule 1), and makes a new draft without channels.
@@ -44,6 +45,9 @@ URL_ATTRS = {
     "background",
     "ping",
 }
+# the JSON key of a link (RichTextUrl, InlineKeyboardButton, WebAppInfo, LoginUrl…), as validator.py reads it: only a
+# whole url field goes there, as in an HTML link attribute. Told by the key's name, not by a list of blocks
+URL_KEY = "url"
 MARKDOWN = (
     "{{…}} в Markdown пока не подставляется: переведите пост в визуальный режим или в HTML и сохраните шаблон снова"
 )
@@ -86,6 +90,11 @@ def _map(value, fn: Callable[[Path, str], str], path: Path = ()):
 
 def _where(path: Path) -> str:
     return "".join(f"[{p}]" if isinstance(p, int) else (f".{p}" if i else p) for i, p in enumerate(path)) or "пост"
+
+
+def _key(path: Path) -> str:
+    """The JSON key a string stands under (for a string in a list, the key of the list), as telegram/uploads reads it."""
+    return next((p for p in reversed(path) if isinstance(p, str)), "")
 
 
 def _source(path: Path) -> str:
@@ -339,6 +348,11 @@ def _check(payload: dict, fields: list[dict]) -> None:
             raise Invalid(
                 f"{where}: часть ссылки upload: не подставляется — файл подставляет поле целиком "
                 f'("{mark("файл")}" со значением upload:имя)'
+            )
+        if source == "text" and _key(path) == URL_KEY and (not VAR.fullmatch(s) or by_key[keys[0]]["type"] != "url"):
+            raise Invalid(
+                f"{where}: {mark(keys[0])} в ссылке: ссылку подставляет только поле типа url, целиком "
+                f'("{URL_KEY}": "{mark(keys[0])}")'
             )
         if source == "html":
             _check_html(s, by_key, where)
