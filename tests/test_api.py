@@ -491,6 +491,52 @@ def test_same_origin_writes_are_allowed(client, tg, headers):
     assert client.post("/api/raw/getMe", json={}, headers=headers).status_code == 200
 
 
+# same-site: a page on another port of localhost, where SameSite=Strict still sends the session cookie (#205)
+@pytest.mark.parametrize("site", ["cross-site", "same-site"])
+@pytest.mark.parametrize("method", ["GET", "HEAD", "OPTIONS"])
+def test_reads_of_the_api_from_another_site_are_rejected(client, site, method):
+    r = client.request(method, "/api/drafts", headers={"sec-fetch-site": site})
+    assert r.status_code == 403
+    if method != "HEAD":
+        assert r.json()["detail"] == "запрос с другого сайта отклонён"
+
+
+@pytest.mark.parametrize("site", ["same-origin", "none", None])
+def test_reads_of_the_api_from_the_editor_curl_and_the_address_bar_are_allowed(client, site):
+    headers = {"sec-fetch-site": site} if site else {}
+    assert client.get("/api/drafts", headers=headers).status_code == 200
+
+
+def test_a_page_on_another_site_cannot_make_the_studio_build_a_backup(client, monkeypatch):
+    """<img src=/api/export> cannot read the zip, but the studio would build it: ten of them, ten zips at once."""
+    from services import backup
+
+    built = []
+    export_zip = backup.export_zip
+    monkeypatch.setattr(backup, "export_zip", lambda: built.append(1) or export_zip())
+    assert client.get("/api/export", headers={"sec-fetch-site": "cross-site"}).status_code == 403
+    assert not built
+    r = client.get("/api/export", headers={"sec-fetch-site": "same-origin"})
+    assert r.status_code == 200 and r.headers["content-type"] == "application/zip" and built == [1]
+
+
+def test_pages_and_files_outside_the_api_still_load_from_another_site(client):
+    """The HTML export opened from file:// loads /media/; links to the editor and the preview keep working."""
+    name = client.post("/api/media", files={"file": ("a.png", b"png", "image/png")}).json()["name"]
+    did = client.post("/api/drafts", json={"title": "t", "post": BLOCKS_POST}).json()["id"]
+    for path in ("/", "/static/tg.css", "/media/" + name, "/healthz", f"/render/draft/{did}", "/docs", "/openapi.json"):
+        assert client.get(path, headers={"sec-fetch-site": "cross-site"}).status_code == 200, path
+    assert client.get("/readyz", headers={"sec-fetch-site": "cross-site"}).status_code in (200, 503)
+
+
+def test_a_read_from_another_site_is_refused_even_with_a_valid_key(client, monkeypatch):
+    """The cookie a same-site page sends is valid: the guard refuses before it looks who is asking."""
+    monkeypatch.setattr(settings.get(), "api_key", "secret")
+    r = client.get("/api/drafts", headers={"sec-fetch-site": "same-site", "X-API-Key": "secret"})
+    assert r.status_code == 403
+    assert client.get("/api/drafts", headers={"sec-fetch-site": "cross-site"}).status_code == 403  # not 401
+
+
 def test_empty_text_plain_body_is_rejected(client, tg):
     r = client.post("/api/raw/logOut", content=b"", headers={"content-type": "text/plain"})
     assert r.status_code == 415 and not tg.calls
