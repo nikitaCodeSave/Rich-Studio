@@ -440,58 +440,72 @@ def test_tags_without_a_measurement_only_warn(current):
         assert r["ok"] and has(r["warnings"], "около 17 уровней вложенности, лимит 16"), (html, r)
 
 
-def test_deep_html_is_checked_in_linear_time(current):
-    """By how much the time grows with the input, not by a fixed limit: under coverage on a slow CI runner the
-    linear check of 50 000 levels took 2.0 s against 0.3 s here and failed a limit of 2 s. Four times the input
-    takes about four times as long when linear and about sixteen when quadratic, on any machine."""
+def grows_linearly(run, n: int) -> None:
+    """The check of run(n) takes about four times as long as of run(n // 4) when linear and about sixteen when
+    quadratic, on any machine: a fixed limit failed on a slow CI runner under coverage (2.0 s against 0.3 s here for
+    50 000 levels, 0.57 s against 0.24 s for «<» without its «>»). The best of two runs of each size."""
 
-    def seconds(n: int) -> float:
+    def seconds(k: int) -> float:
         started = time.perf_counter()
-        r = check(current, html="<b>" * n + "a" + "</i>" * n + "<p>x" * n)
-        assert not r["ok"] and r["stats"]["depth"] == n + 1
+        run(k)
         return time.perf_counter() - started
 
-    small = min(seconds(12500) for _ in range(2))
-    big = min(seconds(50000) for _ in range(2))
+    small = min(seconds(n // 4) for _ in range(2))
+    big = min(seconds(n) for _ in range(2))
     assert big < 8 * small + 0.2, (small, big)
 
 
-@pytest.mark.parametrize(
-    "rm",
-    [{"html": "<p>x&#xD800;</p><p><a" + "b" * 34900}, {"markdown": "x&#xD800; " + "`" * 17000 + "b" * 17900}],
-    ids=["html: <a without its >", "markdown: a run of backticks without its closing run"],
-)
-def test_a_post_with_text_telegram_erases_is_checked_in_linear_time(current, rm):
-    """One entity Telegram erases text for takes the check to the pieces of text: under the source limit a hostile
-    source took 15 s (html) and 6 s (markdown) there, with the event loop of the studio standing still."""
-    started = time.perf_counter()
-    assert not check(current, **rm)["ok"]
-    assert time.perf_counter() - started < 2
+def test_deep_html_is_checked_in_linear_time(current):
+    def run(n: int) -> None:
+        r = check(current, html="<b>" * n + "a" + "</i>" * n + "<p>x" * n)
+        assert not r["ok"] and r["stats"]["depth"] == n + 1
+
+    grows_linearly(run, 50000)
 
 
-# 100 000 bytes: there is no limit on the body of a request, and the check runs in the event loop of the studio
-HOSTILE = {
-    "markdown: ]( without its )": {"markdown": "](" * 50000},
-    "markdown: ]( and an entity Telegram erases": {"markdown": "x&#xD800; " + "](" * 50000},
-    "markdown: < without its >": {"markdown": "<" * 100000},
-    "markdown: < and an entity Telegram erases": {"markdown": "x&#xD800; " + "<" * 100000},
-    "html: < without its >": {"html": "<" * 100000},
-    "markdown: [^ without its ]": {"markdown": "[^" * 50000},
-    "markdown: ![ without its ]": {"markdown": "![" * 50000},
-    "html: <img without its >": {"html": "<img" * 25000},
-    "markdown: a line of quote marks that is no heading": {"markdown": "x&#xD800;\n" + "> " * 50000},
-    "markdown: [ at the start of every line": {"markdown": "[\n" * 50000},
-    "markdown: [^ at the start of every line, one ] at the end": {"markdown": "[^\n" * 33333 + "]"},
+ERASED = {
+    "html: <a without its >": lambda n: {"html": "<p>x&#xD800;</p><p><a" + "b" * n},
+    "markdown: a run of backticks without its closing run": lambda n: {"markdown": "x&#xD800; " + "`" * n + "b" * n},
 }
 
 
-@pytest.mark.parametrize("rm", HOSTILE.values(), ids=HOSTILE.keys())
-def test_a_run_of_openings_without_their_end_is_checked_in_linear_time(current, rm):
+@pytest.mark.parametrize(
+    ("make", "n"),
+    [
+        (ERASED["html: <a without its >"], 34900),
+        (ERASED["markdown: a run of backticks without its closing run"], 17000),
+    ],
+    ids=ERASED.keys(),
+)
+def test_a_post_with_text_telegram_erases_is_checked_in_linear_time(current, make, n):
+    """One entity Telegram erases text for takes the check to the pieces of text: under the source limit a hostile
+    source took 15 s (html) and 6 s (markdown) there, with the event loop of the studio standing still."""
+    assert not check(current, **make(n))["ok"]
+    grows_linearly(lambda k: check(current, **make(k)), n)
+
+
+# up to 100 000 bytes: there is no limit on the body of a request, and the check runs in the event loop of the studio
+HOSTILE = {
+    "markdown: ]( without its )": (lambda n: {"markdown": "](" * n}, 50000),
+    "markdown: ]( and an entity Telegram erases": (lambda n: {"markdown": "x&#xD800; " + "](" * n}, 50000),
+    "markdown: < without its >": (lambda n: {"markdown": "<" * n}, 100000),
+    "markdown: < and an entity Telegram erases": (lambda n: {"markdown": "x&#xD800; " + "<" * n}, 100000),
+    "html: < without its >": (lambda n: {"html": "<" * n}, 100000),
+    "markdown: [^ without its ]": (lambda n: {"markdown": "[^" * n}, 50000),
+    "markdown: ![ without its ]": (lambda n: {"markdown": "![" * n}, 50000),
+    "html: <img without its >": (lambda n: {"html": "<img" * n}, 25000),
+    "markdown: a line of quote marks that is no heading": (lambda n: {"markdown": "x&#xD800;\n" + "> " * n}, 50000),
+    "markdown: [ at the start of every line": (lambda n: {"markdown": "[\n" * n}, 50000),
+    "markdown: [^ at the start of every line, one ] at the end": (lambda n: {"markdown": "[^\n" * n + "]"}, 33333),
+}
+
+
+@pytest.mark.parametrize(("make", "n"), HOSTILE.values(), ids=HOSTILE.keys())
+def test_a_run_of_openings_without_their_end_is_checked_in_linear_time(current, make, n):
     """Issue #192: from each «](» the link address was looked for up to the end of the source, so 100 000 bytes of
     them took 1 s, and 4 s with an entity Telegram erases; «<img» took 9 s."""
-    started = time.perf_counter()
-    assert not check(current, **rm)["ok"]
-    assert time.perf_counter() - started < 0.5
+    assert not check(current, **make(n))["ok"]
+    grows_linearly(lambda k: check(current, **make(k)), n)
 
 
 def test_the_preview_tells_tags_from_text_the_same_way():

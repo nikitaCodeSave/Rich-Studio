@@ -26,6 +26,8 @@ def draft(did: str):
 
 @router.post("/api/drafts", summary="Новый черновик; он сразу открывается в редакторе")
 def create_draft(req: DraftReq):
+    """Файл `upload:<имя>` может быть ещё не загружен; путь вместо имени (`/`, `\\`, `..`) — 400."""
+    publisher.check_uploads(req.post, must_exist=False)
     return store.save_draft(
         None, req.title, req.post, post_id=req.post_id, chat_ids=publisher.normalize_chats(req.chat_ids) or None
     )
@@ -35,7 +37,9 @@ def create_draft(req: DraftReq):
 def put_draft(did: str, req: DraftReq):
     """`chat_ids` — каналы черновика: публикация из него без `chat_id` уходит туда. Без поля остаются прежние.
     Редактор присылает `_studio` целиком, и оно сохраняется как есть; без `_studio` в посте остаются заметки студии
-    (`source`, `warnings` пересланного поста), а буферы редактора (`buffers`, `json`, `format`) сбрасываются."""
+    (`source`, `warnings` пересланного поста), а буферы редактора (`buffers`, `json`, `format`) сбрасываются.
+    Файл `upload:<имя>` может быть ещё не загружен; путь вместо имени — 400."""
+    publisher.check_uploads(req.post, must_exist=False)
     prev = store.get_draft(did) or {}
     old = prev.get("chat_ids")
     chat_ids = (publisher.normalize_chats(req.chat_ids) or None) if req.chat_ids is not None else old
