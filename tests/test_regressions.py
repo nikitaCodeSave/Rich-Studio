@@ -783,3 +783,16 @@ def test_a_scheduled_post_to_several_channels_keeps_the_one_that_went_and_never_
     asyncio.run(scheduler.run_due_posts())
     reached = 0 if how == "file deleted" else 1  # a refused file never reaches Telegram
     assert _sends_to(tg, "@a") == 1 and _sends_to(tg, "@b") == reached
+
+
+def test_the_check_of_a_draft_reports_a_poll_after_the_post_that_would_be_refused(client, tg):
+    # the check (/api/validate, validate_post, save_draft, the editor) said ok, and only the publish refused it (422)
+    post = {**BLOCKS_POST, "poll_after": {"question": "?", "options": ["один"]}}
+    from services import publisher
+
+    checked = client.post("/api/validate", json=post).json()
+    saved = publisher.check(post)  # what save_draft and fill_post_template return as validation
+    for r in (checked, saved):
+        assert r["ok"] is False and any("опрос после поста: нужно минимум два варианта" in e for e in r["errors"]), r
+    good = client.post("/api/validate", json={**BLOCKS_POST, "poll_after": {"question": "?", "options": ["да", "нет"]}})
+    assert good.json()["ok"] is True
