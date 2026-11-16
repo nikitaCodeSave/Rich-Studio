@@ -48,6 +48,7 @@ testpaths = ["tests"]
 addopts = "-q --strict-markers"
 markers = [
   "e2e: браузерные проверки (Playwright), запускаются отдельно",
+  "no_db: тест без базы и папки данных (conftest.fresh_data); тест с фикстурой client базу получает всё равно",
 ]
 # незакрытые соединения SQLite и другие ошибки в __del__ роняют тест, чтобы утечка не вернулась;
 # устаревший вызов (DeprecationWarning) тоже: его видно в PR Dependabot до того, как новая версия его уберёт

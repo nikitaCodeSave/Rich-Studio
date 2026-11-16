@@ -3,7 +3,9 @@
 How Telegram reads them was measured on the real Bot API 10.4 (issue #170); every measurement of the issue is a case
 here with the answer Telegram gave (issue #170 and the follow-up probes on its PR). Over a limit is an error:
 Telegram refuses the post, or (the length in bytes) cuts it without a word. A warning only where the studio cannot
-count exactly: the characters of html/markdown before Telegram parses them, html tags no measurement had."""
+count exactly: the characters of html/markdown before Telegram parses them, html tags no measurement had.
+
+Numeric entities and the characters of a link or button address were measured the same way (issue #174)."""
 
 import html as html_lib
 import json
@@ -14,10 +16,27 @@ from pathlib import Path
 import pytest
 
 import spec
-from spec.validator import MAX_BYTES, TG_ENTITIES, source_chars, table_columns, tg_unescape
+from spec.validator import (
+    HTML_TAG_RE,
+    LINK_DROPS,
+    MAX_BYTES,
+    TG_ENTITIES,
+    TG_ENTITY_RE,
+    keyboard_errors,
+    source_chars,
+    table_columns,
+    tg_unescape,
+)
+
+# pure checks: no database (conftest.fresh_data); the few tests that take `client` still get theirs
+pytestmark = pytest.mark.no_db
 
 CELL = {"text": "x", "align": "left", "valign": "top"}
-CAPTURED = json.loads((Path(__file__).parent / "telegram_parse" / "captured.json").read_text("utf-8"))
+PARSE = Path(__file__).parent / "telegram_parse"
+CAPTURED = json.loads((PARSE / "captured.json").read_text("utf-8"))
+# the measurement of issue #174, render_unit.mjs checks the preview against the same table
+NUMERIC = json.loads((PARSE / "numeric_entities.json").read_text("utf-8"))
+RENDER_JS = (Path(__file__).parent.parent / "app" / "static" / "render.js").read_text("utf-8")
 
 
 @pytest.fixture(scope="module")
@@ -428,6 +447,26 @@ def test_deep_html_is_checked_in_linear_time(current):
     assert time.perf_counter() - started < 2
 
 
+@pytest.mark.parametrize(
+    "rm",
+    [{"html": "<p>x&#xD800;</p><p><a" + "b" * 34900}, {"markdown": "x&#xD800; " + "`" * 17000 + "b" * 17900}],
+    ids=["html: <a without its >", "markdown: a run of backticks without its closing run"],
+)
+def test_a_post_with_text_telegram_erases_is_checked_in_linear_time(current, rm):
+    """One entity Telegram erases text for takes the check to the pieces of text: under the source limit a hostile
+    source took 15 s (html) and 6 s (markdown) there, with the event loop of the studio standing still."""
+    started = time.perf_counter()
+    assert not check(current, **rm)["ok"]
+    assert time.perf_counter() - started < 2
+
+
+def test_the_preview_tells_tags_from_text_the_same_way():
+    """render.js keeps its own copy of HTML_TAG_RE (TAG): the text Telegram erases is the same piece in both."""
+    found = re.search(r"const TAG = /(.+)/g;", RENDER_JS)
+    assert found, "TAG not found in render.js"
+    assert found[1].replace("\\/", "/") == HTML_TAG_RE.pattern
+
+
 def test_markdown_nesting_is_left_to_telegram(current):
     """No measurement for markdown: its nesting is not checked."""
     r = check(current, markdown="> " * 20 + "**_глубоко_**")
@@ -537,16 +576,273 @@ def test_each_entity_telegram_decodes_is_one_character_and_the_rest_stay_as_type
 
 
 def test_the_preview_decodes_the_same_entities():
-    """render.js keeps its own copy of the table (TG_ENTITIES): the preview shows what Telegram will."""
-    src = (Path(__file__).parent.parent / "app" / "static" / "render.js").read_text("utf-8")
-    table = re.search(r"const TG_ENTITIES = \{(.*?)\};", src, re.S)
+    """render.js keeps its own copy of the table (TG_ENTITIES) and of the numeric form, digits without a limit: the
+    preview shows what Telegram will. What it makes of each number render_unit.mjs checks against the same
+    measurement (telegram_parse/numeric_entities.json) as test_numeric_entities_decode_as_measured here."""
+    table = re.search(r"const TG_ENTITIES = \{(.*?)\};", RENDER_JS, re.S)
     assert table, "TG_ENTITIES not found in render.js"
     names = set(re.findall(r"(\w+):", table[1]))
     assert names == set(TG_ENTITIES), names ^ set(TG_ENTITIES)
+    numeric = TG_ENTITY_RE.pattern.split(")|", 1)[1]
+    assert numeric == "#([0-9]+)|#x([0-9a-fA-F]+));", numeric
+    form = re.search(r"const ENTITY_SRC = `(.*?)`;", RENDER_JS)
+    assert form and form[1].endswith("|" + numeric), form
 
 
 def test_numeric_entities_are_decoded_with_a_small_x():
     assert tg_unescape("&#34;&#034;&#160;&#8212;&#x22;&#X22;") == '"" —"&#X22;'
+
+
+# ---------- numeric entities (measured, issue #174) ----------
+@pytest.mark.parametrize(("entity", "made"), NUMERIC["text"], ids=[e for e, _ in NUMERIC["text"]])
+def test_numeric_entities_decode_as_measured(entity, made):
+    """Digits without a limit, 0…31 a space, 128…159 the same code point (no windows-1252), a capital X, a missing
+    «;» or no digits stay as typed. In <pre> &#10; stays a line break: for the count it is one character all the same."""
+    assert tg_unescape(f"a{entity}b") == f"a{made}b"
+
+
+@pytest.mark.parametrize("fmt", ["html", "markdown"])
+def test_numeric_entities_count_as_the_characters_telegram_makes(current, fmt):
+    for entity, made in NUMERIC["text"]:
+        r = check(current, **{fmt: f"x{entity}y"})
+        assert r["ok"] and r["stats"]["chars"] == len(made) + 2, (entity, r)
+
+
+def test_a_number_of_thousands_of_digits_is_read_without_a_500(current):
+    """Python reads at most 4300 digits into an int: the zeros in front do not count, past U+10FFFF is past it."""
+    assert tg_unescape("&#" + "0" * 5000 + "65;") == "A"
+    r = check(current, html="<p>до</p><p>a&#" + "9" * 5000 + ";</p>")
+    assert not r["ok"] and has(r["errors"], "стирает"), r
+
+
+@pytest.mark.parametrize("entity", NUMERIC["vanish"])
+def test_a_surrogate_or_a_number_past_unicode_erases_its_text_an_error(current, entity):
+    """Measured: <p>a&#xD800;b</p> comes back as an empty paragraph, a heading or a quote left so is
+    RICH_MESSAGE_CONTENT_REQUIRED for the whole post. The entity stays as typed in tg_unescape: it is no character."""
+    assert tg_unescape(entity) == entity
+    r = check(current, html=f"<p>до</p><p>a {entity} b</p>")
+    assert not r["ok"], r
+    (err,) = r["errors"]
+    assert f"«a {entity} b»" in err and "RICH_MESSAGE_CONTENT_REQUIRED" in err, err
+    r = check(current, markdown=f"до\n\na {entity} b")
+    assert not r["ok"], r
+    (err,) = r["errors"]
+    assert f"a {entity} b" in err and "где кончается стёртый текст в Markdown, не замерено" in err, err
+
+
+def test_only_the_text_up_to_the_nearest_tag_is_erased(current):
+    """Measured: <p>a <b>b&#1114112;</b> c</p> is «a », bold «» and « c»."""
+    r = check(current, html="<p>a <b>b&#1114112;</b> c</p>")
+    (err,) = r["errors"]
+    assert "«b&#1114112;»" in err and "«a" not in err, err
+    assert r["stats"]["chars"] == len("a  c"), r["stats"]
+
+
+def test_many_texts_telegram_erases_are_one_error(current):
+    r = check(current, html="".join(f"<p>абзац {i}&#xD800;</p>" for i in range(5)))
+    (err,) = r["errors"]
+    assert "«абзац 0&#xD800;»" in err and "и ещё 4" in err and "«абзац 1&#xD800;»" in err, err
+    assert "абзац 4" not in err, err
+
+
+def test_in_markdown_code_entities_stay_as_typed(current):
+    """Measured: in a code fence Telegram decodes no entity. An indented code block is a pre for Telegram too
+    (captured md-code), and markdown-it in the preview leaves the entities there as typed."""
+    fences = ["```\na&#xD800;b\n```", "~~~~\n```\na&#xD800;b\n~~~~", "    a&#xD800;b", "до\n\n    a&#xD800;b\n\n    c"]
+    for src in fences:
+        r = check(current, markdown=src)
+        assert r["ok"] and not r["warnings"], (src, r)
+    assert not check(current, markdown="```\nкод\n```\n\na&#xD800;b")["ok"]
+    assert not check(current, markdown="    код\n\na&#xD800;b")["ok"]
+
+
+def test_in_markdown_inline_code_an_entity_telegram_erases_for_is_a_warning(current):
+    """In `code` it was not measured: the preview leaves the entity as typed (markdown-it), the check warns."""
+    for src in ("до `a&#xD800;b` после", "до ``a`&#xD800;`` x"):
+        r = check(current, markdown=src)
+        assert r["ok"], (src, r)
+        (warning,) = r["warnings"]
+        assert "не замерено" in warning and "сотрёт абзац" in warning, warning
+
+
+def test_a_markdown_link_address_keeps_an_entity_telegram_erases_for(current):
+    """Measured: in [x](…) Telegram decodes no entity, so nothing is erased there; in the text of the link it is."""
+    assert check(current, markdown="до [ссылка](https://example.com/&#xD800;) после")["ok"]
+    assert not check(current, markdown="до [ссылка&#xD800;](https://example.com/) после")["ok"]
+
+
+def test_an_entity_telegram_cannot_make_a_character_in_an_address_is_left_to_it(current):
+    """Not measured in an attribute: the entity stays as typed, no error."""
+    assert check(current, html='<p><a href="https://example.com/&#xD800;">ссылка</a></p>')["ok"]
+
+
+# ---------- the address of a link or a button (measured, issue #174) ----------
+DROPS = ['"', "<", ">", " ", "\t", "\n", "\x00", "\x01", "\x1f", "\x85", "\xa0", "\u2003", "\u3000", "\u200b"]
+ENCODED = ["&#34;", "&#x0000022;", "&quot;", "&lt;", "&gt;", "&#32;", "&#9;", "&#10;", "&#0;", "&#1;", "&#31;"]
+KEPT = ["\x7f", "\x80", "\xad", "\ufeff", "'", "\\", "{|}"]
+
+
+def link_html(address: str) -> str:
+    return f'<p>до <a href="https://example.com/?q={address}x">ссылка</a> после</p>'
+
+
+def link_blocks(address: str) -> list:
+    return [para(["до ", {"type": "url", "text": "ссылка", "url": f"https://example.com/?q={address}x"}])]
+
+
+@pytest.mark.parametrize("char", DROPS + ENCODED + ["&#x2003;"], ids=repr)
+def test_a_character_that_makes_telegram_drop_a_link_is_an_error(current, char):
+    """Measured: with " < > U+0000…U+0020 U+0085 U+00A0 U+2003 U+3000 U+200B in the address, entities decoded,
+    Telegram drops the link and keeps its text, in <a href> and in the url of a url element in blocks alike."""
+    in_html = html_lib.escape(char) if char in '"<>' else char
+    for r in (check(current, html=link_html(in_html)), check(current, link_blocks(tg_unescape(char)))):
+        assert not r["ok"], (char, r)
+        (err,) = r["errors"]
+        assert "ссылка «ссылка»: в адресе" in err and "выбрасывает ссылку" in err, err
+
+
+def test_the_link_error_says_what_to_write_instead(current):
+    (err,) = check(current, link_blocks('"x y'))["errors"]
+    assert 'кавычка " — %22' in err and "пробел — %20" in err, err
+
+
+@pytest.mark.parametrize("char", KEPT, ids=repr)
+def test_a_character_telegram_keeps_in_a_link_address_is_fine(current, char):
+    for r in (check(current, html=link_html(html_lib.escape(char))), check(current, link_blocks(char))):
+        assert r["ok"] and not r["warnings"], (char, r)
+
+
+def test_u2028_is_taken_out_of_a_link_address_a_warning(current):
+    """Measured: Telegram takes U+2028 out of the address and keeps the link."""
+    for r in (check(current, html=link_html("&#x2028;")), check(current, link_blocks("\u2028"))):
+        assert r["ok"], r
+        (warning,) = r["warnings"]
+        assert "U+2028" in warning and "уберёт" in warning, warning
+
+
+@pytest.mark.parametrize("char", ["\u2002", "\u2009", "\u202f", "\u1680"], ids=repr)
+def test_a_space_without_a_measurement_in_a_link_address_only_warns(current, char):
+    for r in (check(current, html=link_html(char)), check(current, link_blocks(char))):
+        assert r["ok"], (char, r)
+        (warning,) = r["warnings"]
+        assert f"U+{ord(char):04X}" in warning and "не замерен" in warning, warning
+
+
+def test_the_preview_drops_a_link_over_the_same_characters():
+    """render.js keeps its own copy of the set (LINK_DROPS): the same characters, read by Python's re."""
+    found = re.search(r"const LINK_DROPS = /(.+)/;", RENDER_JS)
+    assert found, "LINK_DROPS not found in render.js"
+    preview = re.compile(found[1])
+    assert {c for c in map(chr, range(0x10000)) if preview.search(c)} == LINK_DROPS
+
+
+def button(**action) -> dict:
+    return {"type": "buttons", "buttons": [{"text": "Кнопка", **action}]}
+
+
+def button_actions(address: str) -> list[dict]:
+    """The url of a «Кнопки» button and the url of its web_app and login_url action."""
+    url = f"https://example.com/?q={address}x"
+    return [button(url=url), button(web_app={"url": url}), button(login_url={"url": url})]
+
+
+@pytest.mark.parametrize("char", ['"', "<", "\xa0", "\u200b"], ids=repr)
+def test_a_character_that_makes_telegram_refuse_a_button_is_an_error(current, char):
+    """Measured: BUTTON_URL_INVALID for the whole post, in url, web_app.url and login_url.url alike."""
+    for b in button_actions(char):
+        r = check(current, [para(), b])
+        assert not r["ok"], (char, b, r)
+        (err,) = r["errors"]
+        assert err.startswith("rich_message.blocks[1]: кнопка «Кнопка»: в адресе"), err
+        assert "BUTTON_URL_INVALID" in err, err
+    row = '<p>x</p><tg-button-row><tg-button type="web_app" url="{}">Кнопка</tg-button></tg-button-row>'
+    assert not check(current, html=row.format(f"https://t.me/?q={html_lib.escape(char)}x"))["ok"]
+
+
+@pytest.mark.parametrize("char", [" ", "\t"], ids=repr)
+def test_a_space_or_a_tab_in_a_button_address_telegram_encodes_itself(current, char):
+    """Measured: the button is taken, Telegram writes them %20 and %09."""
+    for b in button_actions(char):
+        r = check(current, [para(), b])
+        assert r["ok"] and not r["warnings"], (b, r)
+
+
+def test_u2028_is_taken_out_of_a_button_address_a_warning(current):
+    for b in button_actions("\u2028"):
+        r = check(current, [para(), b])
+        assert r["ok"] and has(r["warnings"], "U+2028"), r
+
+
+@pytest.mark.parametrize("char", [">", "\n", "\x85", "\u2003", "\u3000", "\u2002"], ids=repr)
+def test_a_character_without_a_measurement_in_a_button_address_only_warns(current, char):
+    for b in button_actions(char):
+        r = check(current, [para(), b])
+        assert r["ok"], (b, r)
+        (warning,) = r["warnings"]
+        assert "кнопка «Кнопка»" in warning and "не замерен" in warning, warning
+
+
+def test_a_link_in_the_text_of_a_table_cell_is_a_link_not_a_button(current):
+    """A cell has text and no type, like a button; the url element in its text is still a link."""
+    link = {"type": "url", "text": "ссылка", "url": "https://example.com/? x"}
+    (err,) = check(current, [{"type": "table", "cells": [[{**CELL, "text": link}]]}])["errors"]
+    assert "ссылка «ссылка»" in err, err
+
+
+def test_an_attribute_right_after_a_quote_is_found(current):
+    """html.parser and the browser read href in <a title="x"href="…">: the check reads it too."""
+    r = check(current, html='<p><a title="x"href="https://example.com/?q=&quot;x">ссылка</a></p>')
+    assert not r["ok"] and has(r["errors"], 'ссылка «ссылка»: в адресе https://example.com/?q="x'), r
+    row = '<tg-button-row><tg-button title="x"url="https://t.me/?q=&quot;x">К</tg-button></tg-button-row>'
+    r = check(current, html=row)
+    assert not r["ok"] and has(r["errors"], "BUTTON_URL_INVALID"), r
+
+
+# ---------- upload: outside a file field ----------
+UPLOAD_LINKS = {
+    "url element": [para({"type": "url", "text": "файл", "url": "upload:a.jpg"})],
+    "button url": [button(url="upload:a.jpg")],
+    "button web_app.url": [button(web_app={"url": "upload:a.jpg"})],
+    "button login_url.url": [button(login_url={"url": "upload:a.jpg"})],
+}
+UPLOAD_HTML = {
+    "a href": '<p><a href="upload:a.jpg">файл</a></p>',
+    "tg-button url": '<tg-button-row><tg-button url="upload:a.jpg">файл</tg-button></tg-button-row>',
+    "img src": '<img src="upload:a.jpg">',
+}
+
+
+@pytest.mark.parametrize("where", [*UPLOAD_LINKS, *UPLOAD_HTML])
+def test_upload_outside_a_file_field_is_an_error(current, where):
+    """The studio puts a file in for upload:<name> only in a file field (telegram/uploads.py, FILE_KEYS): in a link
+    Telegram would get «upload:a.jpg» as it is."""
+    r = check(current, UPLOAD_LINKS[where]) if where in UPLOAD_LINKS else check(current, html=UPLOAD_HTML[where])
+    assert not r["ok"], r
+    (err,) = r["errors"]
+    assert "upload:a.jpg" in err and "поле файла" in err, err
+
+
+def test_upload_in_a_button_under_the_post_is_an_error():
+    rows = [[{"text": "a", "url": "upload:a.jpg"}], [{"text": "b", "web_app": {"url": "upload:b.jpg"}}]]
+    errors = keyboard_errors({"inline_keyboard": rows})
+    assert len(errors) == 2 and all("поле файла" in e for e in errors), errors
+
+
+def test_no_link_field_is_a_file_field(current):
+    """The check looks for upload: in the url of links and buttons and in href, url and src of html: none of them is a
+    field the studio puts a file in, and a file field with upload: is fine."""
+    from telegram.uploads import FILE_KEYS
+
+    assert not {"url", "href", "src"} & FILE_KEYS
+    assert check(current, [photo()])["ok"]
+
+
+def test_a_check_without_a_database_has_no_data_folder_to_write_to():
+    """conftest.fresh_data under no_db: the data folder lies under a file, so a write by mistake fails at once."""
+    import settings
+
+    with pytest.raises(OSError):
+        settings.get().media_dir.mkdir(parents=True, exist_ok=True)
 
 
 def test_a_markdown_link_address_keeps_its_entities(current):

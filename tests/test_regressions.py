@@ -140,6 +140,23 @@ def test_a_press_is_counted_and_answered_whatever_its_callback_data_holds(client
     assert p["reply_errors"][data]["n"] == 2 and p["reply_errors"][data]["error"] == "Bad Request: query is too old"
 
 
+# #174: upload:<name> in a link went to Telegram as it is (the studio puts the file in only in a file field), and
+# /api/validate said nothing
+@pytest.mark.parametrize(
+    "rich_message",
+    [
+        {"blocks": [{"type": "buttons", "buttons": [{"text": "Файл", "url": "upload:a.jpg"}]}]},
+        {"html": '<p><a href="upload:a.jpg">файл</a></p>'},
+    ],
+)
+def test_upload_in_a_link_is_an_error_and_does_not_go_out(client, tg, rich_message):
+    r = client.post("/api/validate", json={"rich_message": rich_message}).json()
+    assert not r["ok"] and "поле файла" in str(r["errors"]), r
+    r = client.post("/api/send", json={"post": {"rich_message": rich_message}, "chat_id": "@chan"})
+    assert r.status_code == 422, r.json()
+    assert not [c for c in tg.calls if c["method"] == "sendRichMessage"]
+
+
 # #182: a field outside models.Post was dropped by pydantic before the check, so it got no warning at all
 def _unused(warnings: list[str], name: str) -> list[str]:
     return [w for w in warnings if f"«{name}»" in w and "верхнем уровне поста" in w]
