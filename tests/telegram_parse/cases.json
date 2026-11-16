@@ -120,6 +120,11 @@
   "source": "<p>Формула <tg-math>a^2</tg-math></p><tg-math-block>\\sum_i i</tg-math-block><p><tg-time unix=\"1798761600\" format=\"wDT\">дата</tg-time> и <tg-time unix=\"1798761600\" format=\"r\"></tg-time></p>"
  },
  {
+  "name": "html-math-nested",
+  "format": "html",
+  "source": "<p>Формула в формуле <tg-math>a<tg-math>b</tg-math>c</tg-math> и в блоке</p><tg-math-block>x+<tg-math>y</tg-math></tg-math-block>"
+ },
+ {
   "name": "html-detected-card-ton",
   "format": "html",
   "source": "<p>Карта 4242 4242 4242 4242, адрес TON EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c и UQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAJKZ</p>"

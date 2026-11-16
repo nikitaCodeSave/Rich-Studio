@@ -485,18 +485,20 @@
 
   function transformHtml(root, ctx) {
     sanitize(root);
-    const walk = (node) => {
-      [...node.childNodes].forEach((c) => { if (c.nodeType === 1) walk(c); });
-      if (node === root || node.nodeType !== 1) return;
-      const tag = node.tagName.toLowerCase();
+    const walk = (node, inPre) => {
+      const tag = node === root ? '' : node.tagName.toLowerCase();
+      // a formula is its text, taken before anything in it is drawn, and a tag in it is not drawn by itself: drawn
+      // first, a formula in a formula gave the outer one the text of the inner one as KaTeX drew it, three times longer
+      // on every level (12 levels: 52 s, issue #198)
+      if (tag === 'tg-math' || tag === 'tg-math-block') { node.replaceWith(math(node.textContent, tag === 'tg-math-block')); return; }
+      [...node.childNodes].forEach((c) => { if (c.nodeType === 1) walk(c, inPre || tag === 'pre'); });
+      if (node === root) return;
       /** @type {HTMLElement | null} */
       let rep = null;
       const attr = (n) => node.getAttribute(n);
       const kids = () => [...node.childNodes];
       if (tag === 'tg-spoiler') rep = spoilerEl(kids());
       else if (tag === 'tg-emoji') rep = el('span', { class: 'tg-emoji', title: 'custom emoji ' + attr('emoji-id') }, kids());
-      else if (tag === 'tg-math') rep = math(node.textContent, false);
-      else if (tag === 'tg-math-block') rep = math(node.textContent, true);
       else if (tag === 'tg-time') {
         // Telegram drops a <tg-time> without text, so the reader sees nothing there
         const u = parseInt(attr('unix'), 10);
@@ -555,6 +557,9 @@
           if (!href.startsWith('#')) { node.setAttribute('target', '_blank'); node.setAttribute('rel', 'noopener'); }
         }
       } else if (tag === 'pre') {
+        // a <pre> in a code block is part of its code, not a box of its own: each moved all that was under it into its
+        // box, and 6000 of them took a second (issue #198)
+        if (inPre) return;
         const lang = node.querySelector('code[class*="language-"]');
         const m = lang && /language-([\w+#-]+)/.exec(lang.className);
         if (m) node.dataset.lang = m[1];
@@ -566,7 +571,7 @@
       }
       if (rep) node.replaceWith(rep);
     };
-    walk(root);
+    walk(root, false);
     // <a href="#x"> is a footnote link when a <tg-reference name="x"> exists, an anchor link when
     // an <a name="x"> exists, and an ordinary link otherwise
     const refs = new Set([...root.querySelectorAll('.tg-ref')].map((n) => n.id.slice(4)));
@@ -707,8 +712,12 @@
     root.normalize();
     /** @type {Text[]} */
     const texts = [];
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-    for (let n = walker.nextNode(); n; n = walker.nextNode()) if (!n.parentElement?.closest(NO_DETECTION)) texts.push(/** @type {Text} */ (n));
+    // what is under such an element is skipped whole: closest() from every piece of text went up through all the tags
+    // above it (issue #198)
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+      acceptNode: (n) => (n.nodeType === 3 ? NodeFilter.FILTER_ACCEPT : /** @type {Element} */ (n).matches(NO_DETECTION) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_SKIP),
+    });
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) texts.push(/** @type {Text} */ (n));
     texts.forEach((n) => {
       const s = n.data;
       /** @type {(string | Node)[]} */
@@ -774,10 +783,14 @@
       return true;
     }
     if (/\s/.test(s[start + 1] || ' ')) return false;
+    // whether a $ closes depends on it alone, not on the opening one: when none closes an earlier $ up to the end, none
+    // closes this one either. Without it every $ looked to the end again: 34 KB of «$1» took 2.7 s (issue #198)
+    const open = state.tgMathUnclosedInline;
+    if (open && open[0] <= start && state.posMax <= open[1]) return false;
     let end = start + 1;
     for (;;) {
       end = s.indexOf('$', end + 1);
-      if (end < 0 || end >= state.posMax) return false;
+      if (end < 0 || end >= state.posMax) { state.tgMathUnclosedInline = [start, state.posMax]; return false; }
       if (!/\s/.test(s[end - 1]) && !/\d/.test(s[end + 1] || '')) break;
     }
     if (!silent) state.push('html_inline', '', 0).content = '<tg-math>' + esc(s.slice(start + 1, end)) + '</tg-math>';
@@ -979,6 +992,9 @@
     const INLINE = { B: 'b', STRONG: 'b', I: 'i', EM: 'i', U: 'u', INS: 'u', S: 's', DEL: 's', STRIKE: 's', MARK: 'mark', SUB: 'sub', SUP: 'sup', CODE: 'code', CITE: 'cite', CAPTION: 'caption', SUMMARY: 'summary', FOOTER: 'footer', HR: 'hr', BR: 'br' };
     const BLOCK = { P: 'p', H1: 'h1', H2: 'h2', H3: 'h3', H4: 'h4', H5: 'h5', H6: 'h6', UL: 'ul', OL: 'ol', TR: 'tr' };
     const out = [];
+    // the place of each item in its list, counted once for the list: indexOf for every item was quadratic (issue #198)
+    /** @type {Map<Element, number>} */
+    const place = new Map();
     const text = (s) => { s = s.replace(/\s+/g, ' '); if (s) out.push(s); };
     const walk = (n) => {
       if (n.nodeType === 3) { text(n.textContent); return; }
@@ -1011,7 +1027,8 @@
       else if (n.tagName === 'LI') {
         const box = n.querySelector(':scope > input[type=checkbox]');
         const list = n.parentElement;
-        const num = list.tagName === 'OL' ? ' ' + (n.getAttribute('value') || (parseInt(list.getAttribute('start') || '1', 10) + [...list.children].indexOf(n))) : '';
+        if (list.tagName === 'OL' && !place.has(n)) [...list.children].forEach((c, i) => place.set(c, i));
+        const num = list.tagName === 'OL' ? ' ' + (n.getAttribute('value') || (parseInt(list.getAttribute('start') || '1', 10) + (place.get(n) ?? 0))) : '';
         tag = 'li' + (box ? (box.checked ? ' [x]' : ' [ ]') : '') + num;
       } else if (n.tagName === 'INPUT') return;
       else if (n.tagName === 'P' && n.parentElement.tagName === 'LI') tag = null; // same look with or without the paragraph

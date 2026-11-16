@@ -671,6 +671,77 @@ for (const [name, rm] of Object.entries(SLIDESHOWS)) {
   check('slideshow of one slide is not focusable and has no arrows hint', !one[0] && !one[1], one.join());
 }
 
+// ---------- slow paths (issue #198) ----------
+// Not by a fixed limit, which a slow CI runner may miss: by how much the time grows with the input (as
+// tests/test_rich_limits.py::test_deep_html_is_checked_in_linear_time) or against the same post drawn a plain way
+{
+  /** the least of two runs, ms: drawing the post (render), its outline, or laying it out on the page once drawn (layout) */
+  const took = (what, rm) => page.evaluate(([what, rm]) => {
+    const out = /** @type {HTMLElement} */ (document.getElementById('out'));
+    const once = () => {
+      out.replaceChildren();
+      out.getBoundingClientRect();
+      const drawn = what === 'layout' ? RichRender.render({ rich_message: rm }, {}) : null;
+      const t = performance.now();
+      if (drawn) { out.append(drawn); out.getBoundingClientRect(); }
+      else if (what === 'outline') RichRender.outline({ rich_message: rm });
+      else RichRender.render({ rich_message: rm }, {});
+      return performance.now() - t;
+    };
+    const least = Math.min(once(), once());
+    out.replaceChildren();
+    return least;
+  }, [what, rm]);
+  const ms = (small, big) => `${small.toFixed(0)} ms → ${big.toFixed(0)} ms`;
+  // four times the input takes about four times as long when linear and sixteen when quadratic, on any machine
+  const linear = async (name, what, make, n) => {
+    const small = await took(what, make(n)), big = await took(what, make(4 * n));
+    check(`${name}, four times the input in about four times as long: ${ms(small, big)}`, big < 8 * small + 100);
+  };
+  // the post drawn a plain way: what the browser itself takes for the same input
+  const asPlain = async (name, what, rm, plain, times = 4) => {
+    const base = await took(what, plain), t = await took(what, rm);
+    check(`${name}, about as long as the same post drawn plainly: ${ms(base, t)}`, t < times * base + 100);
+  };
+
+  // a formula inside a formula: walked first, it gave the outer one the text of the inner one as KaTeX drew it, three
+  // times longer on every level (12 levels: 52 s). A formula is its TeX, a tag in it is not drawn: what Telegram makes
+  // of it is not measured (html-math-nested in tests/telegram_parse/cases.json), so the preview draws the plainest thing
+  const formulas = (rm) => page.evaluate((rm) => [...RichRender.render({ rich_message: rm }, {}).querySelectorAll('.tg-math, .tg-math-block')]
+    .map((n) => [n.className, n.querySelectorAll('.katex').length, n.querySelector('annotation')?.textContent ?? n.textContent]), rm);
+  const nested = '<tg-math>a<tg-math>b<tg-math>c</tg-math></tg-math>d</tg-math>';
+  const html = await formulas({ html: `<p>${nested}</p><tg-math-block>x+<tg-math>y</tg-math></tg-math-block>` });
+  const md = await formulas({ markdown: `Формула ${nested} и $e$` });
+  const ok = JSON.stringify(html) === JSON.stringify([['tg-math', 1, 'abcd'], ['tg-math-block', 1, 'x+y']])
+    && JSON.stringify(md) === JSON.stringify([['tg-math', 1, 'abcd'], ['tg-math', 1, 'e']]);
+  check('html and markdown: a formula in a formula is one formula of their TeX', ok, JSON.stringify({ html, md }).slice(0, 400));
+  // only once the formula is one: otherwise 12 levels hang the page for a minute
+  if (ok) {
+    await linear('html: formulas in formulas', 'render', (n) => ({ html: '<tg-math>'.repeat(n) + 'x' }), 100);
+    await linear('markdown: formulas in formulas', 'render', (n) => ({ markdown: '<tg-math-block>'.repeat(n) + 'x' }), 100);
+  } else check('formulas in formulas in linear time', false, 'not run: a formula in a formula is drawn by itself');
+
+  // from every $ a closing one was looked for up to the end of the paragraph: 34 KB of «$1» took 2.7 s on every redraw
+  await linear('markdown: a run of $ without a closing one', 'render', (n) => ({ markdown: '$1'.repeat(n) }), 4250);
+  await linear('markdown: a run of $ after an unclosed one', 'render', (n) => ({ markdown: '$a' + ' $1'.repeat(n) }), 3000);
+  // a code block in a code block is its code, not a box of its own: each moved what was under it into its box (980 ms)
+  await asPlain('html: code blocks in code blocks', 'render', { html: '<pre>'.repeat(6000) + 'x' }, { html: '<b>'.repeat(6000) + 'x' });
+  const inner = await page.evaluate(() => {
+    const body = /** @type {Element} */ (RichRender.render({ rich_message: { html: '<pre><code class="language-js">a<pre>b</pre></code></pre>' } }, {}).querySelector('.tg-body'));
+    return [body.querySelectorAll('.tg-pre').length, body.querySelectorAll('pre').length, RichRender.outline({ rich_message: { html: '<pre>a<pre>b</pre></pre>' } })];
+  });
+  check('html: a code block in a code block has no header of its own', JSON.stringify(inner) === JSON.stringify([1, 2, '<pre>a<pre>b</pre></pre>']), JSON.stringify(inner));
+  // a TON address was looked for with closest() from every piece of text, up through all the tags above it
+  await asPlain('html: TON addresses in text deep in tags', 'render', { html: '<span>'.repeat(511) + 'a<br>'.repeat(30000) },
+    { html: '<span>'.repeat(511) + 'a<br>'.repeat(30000), skip_entity_detection: true }, 2);
+  // the number of an item was its place found with indexOf in the whole list, for every item
+  await linear('outline: a long numbered list', 'outline', (n) => ({ html: '<ol>' + '<li>a</li>'.repeat(n) + '</ol>' }), 1625);
+  // an unknown tag in an unknown tag: every level drew its own dashed frame round each of the 7000 lines (2.3 s of
+  // layout), and a closed spoiler in a closed spoiler its own blot under the outer one
+  await asPlain('html: unknown tags in unknown tags over many lines', 'layout', { html: '<tg-x>'.repeat(512) + '<br>'.repeat(7000) }, { html: '<b>'.repeat(512) + '<br>'.repeat(7000) });
+  await asPlain('html: spoilers in spoilers over many lines', 'layout', { html: '<tg-spoiler>'.repeat(512) + '<br>'.repeat(7000) }, { html: '<b>'.repeat(512) + '<br>'.repeat(7000) });
+}
+
 check('no script ran and no page errors', (await page.evaluate(() => window.__xss)) === 0 && pageErrors.length === 0, pageErrors.join(' | '));
 await browser.close();
 const failed = results.filter((x) => !x).length;
