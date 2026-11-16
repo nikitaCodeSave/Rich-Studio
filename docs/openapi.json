@@ -1286,8 +1286,9 @@
    }
   },
   "/api/check": {
-   "get": {
-    "operationId": "check_api_check_get",
+   "post": {
+    "description": "`?chat_id=@канал`, без него канал по умолчанию. POST, а не GET: проверка запоминает канал в списке «Каналы», а\nGET запросил бы и `<img src=\"/api/check?…\">` в чужом посте.",
+    "operationId": "check_api_check_post",
     "parameters": [
      {
       "in": "query",

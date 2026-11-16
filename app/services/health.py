@@ -110,7 +110,7 @@ def telegram() -> dict:
             "telegram",
             "warn",
             f"последний вызов {err['method']} не удался: {err['error']}",
-            "проверьте связь с api.telegram.org и права бота (GET /api/check)",
+            "проверьте связь с api.telegram.org и права бота (POST /api/check)",
             details=details,
         )
     if st.state == "error":

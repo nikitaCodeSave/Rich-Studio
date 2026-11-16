@@ -422,7 +422,7 @@ def test_render_theme_is_escaped(client):
 
 
 def test_check_bot_rights(client, tg):
-    r = client.get("/api/check").json()
+    r = client.post("/api/check").json()
     assert r["can_post"] and r["bot"]["username"] == "studio_test_bot"
 
 
