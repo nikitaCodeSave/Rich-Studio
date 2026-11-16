@@ -1264,3 +1264,17 @@ def test_put_draft_keeps_studio_notes_unless_the_editor_sends_its_own(client):
     own = {"format": "html", "buffers": {"html": "y"}}
     client.put("/api/drafts/" + d["id"], json={"title": "t", "post": {**new, "_studio": own}})
     assert client.get("/api/drafts/" + d["id"]).json()["payload"]["_studio"] == own
+
+
+def test_ui_client_gets_editor_hints(client):
+    """X-Studio-Client: ui is told where in the editor to fix it; the API and MCP keep the texts for agents."""
+    post = {"rich_message": {"blocks": [{"type": "paragraph", "text": "x"}]}, "chat_ids": ["@other"], "foo_bar": 1}
+    ui = client.post("/api/validate", json=post, headers={"X-Studio-Client": "ui"}).json()
+    assert any("вкладке JSON" in e and "«Каналы»" in e for e in ui["errors"]), ui["errors"]
+    assert not any("query-параметр" in e for e in ui["errors"])
+    assert any("foo_bar" in w and "вкладке JSON" in w for w in ui["warnings"]), ui["warnings"]
+    api = client.post("/api/validate", json=post).json()
+    assert any("query-параметр" in e for e in api["errors"]), api["errors"]
+    assert any("foo_bar" in w and "кладите в options" in w for w in api["warnings"]), api["warnings"]
+    r = client.post("/api/preview-send", json={"post": post}, headers={"X-Studio-Client": "ui"})
+    assert r.status_code in (400, 422) and "вкладке JSON" in r.text, r.text

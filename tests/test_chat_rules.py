@@ -372,3 +372,17 @@ def test_a_stored_post_with_ephemeral_parameters_is_not_sent_by_the_scheduler(cl
     assert [c for c in tg.calls[before:] if c["method"] == "sendRichMessage"] == []
     p = store.get_post(rec["id"])
     assert p["status"] == "failed" and "ephemeral_message_parameters" in p["error"]
+
+
+def test_a_tag_name_ends_at_an_ascii_space_slash_or_bracket_as_in_a_browser():
+    """<tg-button<NBSP>type=...> is one tag named "tg-button<NBSP>type=..." for a browser, not a button."""
+    from spec.chats import START_TAG
+
+    def names(src):
+        return [m.group(1) for m in START_TAG.finditer(src)]
+
+    assert names('<tg-button type="x">') == ["tg-button"]
+    assert names('<tg-button\ttype="x">') == ["tg-button"]
+    assert names("<br/>") == ["br"]
+    assert names("<b>") == ["b"]
+    assert names('<tg-button\u00a0type="x">') == ['tg-button\u00a0type="x"']
