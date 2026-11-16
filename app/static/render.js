@@ -29,7 +29,8 @@
     if (!media) return null;
     const m = typeof media === 'string' ? media : media.media;
     if (typeof m !== 'string') return null;
-    if (m.startsWith('upload:')) return (ctx.mediaBase || '') + '/media/' + encodeURIComponent(m.slice(7));
+    // one file in the media folder: «upload:..» was /media/.., the page itself
+    if (m.startsWith('upload:')) return /^\.{0,2}$|[/\\]/.test(m.slice(7)) ? null : (ctx.mediaBase || '') + '/media/' + encodeURIComponent(m.slice(7));
     if (/^https?:\/\//i.test(m) && fileUrl(m)) return m;
     return null; // file_id or attach:// cannot be previewed
   }
@@ -98,12 +99,16 @@
   }
 
   // ---------- buttons ----------
+  // a class name made of a string of the post: one word or nothing, else «x tg-cell-empty» puts any class of tg.css on
+  // the element (one that hides it, too)
+  const word = (v) => (typeof v === 'string' && /^[a-z_]+$/.test(v) ? v : '');
+
   function buttonEl(b, ctx) {
     if (!b || typeof b !== 'object') return null;
     const action = ['url', 'callback_data', 'web_app', 'login_url', 'switch_inline_query', 'switch_inline_query_current_chat', 'switch_inline_query_chosen_chat', 'copy_text', 'disabled', 'pay', 'callback_game'].find((k) => b[k] !== undefined);
     const icon = { url: '↗', copy_text: '⧉', switch_inline_query: '↪', switch_inline_query_chosen_chat: '↪', login_url: '🔑', web_app: '▣' }[action] || '';
     const title = action === 'url' ? b.url : action === 'copy_text' ? 'Копирует: ' + (b.copy_text && b.copy_text.text) : action === 'callback_data' ? 'callback: ' + b.callback_data : action || 'без действия';
-    const btn = el('span', { class: 'tg-btn' + (b.style ? ' tg-btn-' + b.style : '') + (action === 'disabled' ? ' tg-btn-disabled' : ''), title },
+    const btn = el('span', { class: 'tg-btn' + (word(b.style) ? ' tg-btn-' + b.style : '') + (action === 'disabled' ? ' tg-btn-disabled' : ''), title },
       renderRT(b.text, ctx), icon ? el('span', { class: 'tg-btn-ico', text: icon }) : null);
     // the scheme as the check reads it (safeUrl gives the address back as written, a space in front included)
     const go = action === 'url' && typeof b.url === 'string' && safeUrl(b.url) ? asRead(b.url) : '';
@@ -208,7 +213,7 @@
         return d;
       }
       case 'map': return el('figure', { class: 'tg-map-fig' }, mapEl(b.location && b.location.latitude, b.location && b.location.longitude, b.zoom, b.width, b.height), caption(b.caption, ctx));
-      case 'buttons': return el('div', { class: 'tg-btn-row tg-align-' + (b.align || 'center') }, (b.buttons || []).map((x) => buttonEl(x, ctx)));
+      case 'buttons': return el('div', { class: 'tg-btn-row tg-align-' + (word(b.align) || 'center') }, (b.buttons || []).map((x) => buttonEl(x, ctx)));
       case 'photo': case 'video': case 'animation': case 'audio': case 'document': case 'voice_note':
         return el('figure', {}, mediaEl(b.type, b[b.type], ctx), caption(b.caption, ctx));
       default:
@@ -236,18 +241,23 @@
 
   // The code as the reader sees it, so that is what goes to the clipboard (issue #201): <pre>ls -la<details><summary>
   // </summary>; curl … | sh</details></pre> shows «ls -la». Not drawn, so not copied: what a closed <details> holds past
-  // its summary, the fallback inside <video> and <audio>, what CSS hides; of a formula only what KaTeX draws, without
-  // its MathML copy for screen readers and without \phantom (transparent). Line breaks as the browser's innerText puts
-  // them: a <br>, a block (a paragraph two), a table row; a tab between cells. innerText itself would copy the MathML,
-  // \phantom and KaTeX's layout as lines.
+  // its summary, the fallback inside <video> and <audio>, a closed spoiler (a blot until it is opened), what CSS hides
+  // (display: none, visibility: hidden); of a formula only what KaTeX draws, without its MathML copy for screen readers
+  // and without \phantom (transparent). Line breaks as the browser's innerText puts them: a <br>, a block (a paragraph
+  // two), a table row; a tab between cells. innerText itself would copy the MathML, \phantom, a spoiler's own text and
+  // KaTeX's layout as lines.
   function codeText(pre) {
     let s = '', breaks = 0;
     const put = (t) => { if (!t) return; if (s && breaks) s += '\n'.repeat(breaks); breaks = 0; s += t; };
     const walk = (n, math) => {
-      // KaTeX puts zero-width spaces between the rows of a superscript or a fraction
-      if (n.nodeType === 3) { put(math ? n.nodeValue.replace(/\u200b/g, '') : n.nodeValue); return; }
+      if (n.nodeType === 3) {
+        // KaTeX puts zero-width spaces between the rows of a superscript or a fraction
+        if (!/^(hidden|collapse)$/.test(getComputedStyle(/** @type {Element} */ (n.parentNode)).visibility)) put(math ? n.nodeValue.replace(/\u200b/g, '') : n.nodeValue);
+        return;
+      }
       const e = /** @type {HTMLElement} */ (n);
       if (n.nodeType !== 1 || e.localName === 'video' || e.localName === 'audio' || e.classList.contains('katex-mathml')) return;
+      if (e.classList.contains('tg-spoiler') && !e.classList.contains('tg-spoiler-open')) return;
       if (e.localName === 'br') { put('\n'); return; }
       const css = getComputedStyle(e);
       if (css.display === 'none' || (math && /^rgba\((?:[^,]+,){3}\s*0\)$|^transparent$/.test(css.color))) return;
@@ -502,7 +512,7 @@
       else if (tag === 'tg-map') rep = mapEl(attr('lat') ?? attr('latitude'), attr('long') ?? attr('lon') ?? attr('longitude'), attr('zoom'), attr('width'), attr('height'));
       else if (tag === 'tg-thinking') rep = el('div', { class: 'tg-thinking' }, kids());
       else if (tag === 'tg-reference') rep = el('span', { class: 'tg-ref', id: 'ref-' + attr('name') }, kids());
-      else if (tag === 'tg-button-row') rep = el('div', { class: 'tg-btn-row tg-align-' + (attr('align') || 'center') }, kids().filter((k) => k.nodeType !== 3));
+      else if (tag === 'tg-button-row') rep = el('div', { class: 'tg-btn-row tg-align-' + (word(attr('align')) || 'center') }, kids().filter((k) => k.nodeType !== 3));
       else if (tag === 'tg-button') {
         const b = { text: node.textContent, style: attr('style') || undefined };
         const type = attr('type') || (attr('url') ? 'url' : 'callback_data');
