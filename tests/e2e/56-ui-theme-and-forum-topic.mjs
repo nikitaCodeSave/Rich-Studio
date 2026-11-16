@@ -86,6 +86,20 @@ export default async function ({ browser, BASE, check }) {
     }
     await page.selectOption('#opts #topic', '5');
     const rest = await page.evaluate(() => /** @type {HTMLTextAreaElement} */ (document.querySelector('#opts textarea'))?.value);
+    // the field of other parameters does not set the list's message_thread_id, and a redraw of the channel keeps what
+    // is typed in it, unparsed text too (the redraw rebuilds the topic row: a new #topic is the sign it ran)
+    await page.fill('#opts textarea', '{"message_thread_id": 99}');
+    await page.fill('#opts textarea', '{"message_effect_id": "5');
+    await page.evaluate(() => {
+      const w = /** @type {any} */ (window);
+      w.oldTopic = document.querySelector('#topic'); w.oldField = document.querySelector('#opts textarea');
+      const i = /** @type {HTMLInputElement} */ (document.querySelector('#chat')); i.dispatchEvent(new Event('input'));
+    });
+    await page.waitForFunction(() => document.querySelector('#topic') !== /** @type {any} */ (window).oldTopic, null, { timeout: 8000 }).catch(() => {});
+    const field = await page.evaluate(() => {
+      const ta = /** @type {HTMLTextAreaElement} */ (document.querySelector('#opts textarea'));
+      return { redrawn: document.querySelector('#topic') !== /** @type {any} */ (window).oldTopic, same: ta === /** @type {any} */ (window).oldField, text: ta.value };
+    });
     await page.click('#mode-tabs [data-mode=json]');
     const thread = await page.evaluate(() => JSON.parse(/** @type {HTMLTextAreaElement} */ (document.querySelector('#src-json')).value).options?.message_thread_id);
     // a topic the studio does not know is shown by its number
@@ -96,8 +110,9 @@ export default async function ({ browser, BASE, check }) {
     const unknown = await items();
     check('The forum topic list is in «Параметры отправки», not the header, opens no dialog and sets message_thread_id',
       JSON.stringify(listed) === '["General","Новости"]' && JSON.stringify(inHeader) === '["ui-theme"]' && dialogs.length === 2 && dialogs.every((d) => !d)
-      && thread === 5 && !/message_thread_id/.test(rest ?? 'none') && JSON.stringify(unknown) === '["General","Новости","№9"]',
-      JSON.stringify({ listed, inHeader, dialogs, thread, rest, unknown }));
+      && thread === 5 && !/message_thread_id/.test(rest ?? 'none') && JSON.stringify(unknown) === '["General","Новости","№9"]'
+      && field.redrawn && field.same && field.text === '{"message_effect_id": "5',
+      JSON.stringify({ listed, inHeader, dialogs, thread, rest, field, unknown }));
     await context.close();
   }
 

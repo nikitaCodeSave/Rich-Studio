@@ -2,7 +2,7 @@
 import { api } from './api.js';
 import { closeDialog, openDialog } from './dialogs.js';
 import { $, act, h, toast } from './dom.js';
-import { changed, renderOptions, renderPreview, validate } from './editor.js';
+import { changed, refreshTopic, renderPreview, validate } from './editor.js';
 import { showInviteLinks } from './invite-links.js';
 import { renderKeyboard } from './keyboard.js';
 import { channelOf, channelTitle, chatLabel, chats, S } from './state.js';
@@ -32,7 +32,7 @@ export function showTarget() {
   else if (list.length !== 1 || list[0] !== S.topicChat) {
     delete S.options.message_thread_id; S.topicChat = undefined; changed();
   }
-  renderOptions();
+  refreshTopic();
 }
 
 export function bindTarget() {
