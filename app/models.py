@@ -2,7 +2,7 @@
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 def bot_api(*types: str) -> dict:
@@ -13,6 +13,23 @@ def bot_api(*types: str) -> dict:
 
 
 class Post(BaseModel):
+    """Пост студии. Поле, которого здесь нет, остаётся в посте как пришло (черновик, запись поста), но в Telegram не
+    уходит, и проверка предупреждает о нём: параметры sendRichMessage кладите в options. `_studio` — заметки
+    черновика, а не поле поста: из поста оно убирается."""
+
+    # AGENTS.md rule 1: a field the studio does not know is kept and warned about (publisher.unused_fields), not
+    # dropped before the check ever sees it
+    model_config = ConfigDict(extra="allow")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _without_draft_notes(cls, data: Any) -> Any:
+        # a draft's payload carries the editor's notes (services/drafts.py); a post published or checked from it
+        # does not: they would land in the record of the sent post with the editor's buffers
+        if isinstance(data, dict) and "_studio" in data:
+            return {k: v for k, v in data.items() if k != "_studio"}
+        return data
+
     rich_message: dict = Field(
         ...,
         description="InputRichMessage: ровно одно из html / markdown / blocks, плюс media",

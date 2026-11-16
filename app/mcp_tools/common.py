@@ -28,14 +28,16 @@ PostArg = Annotated[
     Field(
         description="Пост: {rich_message: {html|markdown|blocks, media?}, reply_markup?, options?, pin?, comment?, "
         "callbacks? ({callback_data: текст | {text?, show_alert?, reply?: {rich_message, "
-        "ephemeral_message_parameters?: {replace_callback_query_message?}}}}), poll_after? (опрос сразу после поста)}"
+        "ephemeral_message_parameters?: {replace_callback_query_message?}}}}), poll_after? (опрос сразу после поста)}. "
+        "Параметры sendRichMessage (disable_notification…) — в options; другое поле верхнего уровня в Telegram не "
+        "уходит, проверка о нём предупредит"
     ),
 ]
 OptPostArg = Annotated[
     dict[str, Any] | None,
     Field(
         description="Пост: {rich_message: {html|markdown|blocks, media?}, reply_markup?, options?, pin?, comment?, "
-        "callbacks?, poll_after?}; или вместо него draft_id"
+        "callbacks?, poll_after?}, параметры sendRichMessage — в options; или вместо него draft_id"
     ),
 ]
 DraftArg = Annotated[

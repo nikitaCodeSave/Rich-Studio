@@ -180,6 +180,29 @@ def options(post: dict) -> dict:
     return post.get("options") or {}
 
 
+# the top-level fields of a post the studio reads (models.Post; tests/test_regressions.py keeps them in step)
+POST_FIELDS = frozenset({"rich_message", "reply_markup", "options", "pin", "comment", "callbacks", "poll_after"})
+# where the chats go instead of the post: next to it in the request body (/api/send, /api/drafts) or the tool's
+# argument; /api/validate, whose body is the post, says its own (a query parameter)
+CHATS_NEXT_TO_POST = "каналы задаются рядом с post (chat_id, chat_ids), а не в нём"
+
+
+def unused_fields(post: dict, chats_hint: str = CHATS_NEXT_TO_POST) -> list[str]:
+    """A warning for each top-level field the studio does not read. It stays in the post as it came (AGENTS.md rule
+    1), never reaches Bot API (request() takes only what it knows) and is not an error: an agent that put a parameter
+    in the wrong place learns it did nothing. `_studio`, a draft's notes, is not a field of the post."""
+    out = []
+    for k in post:
+        if k in POST_FIELDS or k == "_studio":
+            continue
+        head = f"поле «{k}» на верхнем уровне поста не используется"
+        if k in ("chat_id", "chat_ids"):
+            out.append(f"{head}: {chats_hint}")
+        else:
+            out.append(f"{head} и в Telegram не уходит; параметры Bot API кладите в options")
+    return out
+
+
 # the first comment goes to the discussion group of the channel, a supergroup
 DISCUSSION = ("supergroup", "в группе обсуждения")
 
@@ -199,14 +222,15 @@ def places(chats: Iterable) -> list[tuple[str, str]]:
     return list(dict.fromkeys(out))
 
 
-def _check_post(post: dict, where: list[tuple[str, str]]) -> dict:
+def _check_post(post: dict, where: list[tuple[str, str]], chats_hint: str = CHATS_NEXT_TO_POST) -> dict:
     """Validation report of the text, of the buttons under it and of the options, with what Telegram refuses in the
-    chats it goes to (`where`, from places())."""
+    chats it goes to (`where`, from places()) and the top-level fields that do nothing (unused_fields)."""
     r = spec.validate_rich_message(spec.current, post["rich_message"])
     bad = spec.keyboard_errors(post.get("reply_markup")) + ([e] if (e := options_error(post)) else [])
     if bad:
         r = {**r, "ok": False, "errors": r["errors"] + bad}
-    return {**r, "warnings": r["warnings"] + spec.chats.warnings(spec.current, post, where)}
+    refused = spec.chats.warnings(spec.current, post, where)
+    return {**r, "warnings": unused_fields(post, chats_hint) + r["warnings"] + refused}
 
 
 def _check_comment(post: dict) -> dict | None:
@@ -222,12 +246,12 @@ def _check_comment(post: dict) -> dict | None:
     }
 
 
-def check(post: dict, chats: Iterable = ()) -> dict:
+def check(post: dict, chats: Iterable = (), chats_hint: str = CHATS_NEXT_TO_POST) -> dict:
     """Validation report of the post, its first comment and the rich replies to its buttons (a draft is saved with
     it, the editor shows it), with warnings for what Telegram refuses in `chats`, the ones it goes to; raises nothing.
-    The stats are the post's own."""
+    The stats are the post's own. `chats_hint`: where the caller takes the chats, for chat_ids put in the post."""
     where = places(chats)
-    r = _check_post(post, where)
+    r = _check_post(post, where, chats_hint)
     for part in (_check_comment(post), callbacks.check(post, where)):
         if part:
             r = {
