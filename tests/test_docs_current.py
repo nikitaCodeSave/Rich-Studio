@@ -37,8 +37,8 @@ NOT_A_FILE = re.compile(r"NN|имя|^/|^\.\./")
 BUDGET = {
     "README.md": 11400,
     ".claude/skills/telegram-rich-posts/SKILL.md": 5700,
-    "docs/ARCHITECTURE.md": 4400,
-    "docs/OBSERVABILITY.md": 2750,
+    "docs/ARCHITECTURE.md": 2700,
+    "docs/OBSERVABILITY.md": 1650,
 }
 
 
