@@ -13,8 +13,9 @@ PUBLISH = [Depends(need("publish"))]
 
 @router.get("/api/suggested-posts", summary="Предложенные посты из личных сообщений канала")
 def list_suggested(state: str | None = None):
-    """`state`: pending (ждёт решения), approved, declined, paid, refunded, failed. Студия видит предложения,
-    пришедшие, пока она запущена: бот — админ канала с правом «Личные сообщения канала»."""
+    """`state`: open (ждёт решения, решается или одобрение не прошло), pending, approving, declining, approved,
+    declined, paid, refunded, failed; без него все. Студия видит предложения, пришедшие, пока она запущена; бот —
+    админ канала с правом «Личные сообщения канала»."""
     return suggested_posts.listing(state)
 
 
@@ -45,9 +46,8 @@ async def approve(
     summary="Решить снова: решение без ответа Telegram (approving/declining) возвращается в ожидание",
 )
 def reopen(sid: str, who: str = Depends(actor)):
-    """Только человек (уровень admin; в MCP этого нет) и только после проверки в личных сообщениях канала, что
-    решение не дошло.
-    Дошедшее решение Telegram, скорее всего, второй раз не примет, а его итог всё равно придёт и обновит состояние."""
+    """Уровень admin, в MCP нет. Сначала проверьте в личных сообщениях канала, что решение не дошло: дошедшее
+    Telegram второй раз, скорее всего, не примет, а его итог всё равно придёт и обновит состояние."""
     return suggested_posts.reopen(sid, actor=who)
 
 

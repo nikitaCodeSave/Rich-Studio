@@ -12,7 +12,6 @@ def register(tool: ToolDecorator) -> None:
 
     @tool(READ)
     async def list_channels() -> list:
-        """Каналы студии: chat_id, название (title), форум ли (is_forum) и его темы (topics: id = message_thread_id),
-        права бота при последней проверке, is_default. Называйте пользователю канал по названию; тема форума
-        задаётся в post.options.message_thread_id."""
+        """Каналы студии: chat_id, title, is_forum, topics, права бота при последней проверке, is_default.
+        Пользователю называйте канал по title; тема форума — post.options.message_thread_id (id из topics)."""
         return channels.listing()

@@ -27,10 +27,10 @@ router = APIRouter(tags=["telegram"])
 PUBLISH = [Depends(need("publish"))]
 
 
+# POST, not GET: the check remembers the channel, and a GET would also come from <img src="/api/check?…"> in a post
 @router.post("/api/check", summary="Бот админ канала? Есть права на публикацию? Канал запоминается с названием")
 async def check(chat_id: str | None = None):
-    """`?chat_id=@канал`, без него канал по умолчанию. POST, а не GET: проверка запоминает канал в списке «Каналы», а
-    GET запросил бы и `<img src="/api/check?…">` в чужом посте."""
+    """`?chat_id=@канал`, без него канал по умолчанию."""
     return await channels.check(publisher.resolve_chat(chat_id))
 
 
@@ -51,8 +51,8 @@ async def send(
 
 @router.post("/api/preview-send", summary="Отправить пост себе в личку (TG_PREVIEW_CHAT)")
 async def preview_send(req: SendReq, ui: bool = Depends(from_ui)):
-    """В ответе `parsed`: блоки, на которые Telegram разобрал пост, и они же для повторной отправки (`input_blocks`).
-    `chat_id`, отличный от `TG_PREVIEW_CHAT`, требует права `publish`: это уже отправка в чужой чат."""
+    """`parsed` в ответе: блоки, на которые Telegram разобрал пост, и они же для отправки (`input_blocks`).
+    `chat_id`, отличный от `TG_PREVIEW_CHAT`, требует права `publish`."""
     preview_chat = settings.get().preview_chat
     if req.chat_id and (
         not preview_chat or publisher.resolve_chat(req.chat_id) != publisher.resolve_chat(preview_chat)
@@ -107,8 +107,8 @@ async def send_poll(req: PollReq, who: str = Depends(actor), key: str | None = D
     summary="Live Photo (sendLivePhoto) или платный контент за звёзды (sendPaidMedia), сразу или отложенно",
 )
 async def send_media(req: MediaPostReq, who: str = Depends(actor), key: str | None = Depends(idempotency_key)):
-    """Отдельное сообщение, не rich-пост: в блоках `InputRichMessage` таких медиа нет. Платный контент требует,
-    чтобы в канале была разрешена публикация платных медиа (`can_send_paid_media`)."""
+    """Отдельное сообщение, не rich-пост: в `InputRichMessage` таких медиа нет. Платный контент канал примет, только
+    если в нём разрешены платные медиа (`can_send_paid_media`)."""
     return await idempotency.run(
         key,
         "media-post",
@@ -138,23 +138,19 @@ async def unpin_post(pid: str):
     summary="Заменить только кнопки под постом (editMessageReplyMarkup), текст не трогается",
 )
 async def set_buttons(pid: str, req: ButtonsReq, who: str = Depends(actor)):
-    """Прежние кнопки попадают в историю поста (`/versions`), `version` поста растёт. Ответы на кнопки
-    (`callbacks`, с rich-ответом `reply`) проверяются, как при публикации: с ошибкой 422 и в Telegram ничего."""
+    """Прежние кнопки попадают в историю поста (`/versions`). `callbacks` заменяют ответы кнопок, что были под постом,
+    остальные ответы остаются; проверяются как при публикации: ошибка — 422, в Telegram ничего не уходит."""
     return await posts.set_buttons(pid, req.reply_markup, req.callbacks, who)
 
 
 @router.get("/api/posts", summary="Опубликованные, отложенные и неудачные посты: первая строка, миниатюра, ссылка")
 def list_posts(status: str | None = None, chat: str | None = None, limit: int = Query(100, ge=1, le=500)):
     """Для каждого поста: `title`, `thumb`, `link`, нажатия (`clicks`) и текст кнопки каждого `callback_data`
-    (`buttons`), rich-ответы на нажатия, которые не дошли (`reply_errors`: `{callback_data: {n, error, at}}`).
-    Отправка, которой Telegram отказал, — статус `failed` с ошибкой. `outcome_unknown: true` у `failed`:
-    исход неизвестен (Telegram не ответил, студия остановилась или упала посреди отправки), пост мог уйти. Такая
-    запись не уходит после успешной отправки того же черновика и видна в `/api/health`, пока её не уберут `DELETE`.
-    `comment_status: sending` и `comment_in_flight: true`: первый комментарий отправляется сейчас; `false`: он не
-    подтверждён, его никто больше не отправляет — например, Telegram его принял, а база не приняла запись (событие
-    `send.unrecorded` с `message_id` в журнале), или Telegram отказал, а сбой не записался (ошибка «could not record
-    the failed first comment»); мог уйти, заново его не публикуйте; `null`: процесс студии в резерве, комментарии
-    отправляет другой, отсюда не видно, идёт запрос или нет."""
+    (`buttons`), недошедшие rich-ответы на нажатия (`reply_errors`: `{callback_data: {n, error, at}}`).
+    `failed` с `outcome_unknown: true`: пост мог уйти; запись видна в `/api/health`, пока её не уберут `DELETE`
+    (повторная отправка её не убирает). `comment_status: sending` с `comment_in_flight`: `true` — первый комментарий
+    отправляется сейчас; `false` — его никто больше не отправляет, а исход не записан: мог уйти, заново не
+    публикуйте; `null` — этот процесс студии в резерве и не знает."""
     return listing.list_posts(limit, status=status, chat=chat)
 
 
@@ -167,7 +163,9 @@ def post(pid: str):
 
 
 @router.post(
-    "/api/posts/{pid}/edit", dependencies=PUBLISH, summary="Заменить содержимое поста, опубликованного через студию"
+    "/api/posts/{pid}/edit",
+    dependencies=PUBLISH,
+    summary="Заменить содержимое поста студии: опубликованного, отложенного или пропущенного",
 )
 async def edit_post(
     pid: str,
@@ -180,7 +178,9 @@ async def edit_post(
         "молчаливая перезапись чужой правки",
     ),
 ):
-    """`?post_version=` — поле `version` поста из `GET /api/posts/{id}`: если пост с тех пор заменили, 409."""
+    """У опубликованного поста `callbacks` и `comment` без новых остаются, а без `reply_markup` кнопки пропадают;
+    отложенный и пропущенный заменяются целиком. `?post_version=` — `version` из `GET /api/posts/{id}`: если пост
+    с тех пор заменили, 409."""
     return await posts.edit(pid, new.model_dump(), who, post_version, ui)
 
 
@@ -204,7 +204,6 @@ def reschedule(pid: str, req: RescheduleReq):
     summary="Отменить отложенный или пропущенный пост, или удалить пост из канала",
 )
 async def delete_post(pid: str):
-    """`DELETE` неудачной отправки убирает только её запись из списка, в канале ничего не удаляется. Запись с
-    `outcome_unknown: true` (пост мог уйти) так и решают: проверили канал и убрали её, тогда она уходит и из
-    `/api/health`."""
+    """У неудачной отправки (`failed`) удаляется только запись, в канале ничего. Запись с `outcome_unknown: true`
+    убирают так же, проверив канал: тогда она пропадает и из `/api/health`."""
     return await posts.delete(pid)

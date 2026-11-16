@@ -20,9 +20,8 @@ def register(tool: ToolDecorator) -> None:
             Field(description="Куда пойдёт пост (list_channels); без поля — канал по умолчанию"),
         ] = None,
     ) -> dict:
-        """Проверить пост по спецификации: ошибки (исправить обязательно), предупреждения, длина. Для проверенных
-        каналов предупреждает о том, что Telegram в чате такого типа не примет (кнопка web_app вне лички,
-        switch_inline_query в канале, message_effect_id…): правила взяты из описаний полей Bot API."""
+        """Проверить пост без сохранения: ошибки (исправить обязательно), предупреждения, длина. Для проверенных
+        каналов предупреждает и о том, что Telegram в чате такого типа не примет (кнопка web_app в канале…)."""
         return publisher.check(parse_post(post), publisher.checked_targets(chat_ids), CHATS_ARG)
 
     @tool(LOCAL)
@@ -46,14 +45,11 @@ def register(tool: ToolDecorator) -> None:
             ),
         ] = None,
     ) -> dict:
-        """Сохранить черновик и сразу проверить его (validation: ошибки исправить и сохранить снова; первый
-        комментарий и rich-ответы на кнопки, callbacks[…].reply, проверяются как пост, их ошибки начинаются
-        с «комментарий:» и «ответ на кнопку «…»:»; предупреждения называют и то, что Telegram не примет в каналах
-        черновика, например кнопку web_app в канале). Он появится
-        в редакторе, предпросмотр по адресу preview_path; дальше preview_post и publish_post принимают draft_id.
-        С draft_id обновляет существующий черновик (связь с правкой опубликованного поста сохраняется).
-        Заметки студии в _studio (source, warnings пересланного поста) остаются; буферы редактора сбрасываются:
-        они описывали прежний пост. Файл upload:<имя> может быть ещё не загружен, путь вместо имени — ошибка."""
+        """Сохранить черновик и проверить его вместе с первым комментарием и ответами на кнопки: ошибки из
+        validation исправьте и сохраните снова; предупреждения называют и то, что Telegram не примет в каналах
+        черновика. Черновик появится в редакторе (editor_url, preview_url — ссылки для пользователя); дальше
+        preview_post и publish_post берут draft_id. С draft_id обновляет черновик, его post_id и заметки студии
+        (_studio) остаются. upload:<имя> можно загрузить позже, путь вместо имени — ошибка."""
         old = store.get_draft(draft_id) if draft_id else None
         if draft_id and not old:
             raise NotFound(f"черновика {draft_id} нет")
@@ -83,16 +79,15 @@ def register(tool: ToolDecorator) -> None:
 
     @tool(READ)
     async def list_drafts() -> list:
-        """Черновики студии (последние сверху); post_id — опубликованный пост, который правится в черновике;
-        goes_to — куда уйдёт публикация без chat_id: каналы черновика по названию или канал по умолчанию."""
+        """Черновики студии, последние сверху; post_id — опубликованный пост, который правится в черновике;
+        goes_to — куда уйдёт публикация без chat_id."""
         return [{**d, "goes_to": channels.goes_to(d.get("chat_ids"))} for d in store.list_drafts()]
 
     @tool(READ)
     async def get_draft(draft_id: Annotated[str, Field(description="id из list_drafts")]) -> dict:
-        """Черновик целиком: пост (payload), название, version для save_draft. В payload._studio только заметки
-        студии (source, warnings у пересланного поста; в Telegram не уходят); копии поста для редактора
-        (buffers, неприменённый json) не отдаются: пост это rich_message. save_draft кладёт пост как есть,
-        и редактор откроет его без прежних буферов."""
+        """Черновик целиком: пост (payload), название, version для save_draft, goes_to. payload._studio — заметки
+        студии (source, warnings пересланного поста), в Telegram не уходят; буферов редактора здесь нет, пост — это
+        rich_message."""
         d = store.get_draft(draft_id)
         if not d:
             raise NotFound(f"черновика {draft_id} нет")
@@ -105,8 +100,8 @@ def register(tool: ToolDecorator) -> None:
 
     @tool(TO_ME)
     async def send_preview_to_me(post: PostArg) -> dict:
-        """Отправить пост пользователю в личку (TG_PREVIEW_CHAT), чтобы он увидел его в Telegram. В канал не уходит.
-        В ответе parsed.input_blocks: пост так, как его разобрал Telegram (можно отправить как rich_message.blocks)."""
+        """Отправить пост пользователю в личку (TG_PREVIEW_CHAT), не в канал. parsed.input_blocks в ответе — пост,
+        как его разобрал Telegram; годится в rich_message.blocks."""
         res = await posts.preview(parse_post(post))
         # the agent needs the post once: Telegram's output blocks are for the editor's preview only
         if isinstance(res.get("parsed"), dict):

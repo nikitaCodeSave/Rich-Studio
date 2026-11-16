@@ -32,24 +32,22 @@ from services import publisher
 
 INSTRUCTIONS = """Rich Studio: write, check, preview and publish rich posts for the user's Telegram channel.
 No telegram-rich-posts among your skills? Before writing a post read the resource skill://telegram-rich-posts/SKILL.md
-(the same file as the prompt telegram-rich-posts): blocks, tags, channel limits of the newest Bot API, how to work.
-Order: bot_api_status (what is new; refresh_bot_api if the user asks for the newest) → save_draft (returns validation:
-fix every error and save again) → preview_post with draft_id (the user sees the post as in Telegram right in the chat)
-→ publish_post or schedule_post with draft_id and the version preview_post returned, only after the user explicitly confirmed that exact post
-and channel. Channels: list_channels gives titles and forum topics; name the channel by its title when asking, pass
-chat_ids to save_draft so the draft (and the editor) knows where it goes. Pass the post JSON once, to save_draft; later calls take draft_id. validate_post checks without saving.
-To continue the user's work: list_drafts → get_draft → save_draft with draft_id and version (the editor shows it).
-To change a published post: list_posts → get_post (read it first) → edit_post (post or draft_id + version; a draft
-with post_id is an edit of that post and can only go out through edit_post); post_history shows earlier versions.
-studio_status says whether scheduled posts, button answers and first comments will actually work.
-studio_health lists what is wrong and what to do (status ok|warn|fail per check); studio_logs reads the log.
-A post is {"rich_message": InputRichMessage with exactly one of html|markdown|blocks, "reply_markup"?,
-"options"?, "pin"?, "comment"?, "callbacks"?, "poll_after"? (sendPoll fields: a poll sent right after the post)};
-it reaches the Bot API unchanged. callbacks answer callback buttons: {callback_data: text | {text?, show_alert?,
-"reply"?: sendRichMessage fields {rich_message, ephemeral_message_parameters?: {replace_callback_query_message?}}}};
-reply is a rich message only the person who pressed sees, under a channel post too; with replace_callback_query_message
-it takes the post's place for that person, without the post's buttons, until they restart Telegram (or it disappears
-by itself). describe_type gives exact fields of any Bot API type. Uploaded files are referenced as upload:<name>."""
+(the same file as the prompt telegram-rich-posts): blocks, tags, limits of the newest Bot API, how to work.
+Order: bot_api_status (refresh_bot_api if the user asks for the newest) → save_draft (fix every error in validation
+and save again) → preview_post with draft_id (the user sees the post as in Telegram, in the chat) → publish_post or
+schedule_post with draft_id and the version preview_post returned, only after the user explicitly confirmed that post
+and channel. Pass the post JSON once, to save_draft; later calls take draft_id. validate_post checks without saving.
+Channels: list_channels gives titles and forum topics; name the channel by its title when asking, pass chat_ids to
+save_draft so the draft (and the editor) knows where it goes.
+To continue the user's work: list_drafts → get_draft → save_draft with draft_id and version.
+To change a published post: list_posts → get_post → edit_post (a draft with post_id goes out only through edit_post);
+post_history shows earlier versions.
+studio_status says whether scheduled posts, button answers and first comments will work; studio_health lists what is
+wrong and what to do; studio_logs reads the log.
+A post is {"rich_message": InputRichMessage with exactly one of html|markdown|blocks, "reply_markup"?, "options"?
+(other sendRichMessage parameters), "pin"?, "comment"? (the first comment), "callbacks"? (answers to callback buttons),
+"poll_after"? (sendPoll fields: a poll right after the post)}; it reaches the Bot API unchanged. describe_type gives
+the exact fields of any Bot API type. Uploaded files are referenced as upload:<name>."""
 
 
 def build() -> MCPServer:
