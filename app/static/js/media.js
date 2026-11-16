@@ -79,6 +79,30 @@ export async function loadUploads() {
   };
 }
 
+/** «Скачать бэкап» by fetch, not a link: a link sends no X-Studio-Client, and a read by the session cookie without it
+ * is refused under a name from ALLOWED_HOSTS over plain http (security.py, #215). */
+export async function downloadBackup() {
+  const b = /** @type {HTMLButtonElement} */ ($('#export'));
+  b.disabled = true;
+  try {
+    const r = await api('GET', '/api/export', undefined, true);
+    if (!r.ok) {
+      const d = (await r.json().catch(() => ({}))).detail;
+      throw new Error(typeof d === 'string' ? d : 'Бэкап не собран: ' + r.status);
+    }
+    const name = /filename="?([^";]+)/.exec(r.headers.get('content-disposition') || '')?.[1] || 'rich-studio.zip';
+    const url = URL.createObjectURL(await r.blob());
+    const a = h('a', { href: url, download: name, hidden: true });
+    document.body.append(a); a.click(); a.remove();
+    // the browser reads the file after the click: freed later, as FileSaver.js does
+    setTimeout(() => URL.revokeObjectURL(url), 40e3);
+  } catch (e) {
+    toast(e.message, 'err');
+  } finally {
+    b.disabled = false;
+  }
+}
+
 export async function upload(files) {
   for (const f of files) {
     const fd = new FormData(); fd.append('file', f);

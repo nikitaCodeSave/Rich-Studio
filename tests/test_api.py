@@ -6,7 +6,9 @@ from pathlib import Path
 
 import pytest
 
+import security
 import settings
+import store
 from services import scheduler, updates
 
 BLOCKS_POST = {
@@ -537,6 +539,71 @@ def test_a_read_from_another_site_is_refused_even_with_a_valid_key(client, monke
     assert client.get("/api/drafts", headers={"sec-fetch-site": "cross-site"}).status_code == 403  # not 401
 
 
+# A browser marks requests with Sec-Fetch-Site only on localhost, 127.0.0.1 and HTTPS. Under a name from ALLOWED_HOSTS
+# over plain http a page on another port of that name sends the editor's cookie unmarked: <img src=…/api/export> built
+# a zip. A page cannot add X-Studio-Client to such a request, the editor sends it with every one (#215).
+def _editor_cookie(client, monkeypatch) -> dict:
+    """The editor's session in a studio with a key, as a header: a cookie left in the shared client's jar outlives the test."""
+    monkeypatch.setattr(settings.get(), "api_key", "secret")
+    r = client.post("/api/session", json={"key": "secret"})
+    client.cookies.clear()
+    return {"Cookie": f"{security.SESSION_COOKIE}={r.cookies[security.SESSION_COOKIE]}"}
+
+
+def test_a_read_by_the_editors_cookie_without_sec_fetch_site_needs_x_studio_client(client, monkeypatch):
+    cookie = _editor_cookie(client, monkeypatch)
+    r = client.get("/api/drafts", headers=cookie)
+    assert r.status_code == 403 and "X-Studio-Client" in r.json()["detail"]
+    assert client.head("/api/drafts", headers=cookie).status_code == 403
+    assert client.get("/api/drafts", headers={**cookie, "X-Studio-Client": " "}).status_code == 403
+    assert client.get("/api/drafts", headers={**cookie, "X-Studio-Client": "ui"}).status_code == 200
+    # a browser that marks its requests: the check above has already told the editor's page from another site's
+    for site in ("same-origin", "none"):
+        assert client.get("/api/drafts", headers={**cookie, "sec-fetch-site": site}).status_code == 200
+
+
+def test_a_page_cannot_make_the_studio_build_a_backup_by_the_editors_cookie(client, monkeypatch):
+    from services import backup
+
+    cookie = _editor_cookie(client, monkeypatch)
+    built = []
+    export_zip = backup.export_zip
+    monkeypatch.setattr(backup, "export_zip", lambda: built.append(1) or export_zip())
+    assert client.get("/api/export", headers=cookie).status_code == 403
+    assert not built
+    r = client.get("/api/export", headers={**cookie, "X-Studio-Client": "ui"})
+    assert r.status_code == 200 and r.headers["content-type"] == "application/zip" and built == [1]
+
+
+def test_a_read_by_a_token_or_the_key_needs_no_x_studio_client(client, monkeypatch):
+    """A page cannot set Authorization or X-API-Key either; curl and the MCP clients keep working as they did."""
+    cookie = _editor_cookie(client, monkeypatch)
+    store.add_token("agent", "rs_test_agent", "read")
+    for auth in (
+        {"X-API-Key": "secret"},
+        {"Authorization": "Bearer secret"},
+        {"Authorization": "Bearer rs_test_agent"},
+    ):
+        assert client.get("/api/drafts", headers=auth).status_code == 200, auth
+        # the header says who asks, the cookie beside it is not looked at
+        assert client.get("/api/drafts", headers={**cookie, **auth}).status_code == 200, auth
+
+
+def test_writes_by_the_editors_cookie_need_no_x_studio_client(client, monkeypatch):
+    """A page on another site cannot send a write without Origin, and the guard compares Origin with Host."""
+    cookie = _editor_cookie(client, monkeypatch)
+    r = client.post("/api/drafts", json={"title": "t", "post": BLOCKS_POST}, headers=cookie)
+    assert r.status_code == 200
+    other_port = {**cookie, "origin": "http://testserver:8189"}
+    assert client.post("/api/drafts", json={"title": "t", "post": BLOCKS_POST}, headers=other_port).status_code == 403
+
+
+def test_an_open_studio_is_read_without_x_studio_client(client):
+    """No key and no tokens: nothing to tell the editor from curl by, the studio stays open as before (README)."""
+    assert client.get("/api/drafts").status_code == 200
+    assert client.get("/api/export").status_code == 200
+
+
 def test_empty_text_plain_body_is_rejected(client, tg):
     r = client.post("/api/raw/logOut", content=b"", headers={"content-type": "text/plain"})
     assert r.status_code == 415 and not tg.calls
@@ -765,7 +832,7 @@ def test_api_key_protects_media_render_and_docs(client, monkeypatch):
     finally:
         client.cookies.delete("rs_key")
     assert client.post("/api/session", json={"key": "secret"}).status_code == 200  # the editor's login
-    assert client.get("/api/spec").status_code == 200
+    assert client.get("/api/spec", headers={"X-Studio-Client": "ui"}).status_code == 200
 
 
 def test_editor_modules_are_served_as_javascript(client):
