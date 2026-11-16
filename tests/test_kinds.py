@@ -71,6 +71,16 @@ def test_list_reads_buttons_where_the_kind_keeps_them():
     assert listing.title({"paid_media": {}}, "paid_media") == "Платный контент"
 
 
+def test_list_labels_the_buttons_in_the_text_of_a_rich_post():
+    rich = {
+        "html": '<p>x</p><tg-button data="vote">Да</tg-button>',
+        "blocks": [{"type": "buttons", "buttons": [{"text": "Может", "callback_data": "maybe"}]}],
+    }
+    keyboard = {"inline_keyboard": [[{"text": "Нет", "callback_data": "no"}]]}
+    got = listing.button_texts({"rich_message": rich, "reply_markup": keyboard})
+    assert got == {"no": "Нет", "vote": "Да", "maybe": "Может"}
+
+
 def test_migration_gives_old_rows_the_kind_of_their_content():
     path = settings.get().db_path
     path.unlink()
