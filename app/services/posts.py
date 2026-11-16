@@ -56,8 +56,8 @@ async def send(
     as_new: bool = False,
 ) -> dict:
     _not_an_edit_copy(draft_id, as_new)
-    report = publisher.validate(post)
     chats = publisher.targets(chat_id, chat_ids, draft_id)
+    report = publisher.validate(post, chats)
     publisher.check_thread(chats, post)
     if dry_run:
         return dry_run_report(chats, post, report["warnings"])
@@ -223,9 +223,9 @@ def schedule(
     as_new: bool = False,
 ) -> dict:
     _not_an_edit_copy(draft_id, as_new)
-    report = publisher.validate(post)
-    when = publisher.parse_at(at)
     chats = publisher.targets(chat_id, chat_ids, draft_id)
+    report = publisher.validate(post, chats)
+    when = publisher.parse_at(at)
     publisher.check_thread(chats, post)
     if dry_run:
         return {**dry_run_report(chats, post, report["warnings"]), "at": when}

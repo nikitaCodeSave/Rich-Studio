@@ -1,5 +1,6 @@
 // Inline keyboard under the post and answers to callback buttons.
 import { api } from './api.js';
+import { refusalText, refusals } from './chat-rules.js';
 import { $, h } from './dom.js';
 import { buildPost, changed, updatesLabel } from './editor.js';
 import { objectFields } from './forms.js';
@@ -55,10 +56,17 @@ function buttonCard(row, ri, bi) {
   if (kind === 'copy') body.push(field('Что скопировать', h('input', { type: 'text', value: (btn.copy_text && btn.copy_text.text) || '', placeholder: 'Промокод, адрес, ссылка', oninput: (e) => { btn.copy_text = set({ text: e.target.value }); } })));
   // the remaining optional fields (style, emoji…) stay one «＋ поле…» away; «Другое» shows every field
   const rest = objectFields('InlineKeyboardButton', btn, 3, { exclude: kind === 'other' ? ['text'] : ['text', ...ACTIONS] });
-  return h('div', { class: 'obj kb-btn' },
+  // what Telegram refuses on this button in the chats the post goes to (web_app outside a private chat…), with the way
+  // out; redrawn after every edit in the card, as «＋ поле…» and ✕ change the button's fields without a new card
+  const refused = h('div', { class: 'kb-refused' });
+  const mark = () => refused.replaceChildren(...refusals('InlineKeyboardButton', btn).map((r) => h('p', { class: 'w small', 'data-field': r.field, text: refusalText(r) })));
+  mark();
+  const card = h('div', { class: 'obj kb-btn' },
     h('div', { class: 'row', style: 'margin:0' }, h('span', { class: 'muted small', text: `Ряд ${ri + 1}, кнопка ${bi + 1}` }), h('span', { class: 'grow' }),
       h('button', { class: 'ghost small-btn', text: '✕', title: 'Убрать кнопку', onclick: () => { setKind(btn, 'url'); row.splice(bi, 1); if (!row.length) S.keyboard.splice(ri, 1); renderKeyboard(); changed(); } })),
-    h('div', { class: 'fields' }, body), rest, kind === 'callback' || kind === 'other' ? callbackAnswer(btn) : null);
+    h('div', { class: 'fields' }, body), rest, refused, kind === 'callback' || kind === 'other' ? callbackAnswer(btn) : null);
+  for (const ev of ['change', 'click']) card.addEventListener(ev, mark);
+  return card;
 }
 
 export function renderKeyboard() {

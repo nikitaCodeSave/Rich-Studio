@@ -85,5 +85,5 @@ def register(tool: ToolDecorator) -> None:
             "goes_to": channels.goes_to(d["chat_ids"]),
             "preview_path": f"/render/draft/{d['id']}",
             **draft_links(d["id"]),
-            "validation": publisher.check(d["payload"]),
+            "validation": publisher.check(d["payload"], publisher.checked_targets(d["chat_ids"])),
         }

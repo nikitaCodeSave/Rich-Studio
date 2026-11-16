@@ -247,6 +247,8 @@ label.stack input { width: 100%; }
 .kb-row > .obj { flex: 1 1 240px; }
 /* a button card is narrow: short labels leave room for «Ответ на нажатие» */
 .kb-btn .field { grid-template-columns: 72px minmax(0, 1fr) auto; }
+/* what Telegram refuses on the button in the chats the post goes to (chat-rules.js) */
+.kb-refused p { margin: 4px 0 0; padding: 4px 8px; border-left: 3px solid var(--warn); color: var(--warn); overflow-wrap: anywhere; }
 
 .validation { margin-top: 12px; font-size: 13px; }
 .validation .ok { color: var(--ok); }
