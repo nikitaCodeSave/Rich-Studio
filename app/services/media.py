@@ -137,9 +137,17 @@ def used_by(name: str) -> list[str]:
 
 
 def delete(name: str, force: bool = False) -> None:
+    """The entry of the folder itself, as the list and the cleanup take it (_files): a symlink put there by hand goes,
+    never the file it points to (find, path_of, resolve the name). Only a name of an upload (uploads.name_error), so
+    the entry is always one of the folder."""
+    if not name or uploads.name_error(name):
+        raise StudioError("Bad Request")
     if not force and (users := used_by(name)):
         raise Conflict({"message": f"файл {name} ещё нужен: " + ", ".join(users), "used_by": users})
-    path_of(name, must_exist=False).unlink(missing_ok=True)
+    try:
+        (media_dir() / name).unlink(missing_ok=True)
+    except OSError:  # a folder, a name too long for the disk: no file of the uploads
+        raise StudioError("Bad Request") from None
 
 
 def path_of(name: str, must_exist: bool = True) -> Path:
