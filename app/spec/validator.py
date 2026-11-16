@@ -656,7 +656,10 @@ MD_INDENT_RE = re.compile(r" {4}| {0,3}\t")
 # possessively: a space after one could go to it or to the next, and on a miss every way of it would be tried.
 MD_HEADING_RE = re.compile(r"(?: {0,3}> ?)*+ {0,3}#{1,6}(?:[ \t]|$)")
 MD_BREAK_RE = re.compile(r"(?: {0,3}> ?)*+ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$")
-MD_UNDERLINE_RE = re.compile(r"(?: {0,3}> ?)*+ {0,3}(?:=+|-+)[ \t]*$")
+# an underline only in the same quote as the first line of its text (as many «>»): in another one markdown-it starts
+# a quote with it or reads it on with the text
+MD_UNDERLINE_RE = re.compile(r"((?: {0,3}> ?)*+) {0,3}(?:=+|-+)[ \t]*$")
+MD_QUOTE_RE = re.compile(r"(?: {0,3}> ?)*+")
 # `code`: a run of backticks and the next run of as many, as CommonMark reads it; only a whole run opens one, so a
 # long run without its closing run is looked through once, not from each of its backticks
 MD_CODE_RE = re.compile(r"(?<!`)(`+)(?!`).*?(?<!`)\1(?!`)", re.S)
@@ -712,6 +715,7 @@ def md_paragraphs(src: str) -> list[tuple[int, int]]:
     be a paragraph of the item: it is left out all the same, an error missed rather than a false one."""
     paras: list[tuple[int, int]] = []
     start = end = -1  # the paragraph read so far, -1: none
+    quote = 0  # the «>» in front of its first line
     fence = ""
     indented = False
     at = 0
@@ -728,7 +732,8 @@ def md_paragraphs(src: str) -> list[tuple[int, int]]:
         f = MD_FENCE_RE.match(line)
         indented = not (f or blank or start >= 0) and bool(MD_INDENT_RE.match(line))
         heading = not (f or blank or indented) and bool(MD_HEADING_RE.match(line))
-        if start >= 0 and MD_UNDERLINE_RE.match(line):  # the paragraph is a setext heading, and it ends here
+        u = MD_UNDERLINE_RE.match(line) if start >= 0 else None
+        if u and u[1].count(">") == quote:  # the paragraph is a setext heading, and it ends here
             paras.append((start, here + len(line)))
             start = -1
         elif f or blank or indented or heading or MD_BREAK_RE.match(line):
@@ -739,7 +744,9 @@ def md_paragraphs(src: str) -> list[tuple[int, int]]:
             if heading:
                 paras.append((here, here + len(line)))
         else:
-            start = here if start < 0 else start
+            if start < 0:
+                q = MD_QUOTE_RE.match(line)  # it always matches, maybe nothing
+                start, quote = here, q[0].count(">") if q else 0
             end = here + len(line)
     if start >= 0:
         paras.append((start, end))
@@ -764,7 +771,7 @@ def _md_erased(src: str) -> list[tuple[int, int, str, bool]]:
     """The paragraphs of markdown that Telegram erases (erased_texts): where, for which entity, whether for sure."""
     found = []
     for a, b in md_paragraphs(src):
-        text = MD_TARGET_RE.sub("]", src[a:b])
+        text = _closed(MD_TARGET_RE, ")", "]", src[a:b])
         if e := vanishing(MD_CODE_RE.sub("", text)):
             found.append((a, b, e, True))
         elif e := vanishing(text):
@@ -981,20 +988,28 @@ def _html_shape(v: Validator, src: str) -> int:
     return walk.sure
 
 
-# The regular expressions of the count look from an opening («<», «](», «[^», «![») for its end, and none goes past
-# the next opening of its kind: otherwise a run of openings without an end was looked through to the end of the
-# source from each one (100 000 bytes of «](» took 1 s, of «<img» 9 s; issue #192)
-TAG_RE = re.compile(r"<[^<>]+>")
-# where a link or an image points: [text](url "title"); the address may have a «]», not a «](»
-MD_TARGET_RE = re.compile(r"\]\((?:[^)\]]|\](?!\())*+\)")
+# A run of openings without their end was looked through to the end of the source from each of them (100 000 bytes
+# of «](» took 1 s, of «<img» 9 s; issue #192). A tag and a link address end at the first «>» and «)» after them, as
+# before: they are taken only up to the last one (_closed), where each opening finds its end. A label, a footnote
+# name and the text of an image have no «[» (as in CommonMark), so the look stops at the next one; a media tag in
+# HTTP_MEDIA_RE stops at the next «<».
+TAG_RE = re.compile(r"<[^>]+>")
+MD_TARGET_RE = re.compile(r"\]\([^)]*\)")  # where a link or an image points: [text](url "title")
 # surely not text in Markdown: footnote names, reference definitions, code fence lines, list numbers, checkboxes;
 # and any line with a "|": Telegram cuts table rows to the width of the header, which only a parser can tell
 MD_MARKUP_RE = re.compile(
-    r"^.*\|.*$|\[\^[^[\]]*\]|^[ \t]*\[[^\]]+\]:.*$|^[ \t]*(?:```|~~~).*$|^[ \t]*\d+[.)][ \t]|\[[ xX]\]", re.M
+    r"^.*\|.*$|\[\^[^[\]]*\]|^[ \t]*\[[^[\]]+\]:.*$|^[ \t]*(?:```|~~~).*$|^[ \t]*\d+[.)][ \t]|\[[ xX]\]", re.M
 )
 HTTP_MEDIA_RE = re.compile(
     r"<(?:img|video|audio|tg-document)\b[^<>]*\bsrc\s*=\s*[\"']?https?://|!\[[^[\]]*\]\(\s*<?https?://", re.I
 )
+
+
+def _closed(rx: re.Pattern, end: str, repl: str, s: str) -> str:
+    """rx.sub(repl, s) for TAG_RE and MD_TARGET_RE in linear time: no match ends past the last «end», and up to it
+    each opening finds its end at the first «end» after it."""
+    k = s.rfind(end) + 1
+    return rx.sub(repl, s[:k]) + s[k:]
 
 
 def source_chars(src: str, markdown: bool) -> tuple[int, int]:
@@ -1016,9 +1031,9 @@ def source_chars(src: str, markdown: bool) -> tuple[int, int]:
 
 
 def _chars(src: str, markdown: bool) -> tuple[int, int]:
-    text = TAG_RE.sub("", src)
+    text = _closed(TAG_RE, ">", "", src)
     # entities as Telegram decodes them; in markdown the link addresses (not decoded at all) are gone already
-    text = tg_unescape(MD_TARGET_RE.sub("]", text) if markdown else text)
+    text = tg_unescape(_closed(MD_TARGET_RE, ")", "]", text) if markdown else text)
     if not markdown:
         return len(text), sum(not ch.isspace() for ch in text)
     sure = MD_MARKUP_RE.sub("", text)

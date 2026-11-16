@@ -471,6 +471,8 @@ HOSTILE = {
     "markdown: ![ without its ]": {"markdown": "![" * 50000},
     "html: <img without its >": {"html": "<img" * 25000},
     "markdown: a line of quote marks that is no heading": {"markdown": "x&#xD800;\n" + "> " * 50000},
+    "markdown: [ at the start of every line": {"markdown": "[\n" * 50000},
+    "markdown: [^ at the start of every line, one ] at the end": {"markdown": "[^\n" * 33333 + "]"},
 }
 
 
@@ -701,11 +703,35 @@ def test_in_markdown_a_line_indented_right_after_a_heading_is_code(current, src)
 
 
 @pytest.mark.parametrize(
-    "src", ["#h\n    a&#xD800;b", "- # h\n    a&#xD800;b", "    # h\n\na&#xD800;b", "# h&#xD800;\n    a"]
+    "src",
+    [
+        "#h\n    a&#xD800;b",
+        "- # h\n    a&#xD800;b",
+        "    # h\n\na&#xD800;b",
+        "# h&#xD800;\n    a",
+        # an underline in another quote than the text: markdown-it starts a quote with it or reads it on with the text
+        "a\n> ===\n    x&#xD800;",
+        "> a\n===\n    x&#xD800;",
+    ],
 )
 def test_in_markdown_what_is_no_heading_or_the_heading_itself_is_still_erased(current, src):
     r = check(current, markdown=src)
     assert not r["ok"] and has(r["errors"], "стирает"), r
+
+
+@pytest.mark.parametrize(
+    "src, counts",
+    [("[a](x](y))", (4, 1)), ('[a](u "](t")', (3, 1)), ('<a href="x<y">t</a>', (1, 1))],
+)
+def test_link_addresses_and_tags_end_where_they_did(src, counts):
+    """The linear reading of #192 is the same as before it: a link address ends at the first «)», a tag at the first
+    «>», whatever is in between. markdown-it reads [a](x](y)) and [a](u "](t") as a link «a»."""
+    assert source_chars(src, markdown=True) == counts
+
+
+def test_an_entity_in_a_link_address_with_a_bracket_is_not_erased(current):
+    r = check(current, markdown="[a](&#xD800;](b))")
+    assert not has(r["errors"], "стирает"), r
 
 
 def test_text_telegram_erases_in_markdown_is_taken_out_of_the_count_once(current):

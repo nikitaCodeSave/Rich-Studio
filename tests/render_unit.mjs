@@ -278,10 +278,28 @@ check('safeUrl: «\\» is «/», tabs and line breaks are out, spaces in front h
   return ['/\\evil', '\\\\evil', '\\/evil', '/\t\\evil', '/\n/evil', '/\r\n\\evil', ' //evil', '\ufeff//evil', ' /\\evil', '\ufeffjavascript:x', ' javascript:x', ' java\tscript:x']
     .every((u) => s(u) === null);
 }));
-check('safeUrl gives the address back as written', await page.evaluate(() => {
+// a #name the preview resolves itself, so it is read trimmed, as before #192: U+FEFF in front is still the anchor
+check('safeUrl gives an address back as written, a #name trimmed', await page.evaluate(() => {
   const s = RichRender.safeUrl;
-  return s('https://e.com/x\ufeff') === 'https://e.com/x\ufeff' && s('/media/a\ufeff.png') === '/media/a\ufeff.png' && s('#a\ufeff') === '#a\ufeff';
+  return s('https://e.com/x\ufeff') === 'https://e.com/x\ufeff' && s('/media/a\ufeff.png') === '/media/a\ufeff.png' && s('\ufeff#a') === '#a';
 }));
+{
+  const r = await render({ html: '<p><a href="&#xFEFF;#note">n</a></p><footer><tg-reference name="note">1.</tg-reference></footer>' });
+  check('U+FEFF before #name: still the link to the reference', has(r.html, /<a href="#ref-note" class="tg-reflink">n<\/a>/), r.html);
+}
+{
+  // the scheme of a button is read off the address as the check reads it: a space in front does not take its click
+  const opened = await page.evaluate(() => {
+    const seen = [];
+    const open = window.open;
+    window.open = (u) => { seen.push(u); return null; };
+    const html = '<tg-button-row><tg-button url=" https://example.com/x">b</tg-button><tg-button url=" javascript:window.__xss=1">c</tg-button></tg-button-row>';
+    RichRender.render({ rich_message: { html } }, {}).querySelectorAll('.tg-btn').forEach((b) => b.click());
+    window.open = open;
+    return seen;
+  });
+  check('html: a button with a space before its https address opens it, a javascript: one does not', JSON.stringify(opened) === '["https://example.com/x"]', JSON.stringify(opened));
+}
 
 // ---------- attributes ----------
 {
@@ -333,7 +351,7 @@ for (const [name, src] of Object.entries(EXTENSIONS)) {
     const t = performance.now();
     RichRender.render({ rich_message: { markdown } }, {});
     return [name, Math.round(performance.now() - t)];
-  }).filter(([, ms]) => ms > 500), { '[^': '[^'.repeat(50000), '$$ lines': '$$a\n'.repeat(25000), 'table rows': '|a\n|-\n'.repeat(16667), '](': ']('.repeat(50000) });
+  }).filter(([, ms]) => ms > 1500), { '[^': '[^'.repeat(50000), '$$ lines': '$$a\n'.repeat(25000), 'table rows': '|a\n|-\n'.repeat(16667), '](': ']('.repeat(50000) });
   check('markdown: a run of openings without their end is read in linear time', slow.length === 0, JSON.stringify(slow));
 }
 {

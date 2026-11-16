@@ -105,7 +105,9 @@
     const title = action === 'url' ? b.url : action === 'copy_text' ? 'Копирует: ' + (b.copy_text && b.copy_text.text) : action === 'callback_data' ? 'callback: ' + b.callback_data : action || 'без действия';
     const btn = el('span', { class: 'tg-btn' + (b.style ? ' tg-btn-' + b.style : '') + (action === 'disabled' ? ' tg-btn-disabled' : ''), title },
       renderRT(b.text, ctx), icon ? el('span', { class: 'tg-btn-ico', text: icon }) : null);
-    if (action === 'url' && b.url && /^https?:\/\//i.test(b.url) && safeUrl(b.url)) btn.addEventListener('click', () => window.open(b.url, '_blank', 'noopener'));
+    // the scheme as the check reads it (safeUrl gives the address back as written, a space in front included)
+    const go = action === 'url' && typeof b.url === 'string' && safeUrl(b.url) ? asRead(b.url) : '';
+    if (/^https?:\/\//i.test(go)) btn.addEventListener('click', () => window.open(go, '_blank', 'noopener'));
     return btn;
   }
 
@@ -375,12 +377,14 @@
   // The address is checked as the browser reads it: it takes tabs and line breaks out anywhere (URL standard) and in an
   // http(s) address reads «\» as «/». The check also trims every space, so nothing in front hides a scheme or a «//».
   // What goes into href is the address as written: Telegram keeps U+FEFF in it, at the end too (measured, issue #174),
-  // and off the ends the browser itself takes only C0 controls and spaces.
+  // and off the ends the browser itself takes only C0 controls and spaces. A #name is no address: the preview finds
+  // its reference or anchor itself (transformHtml), by the name trimmed, as before #192.
+  const asRead = (v) => v.replace(/[\t\n\r]/g, '').trim();
   function safeUrl(v) {
     if (typeof v !== 'string') return null;
-    const s = v.replace(/[\t\n\r]/g, '').trim();
+    const s = asRead(v);
     if (!s) return null;
-    if (s.startsWith('#')) return v;
+    if (s.startsWith('#')) return s;
     // «/\evil.example» and «\/evil.example» are «//evil.example», another site (issue #192)
     if (/^[/\\]{2}/.test(s)) return null;
     if (s.startsWith('/')) return v; // same-origin (uploaded media)
