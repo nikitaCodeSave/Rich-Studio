@@ -54,7 +54,9 @@ def register(tool: ToolDecorator) -> None:
         Значение при заполнении всегда текст: разметки оно не создаёт. В Markdown поля пока не подставляются:
         возьмите блоки или HTML. Файл подставляет поле url целиком со значением upload:имя в медиа поста (блок,
         rich_message.media), не в атрибут HTML и не в url. HTML с полями должен разбираться без ошибок HTML5
-        (без «=» без имени, лишних кавычек в тегах, < вне тегов). Ничего не публикует."""
+        (без «=» без имени, лишних кавычек в тегах, < вне тегов). Не поле: строка рядом с parse_mode или entities
+        (подпись медиа) и callback_data кнопки, у которой есть ответ в callbacks (ключ callbacks не заполняется,
+        кнопка осталась бы без ответа). Ничего не публикует."""
         try:
             return templates.save(title, parse_post(post), [f.model_dump() for f in fields], template_id, version)
         except Conflict as e:

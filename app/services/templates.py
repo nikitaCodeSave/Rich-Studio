@@ -4,7 +4,8 @@ A field is {key, label, type: text | multiline | url, required, default}. {{key}
 the post, never in its JSON keys. A value is always text, never markup: escaped (html.escape) in HTML, a plain JSON
 string anywhere else (Telegram does not parse the text of a block). In HTML a {{key}} stands in text or in a quoted
 attribute value. A link (an HTML link attribute such as href or src, a JSON string under the key url) takes only a url
-field, as its whole value, and never a file upload:name (a file goes only in a media field). Markdown is not filled
+field, as its whole value, and never a file upload:name (a file goes only in a media field). The callback_data of a
+button with an answer in callbacks takes no field: a key of callbacks is never filled. Markdown is not filled
 in this version: how to escape a value for Telegram's Markdown was never checked against Telegram, so such a template
 is refused with a hint to use the visual mode or HTML.
 Filling changes nothing in the post but the {{key}} marks (AGENTS.md rule 1), and makes a new draft without channels.
@@ -50,6 +51,8 @@ URL_ATTRS = {
 URL_KEY = "url"
 # the post's answers to its buttons (services/callbacks.py): its keys are callback_data, not names of fields
 CALLBACKS = "callbacks"
+# what a button of the post gives the bot when pressed: its answer is the key of callbacks with this value
+CALLBACK_DATA = "callback_data"
 MARKDOWN = (
     "{{…}} в Markdown пока не подставляется: переведите пост в визуальный режим или в HTML и сохраните шаблон снова"
 )
@@ -345,6 +348,8 @@ def _check(payload: dict, fields: list[dict]) -> None:
     """Every {{key}} stands where its value can only be text, and every field stands somewhere."""
     by_key = {f["key"]: f for f in fields}
     used: set[str] = set()
+    answers = payload.get(CALLBACKS)
+    answered = set(answers) if isinstance(answers, dict) else set()
     for path, s, parent in _strings(payload):
         keys = VAR.findall(s)
         if not keys:
@@ -374,6 +379,16 @@ def _check(payload: dict, fields: list[dict]) -> None:
                 )
             if link["default"].startswith("upload:"):
                 raise Invalid(f"{where}: {mark(keys[0])}: {UPLOAD_IN_JSON_LINK}")
+        # a button of the post (not of a rich reply: the studio does not answer those) with an answer in callbacks.
+        # A key of callbacks is never a field, so another value would leave the button without its answer
+        if _key(path) == CALLBACK_DATA and path[0] != CALLBACKS:
+            data = VAR.sub(lambda m: by_key[m[1]]["default"], s)
+            if data in answered:
+                raise Invalid(
+                    f"{where}: {mark(keys[0])} в callback_data: кнопка связана с ответом на нажатие в {CALLBACKS} "
+                    f"(«{data}»), а ключ {CALLBACKS} полем не меняется — после заполнения кнопка останется без "
+                    "ответа. Оставьте callback_data как есть"
+                )
         if source == "html":
             _check_html(s, by_key, where)
     if unused := [k for k in by_key if k not in used]:

@@ -5,8 +5,9 @@
 //   A {{key}} typed into the post by hand shows up as a field too. `value`: {title, post, fields} for /api/templates.
 // mode "fill": a form from the fields; `value`: {title, values} for /api/templates/{id}/draft.
 // The strings are found by walking the post's JSON, not by a list of block types. `fixed` holds "name=value" pairs
-// the spec fixes (a block's type, an enum value): they are never a field. The page does the requests and shows
-// their errors in `error`.
+// the spec fixes (a block's type, an enum value): they are never a field. Nor is what services/templates.py refuses: a
+// string next to a parse_mode or entities (a media caption), and a button's callback_data with an answer in callbacks
+// is listed with why instead of «→ поле». The page does the requests and shows their errors in `error`.
 import { css, html, LitElement, nothing } from '../../vendor/lit-core.min.js';
 import { clone } from '../dom.js';
 import { FIELD_LABELS } from '../labels.js';
@@ -30,7 +31,7 @@ function unescapeHtml(s) {
 const escapeHtml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#x27;');
 
 /** @typedef {(string | number)[]} JsonPath */
-/** @typedef {{ path: JsonPath, start?: number, end?: number, value: string, where: string, url: boolean }} Spot */
+/** @typedef {{ path: JsonPath, start?: number, end?: number, value: string, where: string, url: boolean, why?: string }} Spot */
 
 /** In HTML: the text between tags and the links in href/src. @param {string} src @param {JsonPath} path @param {Spot[]} out */
 function htmlSpots(src, path, out) {
@@ -76,20 +77,48 @@ function sourceOf(path) {
   return (key === 'html' || key === 'markdown') && path[path.length - 1] === key ? key : 'text';
 }
 
+/** Set as Python reads it: an empty string, list or object is not. @param {unknown} v */
+const filled = (v) => (Array.isArray(v) ? v.length > 0 : v && typeof v === 'object' ? Object.keys(v).length > 0 : !!v);
+
+/** A parse_mode or entities next to the string (a media caption, a poll question), as _formatted_by: Telegram would
+ * format the value by them, so the service refuses a field there. @param {Json | null} parent */
+function formattedBy(parent) {
+  return Object.entries(parent || {}).some(([k, v]) => filled(v) && (k.endsWith('parse_mode') || k.endsWith('entities')));
+}
+
+// a button of the post (not of a rich reply: the studio does not answer those) whose callback_data has an answer in
+// callbacks, as _check refuses it: a key of callbacks is never a field, so another value would lose the answer
+const CALLBACK_DATA = 'callback_data';
+const ANSWERED = 'связан с ответом на нажатие в callbacks';
+const ANSWERED_WHY = 'Ответ на нажатие ищется по этому значению среди ключей callbacks, а ключ полем не меняется: после заполнения кнопка осталась бы без ответа';
+
 /** Strings of the post that can become a field. @param {Json} post @param {Set<string>} fixed */
 function spots(post, fixed) {
   /** @type {Spot[]} */
   const out = [];
-  mapStrings(post, (v, path) => {
+  const answers = post[CALLBACKS];
+  const answered = new Set(answers && typeof answers === 'object' && !Array.isArray(answers) ? Object.keys(answers) : []);
+  eachString(post, (v, path, parent) => {
     const key = keyOf(path);
     const source = sourceOf(path);
-    if (source === 'html') htmlSpots(v, path, out);
-    else if (source !== 'markdown' && v.trim() && !hasVar(v) && !fixed.has(key + '=' + v)) {
-      out.push({ path, value: v, where: FIELD_LABELS[key] || key || 'Ответ на кнопку', url: key === 'url' || /^(https?:|tg:|upload:)/.test(v) });
-    }
-    return v;
+    if (source === 'markdown' || formattedBy(parent)) return;
+    if (source === 'html') { htmlSpots(v, path, out); return; }
+    if (!v.trim() || hasVar(v) || fixed.has(key + '=' + v)) return;
+    /** @type {Spot} */
+    const spot = { path, value: v, where: FIELD_LABELS[key] || key || 'Ответ на кнопку', url: key === 'url' || /^(https?:|tg:|upload:)/.test(v) };
+    if (key === CALLBACK_DATA && path[0] !== CALLBACKS && answered.has(v)) spot.why = ANSWERED;
+    out.push(spot);
   });
   return out;
+}
+
+/** Every string of the value with its path and the object it belongs to (for a string in a list, the object holding
+ * the list), as services/templates.py _strings walks it. Nothing is copied: it runs on every render.
+ * @param {(s: string, path: JsonPath, parent: Json | null) => void} fn */
+function eachString(v, fn, /** @type {JsonPath} */ path = [], /** @type {Json | null} */ parent = null) {
+  if (typeof v === 'string') fn(v, path, parent);
+  else if (Array.isArray(v)) v.forEach((x, i) => eachString(x, fn, [...path, i], parent));
+  else if (v && typeof v === 'object') for (const [k, x] of Object.entries(v)) eachString(x, fn, [...path, k], v);
 }
 
 /** Every string of the value through fn(string, its path). @param {(s: string, path: JsonPath) => string} fn */
@@ -104,7 +133,7 @@ function mapStrings(v, fn, /** @type {JsonPath} */ path = []) {
 function usedKeys(post) {
   /** @type {string[]} */
   const keys = [];
-  mapStrings(post, (s) => { for (const m of s.matchAll(VAR)) if (!keys.includes(m[1])) keys.push(m[1]); return s; });
+  eachString(post, (s) => { for (const m of s.matchAll(VAR)) if (!keys.includes(m[1])) keys.push(m[1]); });
   return keys;
 }
 
@@ -148,6 +177,7 @@ export class RsTemplateForm extends LitElement {
     li { display: flex; gap: 8px; align-items: center; padding: 5px 8px; border-top: 1px solid var(--border, #dfe3e8); min-width: 0; }
     li:first-child { border-top: 0; }
     .where { flex: none; font-size: 11.5px; color: var(--muted, #707579); }
+    .why { flex: 0 1 auto; max-width: 45%; font-size: 11.5px; color: var(--muted, #707579); text-align: right; cursor: help; }
     .value { flex: 1; min-width: 0; overflow-wrap: anywhere; }
     p { margin: 6px 0; line-height: 1.4; }
     .muted { color: var(--muted, #707579); font-size: 12.5px; }
@@ -239,7 +269,8 @@ ${this.fields.length ? this.fields.map((f, i) => html`<div class="field">
 <h4>Строки поста</h4>
 ${markdown ? html`<p class="warn">Пост в Markdown: в его тексте поля пока не подставляются. Переведите пост в визуальный режим или в HTML.</p>` : nothing}
 ${free.length ? html`<ul class="spots">${free.map((s) => html`<li><span class="where">${s.where}</span><span class="value">${short(s.value)}</span>
-  <button title="Сделать полем: в посте встанет {{…}}, а эта строка — значением по умолчанию" @click=${() => this.makeField(s)}>→ поле</button></li>`)}</ul>`
+  ${s.why ? html`<span class="why" title=${ANSWERED_WHY}>${s.why}</span>`
+    : html`<button title="Сделать полем: в посте встанет {{…}}, а эта строка — значением по умолчанию" @click=${() => this.makeField(s)}>→ поле</button>`}</li>`)}</ul>`
     : html`<p class="muted">Строк, которые можно сделать полем, не осталось.</p>`}
 <p class="muted">В HTML можно вписать {{имя}} прямо в текст поста — поле появится здесь. Значение при заполнении всегда текст: разметки оно не создаёт.</p>
 <p class="err" role="alert">${this.error}</p>`;
