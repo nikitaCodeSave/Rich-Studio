@@ -21,7 +21,7 @@ docker compose up -d
 
 Редактор: `https://<домен>`, вход по этому токену. Агентам выдайте свои: `docker compose exec rich-studio python cli.py token add claude-laptop --level draft`, в окружении агента `STUDIO_URL=https://<домен>` (без `/` в конце) и `STUDIO_TOKEN`. Их читают `.mcp.json` и хук здоровья, когда Claude Code открыт в папке студии; из другой папки подключение настраивается вручную ([README](../README.md#mcp-для-claude-и-других-агентов)). Skill `telegram-rich-posts` агент получает по MCP от самой студии, копировать его не нужно.
 
-Серверный режим (`STUDIO_MODE=server`, его задаёт `docker-compose.yml`):
+Серверный режим (`STUDIO_MODE=server`, его задаёт `deploy/docker-compose.yml`):
 
 - без токена доступа, `https://` в `STUDIO_URL` и токена бота студия не стартует; чего не хватает, пишет `docker compose logs rich-studio`;
 - `STUDIO_API_KEY` (ключ уровня `admin`, необязателен, именные токены удобнее) должен быть не короче 32 символов, иначе студия тоже не стартует: неудачные попытки ключа не считаются, от перебора защищает только длина;

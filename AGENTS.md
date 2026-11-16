@@ -12,7 +12,7 @@ make check-fast                                 # между шагами и п�
 make fmt                                        # автоисправление формата и линтеров
 ```
 
-Изменение готово к ревью, когда зелёный CI в PR: он гоняет `make check` (это `check-fast` плюс JS-тесты `npm run test:…`) и все браузерные проверки. Локально, кроме `make check-fast`, запускай тесты своей области: `pytest tests/<файл> -k …`, нужные `npm run test:…` (`render`, `parity`, `shots`, `export`, `completion`, `codemirror`), `make e2e-local ONLY=<часть имени проверки>` (свой стенд: подставной Telegram и студия с пустым `DATA_DIR` на портах 7499 и 8099; нужен Chromium для Playwright). Изменил маршруты, модели API или инструменты MCP намеренно: `make docs` и закоммить `docs/openapi.json` и `docs/reference/` (их сверяют `test_openapi_contract.py` и `test_reference_docs.py`).
+Изменение готово к ревью, когда зелёный CI в PR: он гоняет те же шаги, что `make check` (это `check-fast` плюс JS-тесты `npm run test:…`), и все браузерные проверки. Локально, кроме `make check-fast`, запускай тесты своей области: `pytest tests/<файл> -k …`, нужные `npm run test:…` (`render`, `parity`, `shots`, `export`, `completion`, `codemirror`), `make e2e-local ONLY=<часть имени проверки>` (свой стенд: подставной Telegram и студия с пустым `DATA_DIR` на портах 7499 и 8099; нужен Chromium для Playwright). Изменил маршруты, модели API или инструменты MCP намеренно: `make docs` и закоммить `docs/openapi.json` и `docs/reference/` (их сверяют `test_openapi_contract.py` и `test_reference_docs.py`).
 
 ## Главные правила
 
@@ -35,7 +35,7 @@ make fmt                                        # автоисправление
 | api+mcp | `app/api/`, `app/mcp_tools/`, `app/models.py`, `docs/openapi.json`, `docs/reference/` |
 | editor | `app/static/`, `types/`, `tests/e2e/`, `tests/*.mjs` |
 | platform | `Dockerfile`, `docker-compose.yml`, `deploy/`, `requirements.lock`, `.github/`, `Makefile`, `scripts/`, `.claude/hooks/` |
-| docs | `README.md`, `AGENTS.md`, `CLAUDE.md`, `.claude/skills/`, `.claude/agents/`, `docs/` |
+| docs | `README.md`, все `AGENTS.md` и `CLAUDE.md`, `.claude/skills/`, `.claude/agents/`, `docs/` |
 
 - Общие списки разнесены по файлам, чтобы параллельные PR не правили одну строку: шаг схемы — новый файл `app/store/migrations/NNNN_имя.sql`, инструмент MCP — функция в `app/mcp_tools/tools/<область>.py` (новая область — новый файл), браузерная проверка — новый файл `tests/e2e/NN-имя.mjs`. Конфликт в `docs/reference/` не сливай руками: пересобери `make docs`. README и `SKILL.md` правь точечно, без переформатирования соседних строк.
 - Перед PR: `git merge origin/main`, затем `make check-fast`. Номер миграции или браузерной проверки, занятый другим PR, замени следующим свободным (повтор номера миграции роняет `test_migrations.py`).
