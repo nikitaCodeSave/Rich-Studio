@@ -104,7 +104,6 @@ export function loadPost(post, keepNotes = false) {
     S.unknown[k] = v;
     delete post[k];
   }
-  S.topicChat = undefined; // the loaded post's topic belongs to the channel it is opened with
   const rm = post.rich_message || {};
   S.buf = { blocks: [], html: '', markdown: '' };
   S.format = rm.blocks ? 'blocks' : rm.markdown !== undefined ? 'markdown' : rm.html !== undefined ? 'html' : 'blocks';
@@ -117,6 +116,9 @@ export function loadPost(post, keepNotes = false) {
   const { inline_keyboard: kb, ...markup } = post.reply_markup || {};
   S.keyboard = kb || [];
   S.options = post.options || {};
+  // the loaded post's topic belongs to the channel it is opened in: in another one showTarget drops it
+  const list = chats();
+  S.topicChat = S.options.message_thread_id !== undefined && list.length === 1 ? list[0] : undefined;
   // a comment with its HTML as a string is edited in the form, its other fields kept; any other one stays as it came
   const c = post.comment;
   const html = isObject(c) && typeof c.html === 'string';
