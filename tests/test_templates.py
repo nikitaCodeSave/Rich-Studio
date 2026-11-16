@@ -360,6 +360,57 @@ def test_the_keys_of_callbacks_are_button_data_not_fields(client):
     assert r.status_code == 422 and "целиком" in r.json()["detail"], r.text
 
 
+def answered(button: dict, reply_button: dict | None = None) -> dict:
+    """A post with `button` under it and the answer to the press "vote" (with `reply_button` in its rich reply)."""
+    answer: dict = {"text": "Спасибо"}
+    if reply_button:
+        answer["reply"] = {
+            "rich_message": {"html": "<p>Голос учтён</p>"},
+            "reply_markup": {"inline_keyboard": [[reply_button]]},
+        }
+    return {
+        "rich_message": {"blocks": [{"type": "paragraph", "text": "Голосуем"}]},
+        "reply_markup": {"inline_keyboard": [[button]]},
+        "callbacks": {"vote": answer},
+    }
+
+
+@pytest.mark.parametrize(
+    "post, default",
+    [
+        (answered({"text": "Да", "callback_data": "{{d}}"}), "vote"),
+        (answered({"text": "Да", "callback_data": "vo{{d}}"}), "te"),
+        (
+            {
+                "rich_message": {
+                    "blocks": [{"type": "buttons", "buttons": [{"text": "Да", "callback_data": "{{d}}"}]}]
+                },
+                "callbacks": {"vote": "Спасибо"},
+            },
+            "vote",
+        ),
+    ],
+)
+def test_a_button_with_an_answer_keeps_its_callback_data(client, post, default):
+    """The answer to a press is found by the button's callback_data among the keys of callbacks, and a key of JSON is
+    never a field: filled with another value, the button would lose its answer. A post button (reply_markup or a
+    block of buttons) whose callback_data with the defaults put in has an answer is refused."""
+    r = client.post("/api/templates", json={"title": "t", "post": post, "fields": [{"key": "d", "default": default}]})
+    assert r.status_code == 422, r.text
+    assert "callback_data" in r.json()["detail"] and "callbacks" in r.json()["detail"], r.json()
+    assert client.get("/api/templates").json() == []
+
+
+def test_a_button_without_an_answer_and_a_button_inside_an_answer_take_a_field(client):
+    """No answer to lose: a button without a key in callbacks, and a button of the rich reply (the studio does not
+    answer presses on it, services/callbacks.py)."""
+    for post, default in (
+        (answered({"text": "Да", "callback_data": "{{d}}"}), "other"),
+        (answered({"text": "Да", "callback_data": "vote"}, {"text": "Ещё", "callback_data": "{{d}}"}), "vote"),
+    ):
+        make(client, {"title": "t", "post": post, "fields": [{"key": "d", "default": default}]})
+
+
 def test_a_link_field_takes_an_anchor_or_a_path_and_a_file_only_where_it_is_sent(client):
     """As the preview's safeUrl: #anchor and /path are links too. upload:name works only in the post's JSON (media):
     in an HTML attribute it would stay upload:name, the HTML way to a file is tg://photo?id= and rich_message.media."""
