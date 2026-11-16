@@ -49,7 +49,7 @@ CodeMirror (a CVE from `npm audit`, or a planned update): `make vendor-update` m
 
 **b. Flaky browser check**: its own PR (area editor). Replace the pause before the read with a wait for the event and keep the `check` unchanged; how to wait: `tests/AGENTS.md`. The same pause-then-read in other checks is a later PR: list those files in this PR's description.
 
-**c. A fresh CVE outside the diff**: first the bump of 3a in its own PR. If no fix can be taken yet, ignore the CVE for a while, always with a comment: why, a link, until what date. For pip-audit, `--ignore-vuln <ID>` in `ci.yml`; for Trivy, a line in `.trivyignore`, which the `image scan` step reads only once the file is mounted into the Trivy container and passed as `--ignorefile`. Never turn the job off.
+**c. A fresh CVE outside the diff**: first the bump of 3a in its own PR. If no fix can be taken yet, ignore the CVE for a while, always with a comment: why, a link, until what date. For pip-audit, `--ignore-vuln <ID>` in `ci.yml`; for Trivy, a line `<ID> exp:<date>` in `.trivyignore` (the ignore ends by itself on that date). Never turn the job off.
 
 Done when `gh pr checks <n> --watch` is green for every PR; locally `make check-fast` and the one check you fixed (a browser fix: `E2E_SLOW=500 make e2e-local ONLY=<check>` red on the old check, green on the new one).
 

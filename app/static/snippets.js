@@ -1,6 +1,6 @@
 /* HTML and Markdown snippets for the code modes.
  * The HTML grammar of rich messages is not in the machine-readable spec, so
- * this list is maintained by hand (see README "Обновление"). Anything you
+ * this list is maintained by hand (see README «Что обновляется вручную»). Anything you
  * type that is not here is still sent to Telegram unchanged.
  * $SEL$ is replaced by the selected text, $ID$ by a fresh media id.
  * verified: false marks syntax taken from third-party sources.
