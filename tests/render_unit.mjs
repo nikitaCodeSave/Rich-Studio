@@ -865,12 +865,14 @@ for (const [name, rm] of Object.entries(SLIDESHOWS)) {
   check('64 levels draw, 65 are too deep; \\{ \\} and \\leftarrow are no levels', JSON.stringify(edge.map((e) => e[0])) === JSON.stringify(['formula,formula', 'error:true,error:true', 'formula,formula', 'formula,formula']), JSON.stringify(edge));
   const macros = await draw([doubled(8), chained(140), doubled(5)]);
   check('levels a formula makes with \\def draw as an error too and do not crash the page', JSON.stringify(macros.map((e) => e[0])) === JSON.stringify(['error:true,error:true', 'error:true,error:true', 'formula,formula']), JSON.stringify(macros).slice(0, 300));
-  // groups a % comment hides from the count make no boxes; the security review of #230 measured 28 s of layout for
-  // 1000 levels of \vbox{%}. Each is an element in KaTeX's MathML copy, and deeper than it may be there is an error
+  // groups a % comment hides from the count make no boxes, and their layout grows as the cube of their levels (security
+  // review of #230): 600 levels of {\text{v}%} round an x took 3.5 s, 1000 levels 16 s; 1000 of \vbox{%} 28 s. Each is
+  // an element in KaTeX's MathML copy, and deeper than it may be there is an error
+  const commented = (n) => '{\\text{v}%}\n'.repeat(n) + 'x' + '}'.repeat(n);
   const started = Date.now();
-  const hidden = await draw(['\\vbox{%}\n'.repeat(1000) + '}'.repeat(1000)]);
+  const hidden = await draw([commented(600), '\\vbox{%}\n'.repeat(1000) + '}'.repeat(1000), commented(30)]);
   const took = Date.now() - started;
-  check(`groups a comment hides from the count draw as an error, quickly: ${took} ms`, JSON.stringify(hidden) === JSON.stringify([Array(3).fill('error:true,error:true')]) && took < 5000, JSON.stringify(hidden).slice(0, 300));
+  check(`groups a comment hides from the count draw as an error, quickly: ${took} ms`, JSON.stringify(hidden) === JSON.stringify([...Array(2).fill(Array(3).fill('error:true,error:true')), Array(3).fill('formula,formula')]) && took < 5000, JSON.stringify(hidden).slice(0, 300));
   // what is as deep as a formula may be still draws: arrays in arrays, and a long flat one
   const allowed = await draw([kinds['\\begin{matrix}'](63), r('\\begin{array}{c}', 30) + 'y' + r('\\end{array}', 30), r('\\begin{cases}', 30) + 'y' + r('\\end{cases}', 30), r('x^{', 64) + 'y' + r('}', 64), 'a+b'.repeat(10000)]);
   check('arrays in arrays, 64 levels and a long formula still draw', allowed.every((e) => JSON.stringify(e) === JSON.stringify(Array(3).fill('formula,formula'))), JSON.stringify(allowed).slice(0, 300));

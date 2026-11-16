@@ -96,10 +96,10 @@
     }
     return false;
   }
-  // Groups the source count misses (a % comment, \verb|}|, \def) make no boxes but a group in a group all the same:
-  // the security review of #230 measured 28 s of layout for 1000 levels of \vbox{%}. KaTeX's MathML copy has an
-  // element for each such level: 64 levels of x^{…}, \frac or \left are about 68 elements deep in it, an array about 4
-  // a level. Plain { } it flattens there; 1000 levels of them laid out in 50 ms here
+  // Groups the source count misses (a % comment, \verb|}|, \def) make no boxes but a group in a group all the same,
+  // and their layout grows as the cube of their levels (security review of #230): 600 levels of {\text{v}%} round an x
+  // took 3.5 s, 1000 levels 16 s, 1000 of \vbox{%} 28 s. KaTeX's MathML copy has an element for each such level: 64
+  // levels of x^{…}, \frac or \left are about 68 elements deep in it, an array about 4 a level
   const MAX_MATHML_DEPTH = 5 * MAX_FORMULA_DEPTH;
   /** whether the elements in e go deeper than `left` levels more @param {Element} e @param {number} left */
   function deeperThan(e, left) {
