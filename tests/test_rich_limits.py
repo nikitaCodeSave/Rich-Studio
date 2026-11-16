@@ -21,7 +21,11 @@ from spec.validator import (
     HTML_TAG_RE,
     LINK_DROPS,
     MAX_BYTES,
+    MAX_FORMULA_DEPTH,
     TAKEN_OUT,
+    TEX_CLOSES,
+    TEX_OPENS,
+    TEX_TOKEN_RE,
     TG_ENTITIES,
     TG_ENTITY_RE,
     keyboard_errors,
@@ -516,6 +520,103 @@ def test_the_preview_tells_tags_from_text_the_same_way():
     found = re.search(r"const TAG = /(.+)/g;", RENDER_JS)
     assert found, "TAG not found in render.js"
     assert found[1].replace("\\/", "/") == HTML_TAG_RE.pattern
+
+
+# ---------- a formula too deep for the preview (issue #228) ----------
+DEEP = "глубже 64 уровней"
+
+
+def nested(levels: int, open_: str = "x^{", close: str = "}") -> str:
+    return open_ * levels + "y" + close * levels
+
+
+def deep_formula_posts(expr: str) -> dict[str, dict]:
+    """The formula in each way a post holds one: inline and as a block, in blocks, html and markdown."""
+    tex = html_lib.escape(expr, quote=False)
+    return {
+        "blocks: inline": {"blocks": [para(["a ", {"type": "mathematical_expression", "expression": expr}])]},
+        "blocks: block": {"blocks": [{"type": "mathematical_expression", "expression": expr}]},
+        "html: inline": {"html": f"<p>a <tg-math>{tex}</tg-math></p>"},
+        "html: block": {"html": f"<tg-math-block>{tex}</tg-math-block>"},
+        "markdown: inline": {"markdown": f"a ${expr}$"},
+        "markdown: block": {"markdown": f"$$\n{expr}\n$$"},
+    }
+
+
+@pytest.mark.parametrize("where", deep_formula_posts("").keys())
+def test_a_formula_deeper_than_the_preview_draws_is_a_warning(current, where):
+    """About 130 levels of \\frac, \\sqrt or x^{…} crashed the browser tab, so the preview draws a formula only up to 64
+    levels (render.js, MAX_FORMULA_DEPTH). What Telegram does with a deeper one was not measured: a warning."""
+    for expr in (
+        nested(65),
+        nested(200, r"\sqrt{"),
+        nested(65, r"\left(", r"\right)"),
+        nested(65, r"\begin{matrix}", r"\end{matrix}"),
+    ):
+        r = check(current, **deep_formula_posts(expr)[where])
+        assert r["ok"] and has(r["warnings"], DEEP) and has(r["warnings"], "не замерено"), (where, expr[:20], r)
+    r = check(current, **deep_formula_posts(nested(64))[where])
+    assert r["ok"] and not has(r["warnings"], "глубже"), (where, r)
+
+
+def test_the_depth_of_a_formula_counts_groups_not_characters(current):
+    """\\{ and \\} are braces as characters, \\leftarrow is no \\left; \\\\ before { is a line break and the group counts;
+    \\bgroup and \\begingroup open a group as { does."""
+    for expr in (r"\{" * 200 + "x" + r"\}" * 200, r"\leftarrow" * 200, r"\left." * 64 + "x" + r"\right." * 64):
+        r = check(current, html=f"<p><tg-math>{expr}</tg-math></p>")
+        assert not has(r["warnings"], "глубже"), (expr[:20], r)
+    for expr in (
+        r"\\{" * 65 + "x" + "}" * 65,
+        nested(65, r"\sqrt\bgroup ", r"\egroup "),
+        nested(65, r"\begingroup ", r"\endgroup "),
+    ):
+        r = check(current, html=f"<p><tg-math>{expr}</tg-math></p>")
+        assert has(r["warnings"], DEEP), (expr[:20], r)
+
+
+def test_only_formulas_are_counted_and_a_formula_in_a_formula_is_one(current):
+    """Braces in text are not a formula; html draws a formula in a formula as one formula of their text (render.js)."""
+    braces = "{" * 200 + "}" * 200
+    for rm in ({"html": f"<p>{braces}</p>"}, {"markdown": f"{braces}\n\n$x$"}, {"blocks": [para(braces)]}):
+        assert not has(check(current, **rm)["warnings"], "глубже"), rm
+    inner = "<tg-math>" + "x^{" * 40 + "</tg-math>"
+    r = check(current, html="<p><tg-math>" + "x^{" * 30 + inner + "y" + "}" * 70 + "</tg-math></p>")
+    assert has(r["warnings"], DEEP), r
+
+
+def test_every_deep_formula_is_named_once(current):
+    r = check(current, blocks=[{"type": "mathematical_expression", "expression": nested(65)} for _ in range(3)])
+    (warning,) = [w for w in r["warnings"] if DEEP in w]
+    assert warning.startswith("rich_message.blocks[0]: формула «x^{x^{") and "ещё 2" in warning, warning
+
+
+@pytest.mark.parametrize(
+    "make",
+    [
+        lambda n: {"markdown": "$x^{" * n},
+        lambda n: {"html": "<tg-math>" + "{" * n},
+        lambda n: {"markdown": "$" + "{" * n},
+    ],
+    ids=[
+        "markdown: $ and a group, over and over",
+        "html: one formula of openings",
+        "markdown: one formula of openings",
+    ],
+)
+def test_the_depth_of_formulas_is_checked_in_linear_time(current, make):
+    grows_linearly(lambda k: check(current, **make(k)), 30000)
+
+
+def test_the_preview_counts_the_levels_of_a_formula_the_same_way():
+    """render.js keeps its own copy of the count (formulaDepth): the preview draws as an error what the check warns of."""
+    found = re.search(r"const MAX_FORMULA_DEPTH = (\d+);\s*const TEX_TOKEN = /(.+)/g;", RENDER_JS)
+    assert found, "MAX_FORMULA_DEPTH and TEX_TOKEN not found in render.js"
+    assert int(found[1]) == MAX_FORMULA_DEPTH
+    assert found[2].replace(r"[\s\S]", ".") == TEX_TOKEN_RE.pattern
+    for name, words in (("TEX_OPENS", TEX_OPENS), ("TEX_CLOSES", TEX_CLOSES)):
+        listed = re.search(rf"const {name} = new Set\(\[(.*?)\]\);", RENDER_JS)
+        assert listed, f"{name} not found in render.js"
+        assert {w.replace("\\\\", "\\") for w in re.findall(r"'([^']*)'", listed[1])} == words, name
 
 
 def test_markdown_nesting_is_left_to_telegram(current):

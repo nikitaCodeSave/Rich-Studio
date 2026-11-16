@@ -324,8 +324,49 @@ CUT_SOURCE = (
     "кириллицы — 2 байта, эмодзи — 4), и конец поста не дойдёт до читателя; сократите пост или отправьте его блоками"
 )
 
+# How deep a formula is: each { }, \left…\right, \begin…\end, \bgroup…\egroup, \begingroup…\endgroup is a level, \{ \}
+# are characters. Not a limit of Telegram: about 130 levels of \frac, \sqrt, x^{…} or \colorbox crashed the browser tab
+# of the preview (issue #228), so it does not draw a formula deeper than MAX_FORMULA_DEPTH. What Telegram does with
+# one was not measured: a warning. The same count in render.js (formulaDepth), tests/test_rich_limits.py compares them.
+MAX_FORMULA_DEPTH = 64
+TEX_TOKEN_RE = re.compile(r"\\(?:[a-zA-Z]+|.)|[{}]", re.S)
+TEX_OPENS = frozenset({"{", r"\left", r"\begin", r"\bgroup", r"\begingroup"})
+TEX_CLOSES = frozenset({"}", r"\right", r"\end", r"\egroup", r"\endgroup"})
+# in markdown a formula is between two $ ($x$, $$x$$): what is between them is counted, so text between two formulas
+# is too, a warning more rather than one missed
+MD_DOLLARS_RE = re.compile(r"\$+")
+
 BLOCKS = "Array of InputRichBlock"
 TABLE = "Array of Array of "
+
+
+def formula_depth(expr: str) -> int:
+    depth = most = 0
+    for m in TEX_TOKEN_RE.finditer(expr):
+        if m[0] in TEX_OPENS:
+            depth += 1
+            most = max(most, depth)
+        elif m[0] in TEX_CLOSES and depth:
+            depth -= 1
+    return most
+
+
+def _deep_formulas(v: Validator, found: list[tuple[str, str]]):
+    """One warning for the formulas deeper than MAX_FORMULA_DEPTH: (where, the formula) of each, where may be ""."""
+    if not found:
+        return
+    where, expr = found[0]
+    more = f" (и ещё {len(found) - 1})" if len(found) > 1 else ""
+    v.warnings.append(
+        f"{where + ': ' if where else ''}формула «{_short(expr, 30)}»{more} глубже {MAX_FORMULA_DEPTH} уровней "
+        "вложенности ({ }, \\left…\\right, \\begin…\\end): предпросмотр её не рисует, Telegram может отклонить пост "
+        "или не нарисовать её — не замерено"
+    )
+
+
+def md_formulas(src: str) -> list[str]:
+    """What is between two runs of $ in markdown, where its formulas are (MD_DOLLARS_RE)."""
+    return MD_DOLLARS_RE.split(src)[1:-1]
 
 
 def utf8_size(s: str) -> int:
@@ -367,6 +408,7 @@ class _Count:
         self.cut: list[tuple[str, int]] = []  # (path of the block, UTF-8 bytes) of strings over MAX_BYTES
         # (path of the block, "link" or "button", its text, address_notes) of addresses Telegram does not take as they are
         self.addresses: list[tuple[str, str, str, list]] = []
+        self.deep_formulas: list[tuple[str, str]] = []  # (path of the block, its formula) deeper than MAX_FORMULA_DEPTH
         self._tags: dict[str, dict] = {}
         self._holders: dict[str, bool] = {}
 
@@ -435,6 +477,8 @@ class _Count:
             self.media += 1
         elif name in COUNTED_STRINGS:
             self.string(v, where)
+            if name == "expression" and isinstance(v, str) and formula_depth(v) > MAX_FORMULA_DEPTH:
+                self.deep_formulas.append((where, v))
         elif one.startswith(TABLE) and isinstance(v, list):
             rows = [r for r in v if isinstance(r, list)]
             for ri, row in enumerate(rows):
@@ -588,6 +632,7 @@ def _block_limits(v: Validator, blocks: list) -> dict:
         v.warnings.append(FOLDED)
     for where, kind, text, notes in n.addresses:
         _note_address(v, kind, text, notes, f"{where}: ")
+    _deep_formulas(v, n.deep_formulas)
     if n.blocks > MAX_BLOCKS:
         v.errors.append(f"блоков вместе с пунктами списков и строками таблиц: {n.blocks}, лимит {MAX_BLOCKS}")
     if n.media > MAX_MEDIA:
@@ -869,6 +914,11 @@ class _HtmlWalk(HTMLParser):
         self.links: list[tuple[str, list, list]] = []
         self.addresses: list[tuple[str, list, str]] = []  # (kind, address_notes, text) of the links and buttons closed
         self.uploads: list[tuple[str, str]] = []  # (tag, src) of a src with upload:
+        # the text of the formula open now and the place of its element in the stack: a formula in it is part of its
+        # text, as render.js draws it
+        self.formula: list[str] | None = None
+        self.formula_at = -1
+        self.deep_formulas: list[str] = []
         self.sure = self.about = 0
         self.sure_path = self.about_path = ""
 
@@ -876,6 +926,10 @@ class _HtmlWalk(HTMLParser):
         while len(self.stack) > i:
             e = self.stack.pop()
             self.open[e.tag] -= 1
+            if len(self.stack) == self.formula_at and self.formula is not None:
+                if formula_depth(expr := "".join(self.formula)) > MAX_FORMULA_DEPTH:
+                    self.deep_formulas.append(expr)
+                self.formula = None
             if e.link is not None:
                 self.links.pop()
                 self.addresses.append((e.link[0], e.link[1], "".join(e.link[2])))
@@ -949,6 +1003,8 @@ class _HtmlWalk(HTMLParser):
             if written is not None and (notes := address_notes(kind, tg_unescape(written), href)):
                 e.link = (kind, notes, [])
                 self.links.append(e.link)
+        if tag in ("tg-math", "tg-math-block") and self.formula is None:
+            self.formula, self.formula_at = [], i
         self.stack.append(e)
         self.open[tag] += 1
 
@@ -961,6 +1017,8 @@ class _HtmlWalk(HTMLParser):
         self._close(i)
 
     def handle_data(self, data):
+        if self.formula is not None:
+            self.formula.append(data)
         if self.links:
             self.links[-1][2].append(data)
         if data.strip():
@@ -998,6 +1056,7 @@ def _html_shape(v: Validator, src: str) -> int:
         _note_address(v, kind, text, notes)
     for tag, src in walk.uploads:
         v.errors.append(f"<{tag} src={_short(src, 60)}>: {UPLOAD_IN_SRC}")
+    _deep_formulas(v, [("", expr) for expr in walk.deep_formulas])
     if walk.sure > MAX_DEPTH:
         v.errors.append(
             f"{walk.sure} уровней вложенности, лимит {MAX_DEPTH}: {walk.sure_path} (уровень — каждый элемент на пути "
@@ -1102,6 +1161,8 @@ def _source_limits(v: Validator, rm: dict) -> dict:
     stats = {"chars": chars, "bytes": size, "media": count}
     if is_html:
         stats["depth"] = _html_shape(v, src)
+    else:
+        _deep_formulas(v, [("", f) for f in md_formulas(src) if formula_depth(f) > MAX_FORMULA_DEPTH])
     return stats
 
 
