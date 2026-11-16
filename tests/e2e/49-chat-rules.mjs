@@ -26,11 +26,15 @@ export default async function ({ page, check, applyJson, setChat, mockLog }) {
   const plain = await page.locator('#kb .kb-btn').nth(1).locator('.kb-refused p').count();
   await page.waitForFunction(() => /web_app: не работает в канале/.test(document.querySelector('#validation')?.textContent || ''), null, quick).catch(() => {});
   const listed = await page.locator('#validation li.w', { hasText: 'web_app' }).allTextContents();
+  // the screenshots show the card, not the toasts of the steps above: they go by themselves
+  const noToasts = () => page.waitForFunction(() => !document.querySelector('#toasts > *'), null, { timeout: 12000 }).catch(() => {});
+  await noToasts();
   await page.locator('#kb .kb-btn').nth(0).scrollIntoViewIfNeeded();
   await page.screenshot({ path: 'test-results/ui/chat-rules-1400.png' }).catch(() => {});
   await page.setViewportSize({ width: 390, height: 844 });
   await page.waitForFunction(() => innerWidth === 390, null, quick).catch(() => {});
   await page.locator('#kb .kb-btn').nth(0).scrollIntoViewIfNeeded();
+  await noToasts();
   await page.screenshot({ path: 'test-results/ui/chat-rules-390.png' }).catch(() => {});
   await page.setViewportSize({ width: 1400, height: 900 });
   // another chat, never checked: no type, so nothing is marked; back to the channel, the mark is back
@@ -41,7 +45,8 @@ export default async function ({ page, check, applyJson, setChat, mockLog }) {
   await marked().waitFor(quick).catch(() => {});
   const back = await marked().count();
   check('A web_app button in a checked channel is marked, with the direct link instead; an unchecked chat is not',
-    /web_app не работает в канале «Тест»/.test(mark) && /Available only in private chats/.test(mark) && mark.includes('https://t.me/<бот>/<приложение>?startapp=')
+    /web_app не работает в канале «Тест»/.test(mark) && /Available only in private chats/.test(mark) && /BUTTON_TYPE_INVALID/.test(mark)
+      && mark.includes('https://t.me/<бот>/<приложение>?startapp=')
       && plain === 0 && listed.length === 1 && /Приложение/.test(listed[0]) && unknown === 0 && back === 1,
     JSON.stringify({ mark, plain, listed, unknown, back }));
 

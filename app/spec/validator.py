@@ -41,18 +41,36 @@ TG_ENTITIES = {
     "rsquo": "’",
     "trade": "™",
 }
-# Chats Telegram refuses a field in though its description does not say so, measured on the real Bot API 10.4
-# (2026-11-16, issue #166: sendRichMessage to a test channel and a test forum supergroup): a switch_inline_query button
-# under a post is refused in the channel and taken in the group. Everything else spec/chats.py warns about is read
-# from the descriptions; the same measurement found Telegram doing what they say (web_app refused in the group too,
-# message_effect_id and the thinking block refused in both), each time with an error, never dropped in silence.
-# key (as in spec/chats.py): chat types it is refused in, Telegram's answer, when it was measured
-REFUSED_IN = {
-    "InlineKeyboardButton.switch_inline_query": (
-        frozenset({"channel"}),
-        "can't use … button in a channel chat",
-        "Bot API 10.4, 2026-11-16",
-    ),
+# What the real Telegram refused, measured on Bot API 10.4 (MEASURED; issue #166: sendRichMessage to a test channel
+# and a test forum supergroup, each message deleted right away): the whole post, every time with an error, never
+# dropped in silence. key as in spec/chats.py (sendRichMessage.<parameter>, <Type>, <Type>.<field>) → chat type →
+# Telegram's answer. Most of it the descriptions say too, and spec/chats.py reads them: then a warning says the post
+# is refused, not only what the spec says. Where no description says it, the measurement is the rule itself: the
+# switch_inline_query buttons other than _current_chat under a channel post, every one of them in a «Кнопки» block,
+# callback_game anywhere (no game message is sent here). Taken in the supergroup, so not listed: the switch_inline_query
+# buttons and the reply keyboards. To be measured again with a new Bot API.
+MEASURED = "Bot API 10.4, 2026-11-16"
+_BOTH = ("channel", "supergroup")
+_INLINE_IN_CHANNEL = {"channel": "can't use … button in a channel chat"}  # the first measurement kept no button name
+_NOT_INLINE = {"channel": "inline keyboard expected"}
+_IN_BLOCK = {"channel": "RICH_MESSAGE_BLOCK_INVALID"}
+REFUSED_IN: dict[str, dict[str, str]] = {
+    "sendRichMessage.message_effect_id": dict.fromkeys(_BOTH, "can't use message effects in the chat"),
+    "InlineKeyboardButton.web_app": dict.fromkeys(_BOTH, "BUTTON_TYPE_INVALID"),
+    "InlineKeyboardButton.callback_game": dict.fromkeys(_BOTH, "BUTTON_TYPE_INVALID"),
+    "InlineKeyboardButton.switch_inline_query": _INLINE_IN_CHANNEL,
+    "InlineKeyboardButton.switch_inline_query_current_chat": _INLINE_IN_CHANNEL,
+    "InlineKeyboardButton.switch_inline_query_chosen_chat": {
+        "channel": "can't use switch_inline_query button in a channel chat"
+    },
+    "RichMessageButton.web_app": dict.fromkeys(_BOTH, "BUTTON_TYPE_INVALID"),
+    "RichMessageButton.switch_inline_query": _IN_BLOCK,
+    "RichMessageButton.switch_inline_query_current_chat": _IN_BLOCK,
+    "RichMessageButton.switch_inline_query_chosen_chat": _IN_BLOCK,
+    "ReplyKeyboardMarkup": _NOT_INLINE,
+    "ReplyKeyboardRemove": _NOT_INLINE,
+    "ForceReply": _NOT_INLINE,
+    "InputRichBlockThinking": dict.fromkeys(_BOTH, "RICH_MESSAGE_BLOCK_UNSUPPORTED"),
 }
 
 

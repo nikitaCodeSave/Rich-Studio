@@ -128,11 +128,25 @@ def targets(chat_id, chat_ids, draft_id: str | None = None) -> list:
 
 
 def checked_targets(chat_ids=None, draft_id: str | None = None) -> list:
-    """Where a post would go, for its check: as targets() says, but a wrong or missing chat is no chat here (a check
-    raises nothing; publishing tells what is wrong)."""
+    """Where a post would go, for its check: as targets() says, but a wrong or missing chat is left out, the others
+    stay (a check raises nothing; publishing tells what is wrong)."""
+    if not chat_ids and draft_id:
+        d = store.get_draft(draft_id)
+        if d is None:  # a deleted draft goes nowhere, not to the default channel
+            return []
+        chat_ids = d.get("chat_ids")
+    if chat_ids:
+        good = []
+        for c in chat_ids:
+            try:
+                normalize_chats([c])
+            except StudioError:
+                continue
+            good.append(c)
+        return targets(None, good) if good else []
     try:
-        return targets(None, chat_ids, draft_id)
-    except StudioError:
+        return targets(None, None)
+    except StudioError:  # no default channel
         return []
 
 
@@ -212,8 +226,9 @@ def check(post: dict, chats: Iterable = ()) -> dict:
     """Validation report of the post, its first comment and the rich replies to its buttons (a draft is saved with
     it, the editor shows it), with warnings for what Telegram refuses in `chats`, the ones it goes to; raises nothing.
     The stats are the post's own."""
-    r = _check_post(post, places(chats))
-    for part in (_check_comment(post), callbacks.check(post)):
+    where = places(chats)
+    r = _check_post(post, where)
+    for part in (_check_comment(post), callbacks.check(post, where)):
         if part:
             r = {
                 **r,
@@ -228,14 +243,15 @@ def validate(post: dict, chats: Iterable = ()) -> dict:
     """Validation report; raises Invalid if the post, its first comment or a reply to its buttons has errors. What
     Telegram refuses in `chats`, the ones it goes to, is a warning."""
     options(post)
-    r = _check_post(post, places(chats))
+    where = places(chats)
+    r = _check_post(post, where)
     if not r["ok"]:
         raise Invalid({"message": "пост не прошёл проверку", **r})
     if c := _check_comment(post):
         if not c["ok"]:
             raise Invalid({"message": "первый комментарий не прошёл проверку", **c})
         r = {**r, "warnings": r["warnings"] + c["warnings"]}
-    cb = callbacks.check(post)
+    cb = callbacks.check(post, where)
     r = {**r, "warnings": r["warnings"] + cb["warnings"]}  # the reply's own warnings too, refused or not
     if cb["errors"]:
         raise Invalid({"message": "ответ на кнопку не прошёл проверку", **r, "ok": False, "errors": cb["errors"]})

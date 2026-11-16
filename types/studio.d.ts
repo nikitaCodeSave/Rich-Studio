@@ -47,16 +47,16 @@ interface SpecSummary {
   gaps: SpecGap[];
   last_check: { at: number; error: string | null } | null;
   post: SpecPost;
-  /** where Telegram refuses a field or a type, read from the descriptions (spec/chats.py): "Type.field", "Type",
-   * "sendRichMessage.parameter" */
-  chat_rules: Record<string, ChatRule>;
+  /** where Telegram refuses a field or a type (spec/chats.py): `rules` by "Type.field", "Type",
+   * "sendRichMessage.parameter"; `places` the words for a chat type ("в канале"; "forum" for a forum supergroup) */
+  chat_rules: { rules: Record<string, ChatRule>; places: Record<string, string> };
 }
 
-/** A rule of `chat_rules` in GET /api/spec */
+/** A rule of `chat_rules.rules` in GET /api/spec */
 interface ChatRule {
   /** Chat.type values (and "ephemeral", a rich reply to a press) Telegram refuses it in: the sentence of the
-   * description that says so, or Telegram's answer and when it was measured ("Bot API 10.4, 2026-11-16") */
-  refused: Record<string, { why: string; measured: string | null }>;
+   * description that says so, Telegram's answer when it was measured, and both in words (`text`) */
+  refused: Record<string, { why: string | null; answer: string | null; text: string }>;
   /** the only method it works in (the thinking block: sendRichMessageDraft), so in no post; `why` says so */
   only_in: string | null;
   why: string | null;

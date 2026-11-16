@@ -5,16 +5,18 @@ The Bot API documentation says it in a few plain phrases on a field or a type: �
 «…; for private chats only» (message_effect_id), «may be used only in sendRichMessageDraft» (the thinking block).
 The studio reads these phrases instead of keeping a list of fields (AGENTS.md, rule 2): a new field with such a phrase
 is warned about the day the spec has it, and a phrase Telegram rewords or drops stops the warning instead of leaving a
-stale one. What a measurement found and no description says is in validator.REFUSED_IN. Only warnings (rule 1): the
-post still goes as it is, Telegram has the last word.
+stale one. What the real Telegram refused is in validator.REFUSED_IN: with it a warning says the post is refused, not
+only what the spec says, and it covers what no description says. Only warnings (rule 1): the post still goes as it
+is, Telegram has the last word.
 """
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
 from typing import Any, NamedTuple
 
 from .source import Spec, reachable
-from .validator import MAX_JSON_DEPTH, REFUSED_IN, _attribute, _json_depth
+from .validator import MAX_JSON_DEPTH, MEASURED, REFUSED_IN, _attribute, _json_depth
 
 SEND = "sendRichMessage"  # every post, first comment and rich reply goes with it
 # chat types are Chat.type: private, group, supergroup, channel; and a rich reply to a button press, an ephemeral message
@@ -40,23 +42,31 @@ HTML_TAGS = re.compile(r"\bcorresponding to the (?:custom )?HTML tags? ((?:<[a-z
 HTML_BUTTON = ("tg-button", "RichMessageButton")
 START_TAG = re.compile(r"<([a-z][\w-]*)\b[^>]*>", re.I)
 SENTENCE = re.compile(r"(?<=\.)\s+(?=[A-Z])")
-# advice shown with a warning about a field of this type; written by hand
+# advice shown with a warning about a field of this type, written by hand: (the types holding the field, the advice).
+# A reply keyboard has no link button, so the advice is for inline and rich message buttons only
 HINTS = {
     "WebAppInfo": (
+        frozenset({"InlineKeyboardButton", "RichMessageButton"}),
         "вместо неё кнопка-ссылка (url) с прямой ссылкой на Mini App https://t.me/<бот>/<приложение>?startapp=…, "
-        "она открывает приложение и из канала (core.telegram.org/bots/webapps#direct-link-mini-apps)"
+        "она открывает приложение и из канала (core.telegram.org/bots/webapps#direct-link-mini-apps)",
     ),
 }
-# how a warning names the chat: «не работает в канале «Новости»»
-PLACES = {"channel": "в канале", "supergroup": "в группе", "group": "в группе", "private": "в личке"}
+# how a warning names the chat: «не работает в канале «Новости»»; the editor gets them in GET /api/spec
+PLACES = {
+    "channel": "в канале",
+    "supergroup": "в группе",
+    "forum": "в форуме",
+    "group": "в группе",
+    "private": "в личке",
+}
 
 
 class Said(NamedTuple):
-    """Why a chat type refuses it: the sentence of the description, or Telegram's own answer and when it was
-    measured (`measured`, empty for the spec)."""
+    """Why a chat type refuses it: the sentence of the description that says so, Telegram's own answer when it was
+    measured (validator.REFUSED_IN), or both."""
 
-    why: str
-    measured: str = ""
+    why: str = ""
+    answer: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,8 +80,9 @@ class Rule:
     hint: str = ""
 
 
-def read(description: str) -> Rule | None:
-    """The rule a description states, or None: a field without such a phrase works everywhere as far as the spec says."""
+def read(description: str, methods: Iterable[str] = ()) -> Rule | None:
+    """The rule a description states, or None: a field without such a phrase works everywhere as far as the spec says.
+    `methods`: the methods of the spec, so «may be used only in <method>» is read only for a real one."""
     refused: dict[str, Said] = {}
     only_in = why = ""
     for sentence in SENTENCE.split(description.strip()):
@@ -79,7 +90,7 @@ def read(description: str) -> Rule | None:
             if phrase.search(sentence):
                 for c in sorted(chats):
                     refused.setdefault(c, Said(sentence))
-        if (m := ONLY_IN.search(sentence)) and m[1] != SEND:
+        if (m := ONLY_IN.search(sentence)) and m[1] != SEND and m[1] in methods:
             only_in, why = m[1], sentence
     return Rule(refused, only_in, why) if refused or only_in else None
 
@@ -90,54 +101,76 @@ _cache: dict[str, Any] = {}
 
 def rules(spec: Spec) -> dict[str, Rule]:
     """Every rule for a sendRichMessage request: "sendRichMessage.<parameter>", "<Type>" and "<Type>.<field>" of the
-    types its parameters lead to; the measured ones (REFUSED_IN) for fields the spec still has."""
+    types its parameters lead to, with the measurements (REFUSED_IN) of what the spec still has."""
     if _cache.get("data") is spec.data:
         return _cache["rules"]
     out: dict[str, Rule] = {}
-    params = (spec.methods.get(SEND) or {}).get("fields", [])
+    params = {f["name"]: f for f in (spec.methods.get(SEND) or {}).get("fields", [])}
 
-    def add(key: str, description: str, types: tuple[str, ...] = ()) -> None:
-        if rule := read(description):
-            out[key] = replace(rule, hint=_hint(types))
+    def add(owner: str, name: str, description: str, types: list[str]) -> None:
+        if rule := read(description, spec.methods):
+            out[f"{owner}.{name}" if name else owner] = replace(rule, hint=_hint(owner, types))
 
-    for f in params:
-        add(f"{SEND}.{f['name']}", f.get("description", ""), tuple(f["types"]))
-    for name in sorted(reachable(spec.types, [t for f in params for t in f["types"]])):
+    for f in params.values():
+        add(SEND, f["name"], f.get("description", ""), f["types"])
+    for name in sorted(reachable(spec.types, [t for f in params.values() for t in f["types"]])):
         t = spec.types[name]
-        add(name, " ".join(t.get("description", [])))
+        add(name, "", " ".join(t.get("description", [])), [])
         for f in t.get("fields", []):
-            add(f"{name}.{f['name']}", f.get("description", ""), tuple(f["types"]))
-    for key, (chats, answer, when) in REFUSED_IN.items():
+            add(name, f["name"], f.get("description", ""), f["types"])
+    for key, answers in REFUSED_IN.items():
         owner, _, name = key.partition(".")
-        known = next((f for f in spec.types.get(owner, {}).get("fields", []) if f["name"] == name), None)
-        rule = out.get(key) or Rule()
-        new = {c: Said(answer, when) for c in sorted(chats) if c not in rule.refused}  # the spec has the last word
-        if known is not None and new:  # a field gone from the spec takes its measurement with it
-            out[key] = replace(rule, refused={**rule.refused, **new}, hint=rule.hint or _hint(known["types"]))
+        fields = params if owner == SEND else {f["name"]: f for f in spec.types.get(owner, {}).get("fields", [])}
+        if (name and name not in fields) or (not name and owner not in spec.types):
+            continue  # gone from the spec: its measurement goes with it
+        rule = out.get(key) or Rule(hint=_hint(owner, fields[name]["types"] if name else []))
+        refused = dict(rule.refused)
+        for chat, answer in answers.items():
+            refused[chat] = Said(refused.get(chat, Said()).why, answer)
+        out[key] = replace(rule, refused=refused)
     _cache.update(data=spec.data, rules=out)
     return out
 
 
-def _hint(types) -> str:
-    return next((HINTS[t] for t in types if t in HINTS), "")
+def _hint(owner: str, types: list[str]) -> str:
+    for t in types:
+        if t in HINTS and owner in HINTS[t][0]:
+            return HINTS[t][1]
+    return ""
+
+
+def said(spec: Spec, s: Said) -> str:
+    """A reason in words: what the spec says, and what Telegram answered when it was measured."""
+    parts = [f"в спецификации ({spec.version}): «{s.why.rstrip('.')}»"] if s.why else []
+    if s.answer:
+        unsaid = "" if s.why else "; в спецификации этого нет"
+        parts.append(f"Telegram отклоняет пост: «{s.answer}» (замер: {MEASURED}{unsaid})")
+    return "; ".join(parts)
 
 
 def summary(spec: Spec) -> dict:
-    """The rules as the editor reads them (GET /api/spec `chat_rules`)."""
+    """The rules as the editor reads them (GET /api/spec `chat_rules`): each reason already in words, and the words
+    for the chats, so the editor and a check say the same."""
     return {
-        key: {
-            "refused": {c: {"why": s.why, "measured": s.measured or None} for c, s in r.refused.items()},
-            "only_in": r.only_in or None,
-            "why": r.why or None,
-            "hint": r.hint or None,
-        }
-        for key, r in rules(spec).items()
+        "places": PLACES,
+        "rules": {
+            key: {
+                "refused": {
+                    c: {"why": s.why or None, "answer": s.answer or None, "text": said(spec, s)}
+                    for c, s in r.refused.items()
+                },
+                "only_in": r.only_in or None,
+                "why": r.why or None,
+                "hint": r.hint or None,
+            }
+            for key, r in rules(spec).items()
+        },
     }
 
 
 def place(chat_type: str, is_forum: bool, title: str | None, chat_id) -> tuple[str, str]:
     """(chat type, where in words) of a chat the post goes to, for warnings()."""
-    word = "в форуме" if chat_type == "supergroup" and is_forum else PLACES.get(chat_type, f"в чате типа {chat_type}")
+    word = PLACES["forum"] if chat_type == "supergroup" and is_forum else PLACES.get(chat_type, f"в чате {chat_type}")
     return chat_type, f"{word} «{title}»" if title else f"{word} {chat_id}"
 
 
@@ -201,19 +234,15 @@ def _button(path: str, value) -> str:
 def _message(spec: Spec, where: str, what: str, rule: Rule, here: list[tuple[str, str]]) -> str:
     """One warning: `here` are the (chat type, where in words) that refuse it; each reason once."""
     if rule.only_in:
+        answer = next((s.answer for s in rule.refused.values() if s.answer), "")
         return (
-            f"{where}: {what}Telegram принимает только в {rule.only_in}, а пост уходит через {SEND} — в "
-            f"спецификации ({spec.version}): «{rule.why.rstrip('.')}»"
+            f"{where}: {what}Telegram принимает только в {rule.only_in}, а пост уходит через {SEND} — "
+            f"{said(spec, Said(rule.why, answer))}"
         )
     places = dict.fromkeys(words for _, words in here)
-    said = "; ".join(
-        f"так отвечает Telegram: «{s.why}» (замер: {s.measured}; в спецификации этого нет)"
-        if s.measured
-        else f"в спецификации ({spec.version}): «{s.why.rstrip('.')}»"
-        for s in dict.fromkeys(rule.refused[t] for t, _ in here)
-    )
+    reasons = "; ".join(dict.fromkeys(said(spec, rule.refused[t]) for t, _ in here))
     hint = f". {rule.hint[:1].upper()}{rule.hint[1:]}" if rule.hint else ""
-    return f"{where}: {what}не работает {', '.join(places)} — {said}{hint}"
+    return f"{where}: {what}не работает {', '.join(places)} — {reasons}{hint}"
 
 
 def warnings(

@@ -1,10 +1,7 @@
 // What Telegram refuses in the chats the post goes to: `chat_rules` of GET /api/spec (spec/chats.py reads them from
-// the descriptions of the spec) against the types of the chats the studio checked in «Каналы». The check below the
-// editor says the same for the whole post (/api/validate with chat_ids); here a card marks its own fields.
+// the descriptions of the spec and from measurements) against the types of the chats the studio checked in «Каналы».
+// The words come from there too, so a card says what the check below the editor says (/api/validate with chat_ids).
 import { channelOf, S, target } from './state.js';
-
-// how a chat is named: «не работает в канале «Новости»» (spec/chats.py PLACES)
-const PLACES = { channel: 'в канале', supergroup: 'в группе', group: 'в группе', private: 'в личке' };
 
 /** @typedef {{ type: string, words: string }} Place */
 /** @typedef {{ field: string, here: Place[], rule: ChatRule }} Refusal */
@@ -12,10 +9,12 @@ const PLACES = { channel: 'в канале', supergroup: 'в группе', grou
 /** The chats the post goes to whose type the studio knows, as a warning names them. A chat nobody checked has none.
  * @returns {Place[]} */
 export function places() {
-  return target().chat_ids.map(channelOf).filter((c) => c && c.type).map((c) => ({
-    type: /** @type {string} */ (c.type),
-    words: `${c.type === 'supergroup' && c.is_forum ? 'в форуме' : PLACES[c.type] || 'в чате'} ${c.title ? `«${c.title}»` : c.chat_id}`,
-  }));
+  const words = S.spec.chat_rules ? S.spec.chat_rules.places : {};
+  return target().chat_ids.map(channelOf).filter((c) => c && c.type).map((c) => {
+    const type = /** @type {string} */ (c.type);
+    const word = words[type === 'supergroup' && c.is_forum ? 'forum' : type] || `в чате ${type}`;
+    return { type, words: `${word} ${c.title ? `«${c.title}»` : c.chat_id}` };
+  });
 }
 
 /**
@@ -23,7 +22,7 @@ export function places() {
  * @param {string} typeName @param {Json} obj @returns {Refusal[]}
  */
 export function refusals(typeName, obj) {
-  const rules = S.spec.chat_rules || {};
+  const rules = S.spec.chat_rules ? S.spec.chat_rules.rules : {};
   const all = places();
   return Object.keys(obj || {}).flatMap((field) => {
     const rule = rules[`${typeName}.${field}`];
@@ -35,9 +34,7 @@ export function refusals(typeName, obj) {
 /** One refusal in words: where, why (each reason once), and the way out (a direct link for web_app…). @param {Refusal} r */
 export function refusalText({ field, here, rule }) {
   const where = [...new Set(here.map((p) => p.words))].join(', ');
-  const said = [...new Set(here.map((p) => rule.refused[p.type]))].map((s) => (s.measured
-    ? `так отвечает Telegram: «${s.why}» (замер: ${s.measured}; в спецификации этого нет)`
-    : `в спецификации: «${s.why.replace(/\.$/, '')}»`)).join('; ');
+  const said = [...new Set(here.map((p) => rule.refused[p.type].text))].join('; ');
   const hint = rule.hint ? ` ${rule.hint[0].toUpperCase()}${rule.hint.slice(1)}.` : '';
   return `⚠ ${field} не работает ${where} — ${said}.${hint}`;
 }
