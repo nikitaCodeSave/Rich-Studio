@@ -50,9 +50,12 @@ export default async function ({ page, check, mockLog, push, until, BASE }) {
   };
   const shared = await removeKbButton({ rich_message: { html }, reply_markup: { inline_keyboard: [[{ text: 'За', callback_data: 'vote' }]] }, callbacks: { vote: 'Спасибо' } });
   const alone = await removeKbButton({ rich_message: { html }, reply_markup: { inline_keyboard: [[{ text: '👍', callback_data: 'like' }]] }, callbacks: { vote: 'Спасибо', like: 'Нравится' } });
+  // the key in the HTML written with an entity: data="a&amp;b" is a&b
+  const entity = await removeKbButton({ rich_message: { html: '<p>Голосуем</p><tg-button data="a&amp;b">И</tg-button>' }, reply_markup: { inline_keyboard: [[{ text: 'И', callback_data: 'a&b' }]] }, callbacks: { 'a&b': 'Спасибо' } });
   check('A button of the keyboard removed in the form takes its answer, but not the answer its key has in the text',
-    !shared.reply_markup && same(shared.callbacks, { vote: 'Спасибо' }) && !alone.reply_markup && same(alone.callbacks, { vote: 'Спасибо' }),
-    JSON.stringify({ shared, alone }));
+    !shared.reply_markup && same(shared.callbacks, { vote: 'Спасибо' }) && !alone.reply_markup && same(alone.callbacks, { vote: 'Спасибо' })
+      && !entity.reply_markup && same(entity.callbacks, { 'a&b': 'Спасибо' }),
+    JSON.stringify({ shared, alone, entity }));
 
   // 2. a «Кнопки» block and its answer, edited in the visual mode
   const blocks = [{ type: 'paragraph', text: 'Голосуем' }, { type: 'buttons', buttons: [{ text: 'Да', callback_data: 'vote' }] }];
@@ -150,6 +153,22 @@ export default async function ({ page, check, mockLog, push, until, BASE }) {
   const lost = allSaved ? Object.keys(want).filter((k) => !same(allSaved.payload[k], want[k])) : ['(не сохранён)'];
   check('Every field of the post at a value other than its default stays through an edit and a save', !lost.length,
     JSON.stringify({ lost, fields: names, saved: allSaved?.payload }));
+
+  // a field the form shows, in a shape it cannot read: it goes as it came, and a note above the editor says its part of
+  // the form changes nothing, until it is fixed in the JSON tab
+  const odd = await api('POST', '/api/drafts', { title: 'Поля не в том виде', post: { rich_message: { blocks: [{ type: 'paragraph', text: 'Пост' }] }, options: [1], pin: 'yes' } });
+  const noted = (on) => page.waitForFunction((want) => /Поля (options, pin|pin, options) заданы в JSON в виде, который форма не читает/.test(document.querySelector('#draft-notes')?.shadowRoot?.textContent || '') === want, on, wait).then(() => true, () => false);
+  await page.goto(`${BASE}/?draft=${odd.id}`);
+  await page.waitForSelector('.block');
+  const oddNoted = await noted(true);
+  await page.locator('#draft-notes').screenshot({ path: 'test-results/ui/unread-fields-1400.png' }).catch(() => {});
+  await typeIn('#pane-blocks .rte', ' и правка');
+  const oddSaved = await save((p) => p.rich_message?.blocks?.[0]?.text === 'Пост и правка', odd.id);
+  await apply({ ...(await jsonTab()), options: {}, pin: true });
+  const oddFixed = await noted(false);
+  check('A field the form cannot read goes as it came, a note says so until it is fixed in the JSON tab',
+    oddNoted && !!oddSaved && same(oddSaved.payload.options, [1]) && oddSaved.payload.pin === 'yes' && oddFixed,
+    JSON.stringify({ oddNoted, oddFixed, saved: oddSaved?.payload, notes: await page.locator('#draft-notes').textContent() }));
 
   // 6. JSON that is not an object is not applied
   await apply('[1, 2]');

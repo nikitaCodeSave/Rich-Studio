@@ -3,9 +3,11 @@ text. An answer that no button has stays in the post with a warning, and replaci
 the answers of the buttons in its text (#196)."""
 
 import asyncio
+import time
 
 import pytest
 
+import spec
 from services import callbacks, updates
 
 LIKE = {"inline_keyboard": [[{"text": "👍", "callback_data": "like"}]]}
@@ -115,3 +117,57 @@ def test_buttons_replaced_keep_the_answers_of_the_buttons_in_the_text(client, tg
     # without callbacks the answers stay as they were
     r = client.post(f"/api/posts/{pid}/buttons", json={"reply_markup": LIKE})
     assert r.json()["payload"]["callbacks"] == {"vote": "Новый ответ"}
+
+
+def test_buttons_replaced_keep_every_answer_but_those_of_the_keyboard_before(client, tg):
+    # answers the search in the text does not find: one without a button, a <tg-button> with the synonym
+    # callback_data="…" render.js reads, a data with ">" in it; only the old keyboard's answer is replaced
+    html = '<p>Голосуем</p><tg-button callback_data="syn">Да</tg-button><tg-button data="a>b">Б</tg-button>'
+    answers = {"like": "Спасибо", "syn": "Синоним", "a>b": "Скобка", "ghost": "Без кнопки"}
+    post = {"rich_message": {"html": html}, "reply_markup": LIKE, "callbacks": answers}
+    sent = client.post("/api/send", json={"post": post})
+    assert sent.status_code == 200, sent.text
+    pid = sent.json()["post"]["id"]
+    r = client.post(f"/api/posts/{pid}/buttons", json={"reply_markup": DISLIKE, "callbacks": {"dislike": "Жаль"}})
+    assert r.status_code == 200, r.text
+    want = {"syn": "Синоним", "a>b": "Скобка", "ghost": "Без кнопки", "dislike": "Жаль"}
+    assert r.json()["payload"]["callbacks"] == want
+
+
+def test_buttons_replaced_check_their_answers_against_the_text_of_the_post(client, tg):
+    sent = client.post("/api/send", json={"post": {"rich_message": HTML_VOTE, "callbacks": {"vote": "Голос учтён"}}})
+    pid = sent.json()["post"]["id"]
+    bad = {"vote": {"reply": {"rich_message": {"html": ""}}}}
+    r = client.post(f"/api/posts/{pid}/buttons", json={"reply_markup": LIKE, "callbacks": bad})
+    assert r.status_code == 422, r.text
+    detail = r.json()["detail"]
+    assert detail["errors"][0].startswith("ответ на кнопку «Да»:"), detail
+    assert not [w for w in detail["warnings"] if "ответ без кнопки" in w], detail
+
+
+HOSTILE = {
+    "<a without >": lambda n: "<a" * n,
+    "a button around it": lambda n: '<tg-button data="x">' + "<a" * n + "</tg-button>",
+    "buttons with one end": lambda n: '<tg-button data="x">' * (n // 10) + "</tg-button>",
+    "labels of unclosed tags": lambda n: ('<tg-button data="x">' + "<" * 500) * (n // 260) + "</tg-button>",
+}
+
+
+@pytest.mark.parametrize("make", HOSTILE.values(), ids=HOSTILE.keys())
+def test_the_buttons_of_hostile_html_are_found_in_linear_time(make):
+    """By how much the time grows with the input, not by a fixed limit (as test_rich_limits does): four times the
+    input takes about four times as long when linear and about sixteen when quadratic, on any machine. The check
+    runs in the event loop of the studio, and a request body has no limit."""
+    spec.current.load_initial()
+
+    def seconds(n: int) -> float:
+        src = make(n)
+        started = time.perf_counter()
+        for key in ("html", "markdown"):
+            callbacks.text_buttons({key: src})
+        spec.chats.warnings(spec.current, {"rich_message": {"html": src}}, [])
+        return time.perf_counter() - started
+
+    small = min(seconds(12500) for _ in range(2))
+    big = min(seconds(50000) for _ in range(2))
+    assert big < 8 * small + 0.2, (small, big)

@@ -14,7 +14,7 @@ from telegram.uploads import MissingUpload, collect_uploads
 
 from . import channels, kinds, publisher
 from .callbacks import check as check_answers
-from .callbacks import text_buttons
+from .callbacks import keyboard_buttons, text_buttons
 from .updates import poll_results, remember_preview
 
 log = logging.getLogger("rich-studio.posts")
@@ -333,32 +333,36 @@ async def unpin(pid: str) -> dict | None:
 async def set_buttons(pid: str, reply_markup: dict | None, callbacks: dict | None, actor: str = "api") -> dict | None:
     """Replace only the buttons (editMessageReplyMarkup); the text is untouched. Like an edit, the next version is
     taken before Telegram is asked and the buttons before go into the post's history. `callbacks` replace the answers
-    of the buttons under the post: the buttons in its text stay, and so do their answers unless `callbacks` has a new
-    one (None: every answer as it was)."""
+    of the buttons that were under the post; every other answer stays (a button in its text, one with no button)
+    unless `callbacks` has a new one for its key. None: every answer as it was."""
     bad = spec.keyboard_errors(reply_markup)
     if bad:  # the same rule as a full send: Telegram would refuse the whole request
         raise Invalid({"message": "кнопки не прошли проверку", "ok": False, "errors": bad, "warnings": []})
-    answers = check_answers({"reply_markup": reply_markup, "callbacks": callbacks})
+    p = _get(pid)
+    payload = dict(p["payload"])
+    # checked with the text of the post: an answer of a button in it is named by that button and has one
+    with_text = {"rich_message": payload.get("rich_message"), "reply_markup": reply_markup, "callbacks": callbacks}
+    answers = check_answers(with_text)
     if answers["errors"]:  # a rich reply is checked like the post it answers for
         raise Invalid({"message": "ответ на кнопку не прошёл проверку", "ok": False, **answers})
-    p = _get(pid)
     if p["status"] not in ("sent", *WAITING):
         raise StudioError(f"пост в статусе {p['status']}")
-    payload = dict(p["payload"])
     # a Live Photo or paid media keeps its keyboard among its own parameters, where a scheduled send takes it from
     k = kinds.get(p.get("kind"))
     holder = payload
     if k.buttons_in_params:
         holder = payload[k.key] = dict(k.params(payload))
+    before = keyboard_buttons(holder.get("reply_markup"))
     if reply_markup and reply_markup.get("inline_keyboard"):
         holder["reply_markup"] = reply_markup
     else:
         holder.pop("reply_markup", None)
     if callbacks is not None:
-        # a <tg-button> or a «Кнопки» block keeps its answer: the editor sends only the keyboard's (#196)
+        # only the answers of the keyboard before go (#196): one of a <tg-button> or a «Кнопки» block, one with no
+        # button stay as they are, whether or not the text is read for them; a key of both keeps its answer
         old = payload.get("callbacks")
         text = text_buttons(payload.get("rich_message"))
-        kept = {k: v for k, v in old.items() if k in text} if isinstance(old, dict) else {}
+        kept = {key: v for key, v in old.items() if key not in before or key in text} if isinstance(old, dict) else {}
         payload["callbacks"] = {**kept, **callbacks}
     if payload == p["payload"]:  # nothing to change: no new version
         return p

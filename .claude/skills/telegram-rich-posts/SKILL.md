@@ -105,7 +105,7 @@ curl -s "${A[@]}" -X POST $S/api/posts/<id>/edit -H 'content-type: application/j
 # a draft with post_id is a working copy of that post: replace the post as above, /api/send with its draft_id answers 409; "as_new": true posts a second copy, only when the user asked for one
 curl -s "${A[@]}" -X POST $S/api/send -H 'content-type: application/json' -d '{"chat_ids":["@one","@two"],"post":'"$(cat post.json)"'}'  # several channels
 curl -s "${A[@]}" -X POST $S/api/posts/<id>/pin -H 'content-type: application/json' -d '{"disable_notification":true}'   # DELETE to unpin
-curl -s "${A[@]}" -X POST $S/api/posts/<id>/buttons -H 'content-type: application/json' -d '{"reply_markup":{"inline_keyboard":[[...]]}}'  # buttons only; "callbacks" there replaces the answers of the buttons under the post, those of the buttons in its text stay
+curl -s "${A[@]}" -X POST $S/api/posts/<id>/buttons -H 'content-type: application/json' -d '{"reply_markup":{"inline_keyboard":[[...]]}}'  # buttons only; "callbacks" there replaces the answers of the buttons that were under the post, every other answer stays
 curl -s "${A[@]}" -X POST $S/api/poll -H 'content-type: application/json' -d '{"chat_id":"@channel","poll":{"question":"?","options":["A","B"],"members_only":true}}'
 curl -s "${A[@]}" $S/api/posts | jq '.[0] | {reactions, clicks, reply_errors, buttons, poll_results, comment_status}'   # feedback on posts; buttons: callback_data → button text
 curl -s "${A[@]}" -X POST $S/api/raw/<anyMethod> -H 'content-type: application/json' -d '{...}'       # any Bot API method as is; delete*/set*/other non-read/send methods need -H 'X-Confirm: yes'

@@ -49,7 +49,7 @@ export function buildPost() {
 }
 
 /** The answers of the buttons under the post, as they are. «Кнопки» at a published post sends only these: the server
- * keeps the answers of the buttons in its text, which that button does not change (posts.set_buttons). */
+ * replaces only the answers of the keyboard the post had and keeps every other one (posts.set_buttons). */
 export function callbacksFor(kb) {
   const out = {};
   for (const row of kb) for (const b of row) {
@@ -76,8 +76,9 @@ const OWN_STUDIO = ['format', 'buffers', 'json'];
 const isObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
 /** The fields of the post loadPost reads into the form, each with the shape it reads; null is no value. Any other
  * field (one of models.Post this list does not know yet among them), and a value of these the form cannot read, stays
- * as it came in S.unknown and goes back with the post (AGENTS.md rule 1); the check says what is wrong with it. A
- * field shown in the form is read here, in loadPost and in buildPost. The comment takes any value (commentObj). */
+ * as it came in S.unknown and goes back with the post (AGENTS.md rule 1); the check says what is wrong with it, and
+ * for a field of this list a note above the editor says its part of the form changes nothing (unreadNote). A field
+ * shown in the form is read here, in loadPost and in buildPost. The comment takes any value (commentObj). */
 const READ = {
   rich_message: isObject,
   reply_markup: (v) => isObject(v) && (v.inline_keyboard === undefined || (Array.isArray(v.inline_keyboard) && v.inline_keyboard.every((r) => Array.isArray(r) && r.every(isObject)))),
@@ -130,6 +131,7 @@ export function loadPost(post, keepNotes = false) {
   const j = studio && studio.json;
   S.json = j && typeof j.text === 'string' && typeof j.base === 'string' ? { text: j.text, base: j.base } : null;
   setMode(S.format, true);
+  renderNotes(); // with the fields of this post the form cannot read
   renderAll();
 }
 
@@ -213,7 +215,17 @@ function renderNotes() {
   const w = S.notes.warnings;
   const list = Array.isArray(w) ? w : w === undefined || w === null || w === '' ? [] : [w];
   /** @type {import('./components/rs-draft-notes.js').RsDraftNotes} */ ($('#draft-notes')).warnings =
-    list.map((x) => (typeof x === 'string' ? x : JSON.stringify(x)));
+    [...list.map((x) => (typeof x === 'string' ? x : JSON.stringify(x))), ...unreadNote()];
+}
+
+/** A field the form shows, held in a shape it cannot read (pin: "yes", options: [1]): it goes as it came and its part of
+ * the form changes nothing, so the person is told where to change it. Not a note of the draft: never saved. */
+function unreadNote() {
+  const keys = Object.keys(S.unknown).filter((k) => Object.hasOwn(READ, k));
+  if (!keys.length) return [];
+  return [keys.length === 1
+    ? `Поле ${keys[0]} задано в JSON в виде, который форма не читает: оно уйдёт как есть, и форма его не меняет. Правится во вкладке JSON.`
+    : `Поля ${keys.join(', ')} заданы в JSON в виде, который форма не читает: они уйдут как есть, и форма их не меняет. Правятся во вкладке JSON.`];
 }
 
 // «В HTML» in the visual mode: the post as HTML source in its tab (html-export.js); the blocks stay in theirs

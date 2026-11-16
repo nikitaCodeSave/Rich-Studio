@@ -25,12 +25,17 @@ function kindOf(btn) {
 }
 
 /** Whether a key of callbacks may still be pressed elsewhere than on this button: on another button of the keyboard,
- * or in the text of the post. The editor does not read the text for its buttons (the server's check does,
- * services/callbacks.buttons): a key written anywhere in the text keeps its answer, and the check warns about an
- * answer no button has, so nothing is lost silently. @param {string} key @param {Json} btn */
+ * or in the text of the post. Not the rule of which buttons answer (the server's check has it,
+ * services/callbacks.buttons), only a cautious «maybe»: the key written anywhere in the text as it is, or as an
+ * attribute of a <tg-button> in html or markdown with its entities decoded (data="a&amp;b"). A key kept by mistake
+ * stays with its answer, and the check warns about an answer no button has. @param {string} key @param {Json} btn */
 function usedElsewhere(key, btn) {
   if (S.keyboard.some((r) => r.some((b) => b !== btn && b.callback_data === key))) return true;
-  return JSON.stringify(buildPost().rich_message).includes(JSON.stringify(String(key)).slice(1, -1));
+  const rm = buildPost().rich_message || {};
+  if (JSON.stringify(rm).includes(JSON.stringify(String(key)).slice(1, -1))) return true;
+  // an inert document: nothing in it runs or loads, it is only read (as paste.js reads the clipboard)
+  return [rm.html, rm.markdown].some((src) => typeof src === 'string' && /tg-button/i.test(src)
+    && [...new DOMParser().parseFromString(src, 'text/html').querySelectorAll('tg-button')].some((b) => [...b.attributes].some((a) => a.value === key)));
 }
 
 // the bot gets this when the button is pressed; the person never sees or types it

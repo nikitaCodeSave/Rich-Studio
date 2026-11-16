@@ -63,11 +63,15 @@ NO_BUTTON = (
 )
 CALLBACK_DATA = "callback_data"
 BUTTON_END = re.compile(rf"</{spec.chats.HTML_BUTTON[0]}\s*>", re.I)
-TAG = re.compile(r"<[^>]*>")
+# a tag inside the text of a button, for its name in messages; never past the next "<", so a run of "<" is linear
+TAG = re.compile(r"<[^<>]*>")
+# how much of a button's text names it: a button left open runs to the end of the source
+LABEL_SOURCE = 512
 
 
-def _labels(markup) -> dict[str, str]:
-    """callback_data → the text on its button, so a message names the button the author sees."""
+def keyboard_buttons(markup) -> dict[str, str]:
+    """callback_data → the text on its button in a keyboard (reply_markup), so a message names the button the author
+    sees."""
     rows = markup.get("inline_keyboard") if isinstance(markup, dict) else None
     out: dict[str, str] = {}
     for row in rows if isinstance(rows, list) else []:
@@ -84,7 +88,7 @@ def buttons(post) -> dict[str, str]:
     comment and of the poll after the post are on other messages: their presses get no answer, none is here."""
     if not isinstance(post, dict):
         return {}
-    out = _labels(post.get("reply_markup"))
+    out = keyboard_buttons(post.get("reply_markup"))
     for data, text in text_buttons(post.get("rich_message")).items():
         out.setdefault(data, text)
     return out
@@ -118,17 +122,18 @@ def text_buttons(rich_message) -> dict[str, str]:
 
 
 def _html_buttons(src: str) -> list[tuple[str, str]]:
-    """(data, its text) of every <tg-button> with the action callback_data in rich HTML, in order."""
+    """(data, its text) of every <tg-button> with the action callback_data in rich HTML, in order. Linear in the
+    source: every button reads its text up to its end tag, at most LABEL_SOURCE characters."""
     ends = [m.start() for m in BUTTON_END.finditer(src)]
     out: list[tuple[str, str]] = []
-    for m in spec.chats.START_TAG.finditer(src):
+    for m in spec.chats.start_tags(src):
         if m[1].lower() != spec.chats.HTML_BUTTON[0]:
             continue
         action, data = spec.chats.html_button(m[0])
         if action != CALLBACK_DATA or data is None:
             continue
         i = bisect.bisect_left(ends, m.end())
-        inner = src[m.end() : ends[i]] if i < len(ends) else ""
+        inner = src[m.end() : min(ends[i], m.end() + LABEL_SOURCE)] if i < len(ends) else ""
         out.append((data, " ".join(spec.tg_unescape(TAG.sub("", inner)).split())))
     return out
 
@@ -229,7 +234,7 @@ def _check_reply(reply, places: Sequence[tuple[str, str]]) -> tuple[list[str], l
     # an ephemeral message shown in the chat of the post: what does not work in either (spec/chats.py)
     refused = spec.chats.warnings(spec.current, reply, [EPHEMERAL, *places], at=f"{REPLY}.", options="")
     warnings += v.warnings + refused
-    if _labels(reply.get("reply_markup")):
+    if keyboard_buttons(reply.get("reply_markup")):
         warnings.append(f"{REPLY}.reply_markup: на кнопки callback_data внутри ответа студия не отвечает")
     return errors, warnings
 
