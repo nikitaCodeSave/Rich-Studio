@@ -11,7 +11,7 @@ import { readIssue, reveal } from './issues.js';
 import { renderKeyboard } from './keyboard.js';
 import { plural } from './labels.js';
 import { renderMedia } from './media.js';
-import { channelOf, chats, dark, dirty, parsed, S, saveState, showParsed, target } from './state.js';
+import { channelOf, chats, dark, dirty, parsed, S, saveState, showParsed, target, topicHome } from './state.js';
 
 // ---------- change tracking ----------
 export const refreshPreview = debounce(() => { renderPreview(); validate(); }, 250);
@@ -104,7 +104,6 @@ export function loadPost(post, keepNotes = false) {
     S.unknown[k] = v;
     delete post[k];
   }
-  S.topicChat = undefined; // the loaded post's topic belongs to the channel it is opened with
   const rm = post.rich_message || {};
   S.buf = { blocks: [], html: '', markdown: '' };
   S.format = rm.blocks ? 'blocks' : rm.markdown !== undefined ? 'markdown' : rm.html !== undefined ? 'html' : 'blocks';
@@ -117,6 +116,8 @@ export function loadPost(post, keepNotes = false) {
   const { inline_keyboard: kb, ...markup } = post.reply_markup || {};
   S.keyboard = kb || [];
   S.options = post.options || {};
+  // the loaded post's topic belongs to where it leads now: in another chat showTarget drops it
+  S.topicChat = S.options.message_thread_id === undefined ? undefined : topicHome();
   // a comment with its HTML as a string is edited in the form, its other fields kept; any other one stays as it came
   const c = post.comment;
   const html = isObject(c) && typeof c.html === 'string';
@@ -302,23 +303,27 @@ function renderRest() {
     try {
       const v = ta.value.trim() ? JSON.parse(ta.value) : {};
       if (listed && v && typeof v === 'object') delete v.message_thread_id;
+      const had = S.options.message_thread_id;
       for (const f of rest) delete S.options[f.name];
-      Object.assign(S.options, v); ta.style.borderColor = ''; changed();
+      Object.assign(S.options, v); ta.style.borderColor = '';
+      // a topic typed here belongs to where it leads now, as one chosen in the list
+      if (S.options.message_thread_id !== had) S.topicChat = S.options.message_thread_id === undefined ? undefined : topicHome();
+      changed();
     } catch { ta.style.borderColor = 'var(--err)'; }
   });
   box.append(h('p', { class: 'muted small' }, 'Другие параметры sendRichMessage (из спецификации): ', rest.filter((f) => allowed.has(f.name)).map((f, i) => [i ? ', ' : '', h('code', { title: f.description, text: f.name })])), ta);
 }
 
-/** The forum topic of the post (message_thread_id): only for one forum channel with something to choose, its known
- * topics or the topic the post already has; without them the post goes to General and there is nothing to pick. */
+/** The forum topic of the post (message_thread_id): only where the topic leads (topicHome) is a forum with something to
+ * choose, its known topics or the topic the post already has; without them the post goes to General. */
 function topicChoice() {
-  const list = chats();
-  const one = list.length === 1 ? channelOf(list[0]) : null;
+  const home = topicHome();
+  const one = channelOf(home);
   const tid = S.options.message_thread_id;
   const topics = (one && one.is_forum && one.topics) || [];
   if (!one || !one.is_forum || (!topics.length && tid === undefined)) return null;
   const sel = /** @type {HTMLSelectElement} */ (h('select', { id: 'topic', title: 'message_thread_id. Темы добавляются в окне «Каналы» (кнопка канала в шапке)', onchange: () => {
-    if (sel.value) { S.options.message_thread_id = Number(sel.value); S.topicChat = list[0]; } else delete S.options.message_thread_id;
+    if (sel.value) { S.options.message_thread_id = Number(sel.value); S.topicChat = home; } else delete S.options.message_thread_id;
     changed();
   } },
   h('option', { value: '', text: 'General' }),

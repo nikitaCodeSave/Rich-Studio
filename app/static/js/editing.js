@@ -1,5 +1,6 @@
 // Editing a published or scheduled post: the draft is its working copy, <rs-edit-bar> says which post it is.
 import { api } from './api.js';
+import { showTarget } from './channels.js';
 import { closeDialog, openDialog } from './dialogs.js';
 import { $, act, h, toast } from './dom.js';
 import { openDraft, saveDraft, setDraft } from './drafts.js';
@@ -35,6 +36,7 @@ export async function followDraft(d) {
 
 export function leaveEditing() {
   editing.value = null;
+  showTarget(); // a new post goes where the header says: the topic of the edited post's forum stays there
   dirty.value = true; saveState.value = 'есть изменения';
   saveDraft(true).catch((e) => toast(e.message, 'err'));
 }
