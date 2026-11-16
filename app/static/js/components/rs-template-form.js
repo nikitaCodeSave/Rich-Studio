@@ -55,29 +55,48 @@ function htmlSpots(src, path, out) {
   text(last, src.length);
 }
 
+// the post's answers to its buttons (services/callbacks.py): its keys are callback_data, not names of fields
+const CALLBACKS = 'callbacks';
+
+/** The JSON key a string stands under, as services/templates.py _key reads it: for a string in a list, the key of the
+ * list; a string answer in callbacks stands under its button's callback_data, which names no field: "" then.
+ * @param {JsonPath} path */
+function keyOf(path) {
+  for (let i = path.length - 1; i >= 0; i--) {
+    const p = path[i];
+    if (typeof p === 'string') return i === 1 && path[0] === CALLBACKS ? '' : p;
+  }
+  return '';
+}
+
+/** How Telegram reads the string, as _source: the html or markdown it stands under, any other string as it is.
+ * @param {JsonPath} path */
+function sourceOf(path) {
+  const key = keyOf(path);
+  return (key === 'html' || key === 'markdown') && path[path.length - 1] === key ? key : 'text';
+}
+
 /** Strings of the post that can become a field. @param {Json} post @param {Set<string>} fixed */
 function spots(post, fixed) {
   /** @type {Spot[]} */
   const out = [];
-  const walk = (v, /** @type {JsonPath} */ path) => {
-    if (typeof v === 'string') {
-      const key = String(path[path.length - 1] ?? '');
-      if (key === 'html') htmlSpots(v, path, out);
-      else if (key !== 'markdown' && v.trim() && !hasVar(v) && !fixed.has(key + '=' + v)) {
-        out.push({ path, value: v, where: FIELD_LABELS[key] || key, url: key === 'url' || /^(https?:|tg:|upload:)/.test(v) });
-      }
-    } else if (Array.isArray(v)) v.forEach((x, i) => walk(x, [...path, i]));
-    else if (v && typeof v === 'object') Object.entries(v).forEach(([k, x]) => walk(x, [...path, k]));
-  };
-  walk(post, []);
+  mapStrings(post, (v, path) => {
+    const key = keyOf(path);
+    const source = sourceOf(path);
+    if (source === 'html') htmlSpots(v, path, out);
+    else if (source !== 'markdown' && v.trim() && !hasVar(v) && !fixed.has(key + '=' + v)) {
+      out.push({ path, value: v, where: FIELD_LABELS[key] || key || 'Ответ на кнопку', url: key === 'url' || /^(https?:|tg:|upload:)/.test(v) });
+    }
+    return v;
+  });
   return out;
 }
 
-/** Every string of the value through fn(string, its key). */
-function mapStrings(v, fn, key = '') {
-  if (typeof v === 'string') return fn(v, key);
-  if (Array.isArray(v)) return v.map((x) => mapStrings(x, fn, key));
-  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, mapStrings(x, fn, k)]));
+/** Every string of the value through fn(string, its path). @param {(s: string, path: JsonPath) => string} fn */
+function mapStrings(v, fn, /** @type {JsonPath} */ path = []) {
+  if (typeof v === 'string') return fn(v, path);
+  if (Array.isArray(v)) return v.map((x, i) => mapStrings(x, fn, [...path, i]));
+  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, mapStrings(x, fn, [...path, k])]));
   return v;
 }
 
@@ -193,7 +212,7 @@ export class RsTemplateForm extends LitElement {
   removeField(i) {
     const f = this.fields[i];
     const mark = '{{' + f.key + '}}';
-    this.post = mapStrings(this.post, (s, key) => s.split(mark).join(key === 'html' ? escapeHtml(f.default) : f.default));
+    this.post = mapStrings(this.post, (s, path) => s.split(mark).join(sourceOf(path) === 'html' ? escapeHtml(f.default) : f.default));
     this.fields = this.fields.filter((_, j) => j !== i);
   }
 
