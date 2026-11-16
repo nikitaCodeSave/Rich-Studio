@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from html.parser import HTMLParser
 from urllib.parse import quote, urlsplit
 
-from .parse import enum_values
+from .parse import enum_values, number_range
 from .source import Spec
 
 PRIMITIVES = {"String", "Integer", "Float", "Boolean", "True", "InputFile"}
@@ -222,6 +222,11 @@ class Validator:
             ev = enum_values(f.get("description", ""))
             if ev and isinstance(v, str) and v not in ev and len(ev) > 1:
                 self.warnings.append(f"{path}.{k}: значение {v!r}, ожидалось одно из {ev}")
+            rng = number_range(f.get("description", ""), f["types"])
+            if rng and isinstance(v, int | float) and not isinstance(v, bool) and not rng[0] <= v <= rng[1]:
+                self.warnings.append(
+                    f"{path}.{k}: {v} вне {rng[0]}–{rng[1]} из спецификации, Telegram может отклонить пост"
+                )
             self.check(v, f["types"], f"{path}.{k}")
 
 

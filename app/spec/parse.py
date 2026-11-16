@@ -35,6 +35,18 @@ def enum_values(desc: str):
     return vals or None
 
 
+_RANGE_RE = re.compile(r";\s*(\d+)-(\d+)(?=[,.;]|$)")
+
+
+def number_range(desc: str, types: list[str]) -> tuple[int, int] | None:
+    """The range of a number field, as the spec writes it after a semicolon ("Map zoom level; 0-24"). A range said
+    otherwise ("clamped by the app to the range 50-600") is what the app does, not a limit of the value."""
+    if types not in (["Integer"], ["Float"]):
+        return None
+    m = _RANGE_RE.search(desc)
+    return (int(m.group(1)), int(m.group(2))) if m else None
+
+
 def type_const(types: dict, type_name: str):
     """For subtypes like InputRichBlockParagraph: (field, value) of the constant `type` field."""
     t = types.get(type_name) or {}

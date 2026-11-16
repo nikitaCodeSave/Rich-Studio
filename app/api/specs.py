@@ -39,6 +39,7 @@ def post_envelope() -> dict:
                     "required": f.is_required(),
                     "description": f.description or "",
                     "enum": None,
+                    "range": None,
                 }
                 for name, f in models.Post.model_fields.items()
             ],
