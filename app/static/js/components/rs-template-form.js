@@ -1,13 +1,15 @@
 // <rs-template-form>: a post template inside a dialog.
 // mode "edit": the template's title, its fields (label, type, required, default) and the strings of its post that
-//   can become a field: a whole JSON string, and in HTML a text between tags or a link in href/src. «→ поле» puts
-//   {{key}} in place of the string and makes it the field's default; ✕ on a field puts the default back.
+//   can become a field: a whole JSON string, and in HTML a text between tags, a link in href/src or the callback_data
+//   of a <tg-button> (data). «→ поле» puts {{key}} in place of the string and makes it the field's default; ✕ on a
+//   field puts the default back.
 //   A {{key}} typed into the post by hand shows up as a field too. `value`: {title, post, fields} for /api/templates.
 // mode "fill": a form from the fields; `value`: {title, values} for /api/templates/{id}/draft.
 // The strings are found by walking the post's JSON, not by a list of block types. `fixed` holds "name=value" pairs
 // the spec fixes (a block's type, an enum value): they are never a field. Nor is what services/templates.py refuses: a
 // string next to a parse_mode or entities (a media caption), and a button's callback_data with an answer in callbacks
-// is listed with why instead of «→ поле». The page does the requests and shows their errors in `error`.
+// (in HTML its data) is listed with why instead of «→ поле». The page does the requests and shows their errors in
+// `error`.
 import { css, html, LitElement, nothing } from '../../vendor/lit-core.min.js';
 import { clone } from '../dom.js';
 import { FIELD_LABELS } from '../labels.js';
@@ -33,8 +35,9 @@ const escapeHtml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace
 /** @typedef {(string | number)[]} JsonPath */
 /** @typedef {{ path: JsonPath, start?: number, end?: number, value: string, where: string, url: boolean, why?: string }} Spot */
 
-/** In HTML: the text between tags and the links in href/src. @param {string} src @param {JsonPath} path @param {Spot[]} out */
-function htmlSpots(src, path, out) {
+/** In HTML: the text between tags, the links in href/src and the callback_data of a button.
+ * @param {string} src @param {JsonPath} path @param {Spot[]} out @param {Set<string>} answered */
+function htmlSpots(src, path, out, answered) {
   let last = 0;
   const text = (a, b) => {
     const raw = src.slice(a, b);
@@ -52,8 +55,39 @@ function htmlSpots(src, path, out) {
       const start = at + (a.index || 0) + a[0].length - v.length - 1;
       out.push({ path, start, end: start + v.length, value: unescapeHtml(v), where: a[1].toLowerCase() === 'href' ? 'Ссылка' : 'Адрес файла', url: true });
     }
+    if ((/^<([^\s/>]*)/.exec(m[0]) || [])[1]?.toLowerCase() === BUTTON_TAG) buttonSpot(m[0], at, path, out, answered);
   }
   text(last, src.length);
+}
+
+// a button in rich HTML, as spec/chats.py HTML_BUTTON names it: its callback_data is data="…" (html-export.js writes
+// it). The synonym callback_data="…" that render.js also reads is not checked against Telegram, so it is not offered
+const BUTTON_TAG = 'tg-button';
+// an attribute of a start tag with its value in quotes or without them
+const ATTR = /\s([^\s"'=/>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
+
+/** data="…" of a <tg-button> whose action is callback_data (its type, or without a type no url), as _button_data
+ * reads it; with an answer in callbacks listed with why. @param {string} tag @param {number} at where it starts in
+ * the source @param {JsonPath} path @param {Spot[]} out @param {Set<string>} answered */
+function buttonSpot(tag, at, path, out, answered) {
+  // the first of a repeated name, as HTML5 keeps; start: of a quoted value in the tag, -1 for an unquoted one
+  /** @type {Map<string, { value: string, start: number }>} */
+  const attrs = new Map();
+  for (const a of tag.matchAll(ATTR)) {
+    const quoted = a[2] ?? a[3];
+    const value = quoted ?? a[4] ?? '';
+    const name = a[1].toLowerCase();
+    if (!attrs.has(name)) attrs.set(name, { value, start: quoted === undefined ? -1 : (a.index || 0) + a[0].length - value.length - 1 });
+  }
+  const type = unescapeHtml(attrs.get('type')?.value || '');
+  const data = attrs.get('data');
+  if (hasVar(type) || (type || (attrs.has('url') ? 'url' : CALLBACK_DATA)) !== CALLBACK_DATA) return;
+  if (!data || data.start < 0 || !data.value || hasVar(data.value)) return;
+  const value = unescapeHtml(data.value);
+  /** @type {Spot} */
+  const spot = { path, start: at + data.start, end: at + data.start + data.value.length, value, where: FIELD_LABELS[CALLBACK_DATA] || CALLBACK_DATA, url: false };
+  if (answered.has(value)) spot.why = ANSWERED;
+  out.push(spot);
 }
 
 // the post's answers to its buttons (services/callbacks.py): its keys are callback_data, not names of fields
@@ -86,9 +120,12 @@ function formattedBy(parent) {
   return Object.entries(parent || {}).some(([k, v]) => filled(v) && (k.endsWith('parse_mode') || k.endsWith('entities')));
 }
 
-// a button of the post (not of a rich reply: the studio does not answer those) whose callback_data has an answer in
-// callbacks, as _check refuses it: a key of callbacks is never a field, so another value would lose the answer
+// a button of the post whose callback_data has an answer in callbacks, as _check refuses it: a key of callbacks is
+// never a field, so another value would lose the answer. Not a button where the studio answers no press (NO_ANSWERS
+// in services/templates.py): of a rich reply, of the first comment, of the poll after the post
 const CALLBACK_DATA = 'callback_data';
+/** @type {(string | number)[]} */
+const NO_ANSWERS = [CALLBACKS, 'comment', 'poll_after'];
 const ANSWERED = 'связан с ответом на нажатие в callbacks';
 const ANSWERED_WHY = 'Ответ на нажатие ищется по этому значению среди ключей callbacks, а ключ полем не меняется: после заполнения кнопка осталась бы без ответа';
 
@@ -98,15 +135,17 @@ function spots(post, fixed) {
   const out = [];
   const answers = post[CALLBACKS];
   const answered = new Set(answers && typeof answers === 'object' && !Array.isArray(answers) ? Object.keys(answers) : []);
+  const none = new Set();
   eachString(post, (v, path, parent) => {
     const key = keyOf(path);
     const source = sourceOf(path);
+    const here = NO_ANSWERS.includes(path[0]) ? none : answered;
     if (source === 'markdown' || formattedBy(parent)) return;
-    if (source === 'html') { htmlSpots(v, path, out); return; }
+    if (source === 'html') { htmlSpots(v, path, out, here); return; }
     if (!v.trim() || hasVar(v) || fixed.has(key + '=' + v)) return;
     /** @type {Spot} */
     const spot = { path, value: v, where: FIELD_LABELS[key] || key || 'Ответ на кнопку', url: key === 'url' || /^(https?:|tg:|upload:)/.test(v) };
-    if (key === CALLBACK_DATA && path[0] !== CALLBACKS && answered.has(v)) spot.why = ANSWERED;
+    if (key === CALLBACK_DATA && here.has(v)) spot.why = ANSWERED;
     out.push(spot);
   });
   return out;
