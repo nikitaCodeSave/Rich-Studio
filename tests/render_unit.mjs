@@ -68,6 +68,14 @@ const URLS = {
   'vbscript:': 'vbscript:msgbox(1)',
   'data: html': 'data:text/html,<script>alert(1)</script>',
   'protocol-relative': '//evil.example/x',
+  // in an http(s) address the browser reads «\» as «/» and takes tabs and line breaks out (issue #192)
+  'protocol-relative with a backslash': '/\\evil.example/x',
+  'two backslashes': '\\\\evil.example/x',
+  'backslash and slash': '\\/evil.example/x',
+  'slash, tab, backslash': '/\t\\evil.example/x',
+  'slash, line break, slash': '/\n/evil.example/x',
+  'backslash as an entity': '/&#92;evil.example/x',
+  'space, then a backslash as a hex entity': ' /&#x5C;evil.example/x',
 };
 for (const [name, url] of Object.entries(URLS)) {
   const r = await render({ html: `<a href="${url.replace(/"/g, '&quot;')}">x</a><img src="${url.replace(/"/g, '&quot;')}">` });
@@ -179,6 +187,15 @@ for (const [name, url] of Object.entries(URLS)) {
   const evil = await page.evaluate(() => ['<p><a href="/&#x2028;/evil.example/x">a</a></p>', '<p><a href="/\u2028/evil.example/x">b</a></p>']
     .flatMap((html) => [...RichRender.render({ rich_message: { html } }, {}).querySelectorAll('.tg-body a')].map((a) => a.getAttribute('href'))));
   check('taking U+2028 out of an address does not make a path a link to another site', evil.every((h) => h === null || !h.startsWith('//')), JSON.stringify(evil));
+  // the url of a text element: «\» is «/» for the browser too (issue #192); what is left must stay on the studio
+  const away = await page.evaluate(() => ['/\\evil.example/x', '\\\\evil.example/x', '\\/evil.example/x', '/\u2028\\evil.example/x', '/\\\u2028evil.example/x']
+    .map((url) => RichRender.render({ rich_message: { blocks: [{ type: 'paragraph', text: { type: 'url', text: 'x', url } }] } }, {}).querySelector('.tg-body a')?.getAttribute('href') ?? null)
+    .filter((h) => h !== null && new URL(h, 'https://studio.example/').host !== 'studio.example'));
+  check('blocks: a url with «\\» for «/» is no link to another site', away.length === 0, JSON.stringify(away));
+  // Telegram keeps U+FEFF in an address (measured, issue #174), at its end too: the preview does not trim it off
+  const feff = await page.evaluate(() => [{ html: '<p><a href="https://example.com/x&#xFEFF;">a</a></p>' }, { blocks: [{ type: 'paragraph', text: { type: 'url', text: 'a', url: 'https://example.com/x\ufeff' } }] }]
+    .map((rm) => RichRender.render({ rich_message: rm }, {}).querySelector('.tg-body a')?.getAttribute('href')));
+  check('U+FEFF at the end of an address stays in it', feff.every((h) => h === 'https://example.com/x\ufeff'), JSON.stringify(feff));
   // the preview cuts html into tags and text for the entities: a «<a» without its «>» costs one look, not the rest
   const took = await page.evaluate(() => {
     const t = performance.now();
@@ -254,6 +271,35 @@ check('safeUrl table', await page.evaluate(() => {
   return s('https://a.b') && s('/media/x.png') && s('#a') && s('tg://user?id=1') && s('tel:+1')
     && s('//evil') === null && s('javascript:x') === null && s('') === null && s(null) === null && s('ftp://a') === null;
 }));
+// the check reads the address as the browser does and trims every space, so nothing in front hides a scheme or a «//»;
+// what it gives back is the address as written (issue #192)
+check('safeUrl: «\\» is «/», tabs and line breaks are out, spaces in front hide nothing', await page.evaluate(() => {
+  const s = RichRender.safeUrl;
+  return ['/\\evil', '\\\\evil', '\\/evil', '/\t\\evil', '/\n/evil', '/\r\n\\evil', ' //evil', '\ufeff//evil', ' /\\evil', '\ufeffjavascript:x', ' javascript:x', ' java\tscript:x']
+    .every((u) => s(u) === null);
+}));
+// a #name the preview resolves itself, so it is read trimmed, as before #192: U+FEFF in front is still the anchor
+check('safeUrl gives an address back as written, a #name trimmed', await page.evaluate(() => {
+  const s = RichRender.safeUrl;
+  return s('https://e.com/x\ufeff') === 'https://e.com/x\ufeff' && s('/media/a\ufeff.png') === '/media/a\ufeff.png' && s('\ufeff#a') === '#a';
+}));
+{
+  const r = await render({ html: '<p><a href="&#xFEFF;#note">n</a></p><footer><tg-reference name="note">1.</tg-reference></footer>' });
+  check('U+FEFF before #name: still the link to the reference', has(r.html, /<a href="#ref-note" class="tg-reflink">n<\/a>/), r.html);
+}
+{
+  // the scheme of a button is read off the address as the check reads it: a space in front does not take its click
+  const opened = await page.evaluate(() => {
+    const seen = [];
+    const open = window.open;
+    window.open = (u) => { seen.push(u); return null; };
+    const html = '<tg-button-row><tg-button url=" https://example.com/x">b</tg-button><tg-button url=" javascript:window.__xss=1">c</tg-button></tg-button-row>';
+    RichRender.render({ rich_message: { html } }, {}).querySelectorAll('.tg-btn').forEach((b) => b.click());
+    window.open = open;
+    return seen;
+  });
+  check('html: a button with a space before its https address opens it, a javascript: one does not', JSON.stringify(opened) === '["https://example.com/x"]', JSON.stringify(opened));
+}
 
 // ---------- attributes ----------
 {
@@ -297,6 +343,22 @@ const live = (html) => /<(svg|script)\b|<[^>]*\son\w+="|href="javascript/i.test(
 for (const [name, src] of Object.entries(EXTENSIONS)) {
   const r = await render({ markdown: src });
   check('markdown: ' + name, !r.xss && !live(r.html), r.html);
+}
+{
+  // a footnote, a formula over lines and a table row were each looked for from every start to the end (issue #192):
+  // 2 s, 6 s and 7 s for 100 000 bytes; markdown-it by itself reads them in tens of milliseconds
+  const slow = await page.evaluate((hostile) => Object.entries(hostile).map(([name, markdown]) => {
+    const t = performance.now();
+    RichRender.render({ rich_message: { markdown } }, {});
+    return [name, Math.round(performance.now() - t)];
+  }).filter(([, ms]) => ms > 1500), { '[^': '[^'.repeat(50000), '$$ lines': '$$a\n'.repeat(25000), 'table rows': '|a\n|-\n'.repeat(16667), '](': ']('.repeat(50000) });
+  check('markdown: a run of openings without their end is read in linear time', slow.length === 0, JSON.stringify(slow));
+}
+{
+  // an indented line right after a heading is code (CommonMark, issue #192): the entity stays as typed, as the check
+  // reads it (tests/test_rich_limits.py); Telegram was not measured here
+  const code = await page.evaluate(() => RichRender.outline({ rich_message: { markdown: '# h\n    a&#xD800;b' } }));
+  check('markdown: an indented line right after a heading is code', /^<h1>h<\/h1><pre[^>]*>a&#xD800;b<\/pre>$/.test(code), code);
 }
 {
   const r = await render({ html: '<a name="x&quot; onclick=&quot;window.__xss=1">a</a><a href="#x&quot; onclick=&quot;window.__xss=1">b</a><code class="language-js" onclick="window.__xss=1">c</code><tg-time unix="1"><img src=x onerror="window.__xss=1"></tg-time>' });

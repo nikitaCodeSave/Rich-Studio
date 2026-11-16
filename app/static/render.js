@@ -105,7 +105,9 @@
     const title = action === 'url' ? b.url : action === 'copy_text' ? 'Копирует: ' + (b.copy_text && b.copy_text.text) : action === 'callback_data' ? 'callback: ' + b.callback_data : action || 'без действия';
     const btn = el('span', { class: 'tg-btn' + (b.style ? ' tg-btn-' + b.style : '') + (action === 'disabled' ? ' tg-btn-disabled' : ''), title },
       renderRT(b.text, ctx), icon ? el('span', { class: 'tg-btn-ico', text: icon }) : null);
-    if (action === 'url' && b.url && /^https?:\/\//i.test(b.url) && safeUrl(b.url)) btn.addEventListener('click', () => window.open(b.url, '_blank', 'noopener'));
+    // the scheme as the check reads it (safeUrl gives the address back as written, a space in front included)
+    const go = action === 'url' && typeof b.url === 'string' && safeUrl(b.url) ? asRead(b.url) : '';
+    if (/^https?:\/\//i.test(go)) btn.addEventListener('click', () => window.open(go, '_blank', 'noopener'));
     return btn;
   }
 
@@ -372,15 +374,23 @@
   const URL_ATTRS = new Set(['href', 'src', 'url', 'poster']);
   const SAFE_PROTOCOLS = new Set(['http:', 'https:', 'tg:', 'mailto:', 'tel:']);
 
+  // The address is checked as the browser reads it: it takes tabs and line breaks out anywhere (URL standard) and in an
+  // http(s) address reads «\» as «/». The check also trims every space, so nothing in front hides a scheme or a «//».
+  // What goes into href is the address as written: Telegram keeps U+FEFF in it, at the end too (measured, issue #174),
+  // and off the ends the browser itself takes only C0 controls and spaces. A #name is no address: the preview finds
+  // its reference or anchor itself (transformHtml), by the name trimmed, as before #192.
+  const asRead = (v) => v.replace(/[\t\n\r]/g, '').trim();
   function safeUrl(v) {
     if (typeof v !== 'string') return null;
-    const s = v.trim();
+    const s = asRead(v);
     if (!s) return null;
     if (s.startsWith('#')) return s;
-    if (s.startsWith('/') && !s.startsWith('//')) return s; // same-origin (uploaded media)
+    // «/\evil.example» and «\/evil.example» are «//evil.example», another site (issue #192)
+    if (/^[/\\]{2}/.test(s)) return null;
+    if (s.startsWith('/')) return v; // same-origin (uploaded media)
     try {
       const u = new URL(s);
-      return SAFE_PROTOCOLS.has(u.protocol) ? s : null;
+      return SAFE_PROTOCOLS.has(u.protocol) ? v : null;
     } catch (e) { return null; }
   }
 
@@ -725,13 +735,17 @@
     let body = first.slice(2), last = startLine;
     if (body.trimEnd().endsWith('$$') && body.trim().length > 2) body = body.trimEnd().slice(0, -2);
     else {
+      // no line up to endLine closes an earlier $$, so none closes this one either: without it every $$ line looked
+      // to the end again (issue #192)
+      const open = state.tgMathUnclosed;
+      if (open && open[0] < startLine && endLine <= open[1]) return false;
       const parts = [body];
       for (last = startLine + 1; last < endLine; last++) {
         const l = line(last);
         if (l.trimEnd().endsWith('$$')) { parts.push(l.trimEnd().slice(0, -2)); break; }
         parts.push(l);
       }
-      if (last >= endLine) return false;
+      if (last >= endLine) { state.tgMathUnclosed = [startLine, endLine]; return false; }
       body = parts.join('\n');
     }
     if (silent) return true;
@@ -745,7 +759,7 @@
   // [^label]: text definitions are collected and printed as a footer, [^label] becomes a numbered link
   function footnoteDef(state, startLine, endLine, silent) {
     const s = state.src.slice(state.bMarks[startLine] + state.tShift[startLine], state.eMarks[startLine]);
-    const m = /^\[\^([^\]\s]+)\]:\s*(.*)$/.exec(s);
+    const m = /^\[\^([^[\]\s]+)\]:\s*(.*)$/.exec(s);
     if (!m) return false;
     if (silent) return true;
     const parts = [m[2]];
@@ -757,8 +771,9 @@
     state.line = n;
     return true;
   }
+  // a label has no «[» (as a link label), so a run of «[^» is looked through once, not from each one (issue #192)
   function footnoteRef(state, silent) {
-    const m = /^\[\^([^\]\s]+)\]/.exec(state.src.slice(state.pos, state.posMax));
+    const m = /^\[\^([^[\]\s]+)\]/.exec(state.src.slice(state.pos, state.posMax));
     const notes = state.env.footnotes;
     if (!m || !notes || !Object.hasOwn(notes, m[1])) return false;
     if (!silent) {
@@ -851,7 +866,9 @@
       const f = /^\s*(`{3,}|~{3,})/.exec(lines[i]);
       if (f) { if (!fence) fence = f[1][0]; else if (f[1][0] === fence) fence = null; continue; }
       if (fence || !/^\s*\|/.test(lines[i]) || !DELIM_ROW.test(lines[i + 1] || '')) continue;
-      for (let j = i; j < lines.length && /^\s*\|/.test(lines[j]); j++) if (j !== i + 1) lines[j] = lines[j].replace(/(?<!\\)\|(?:\|)+/g, '|');
+      let j = i;
+      for (; j < lines.length && /^\s*\|/.test(lines[j]); j++) if (j !== i + 1) lines[j] = lines[j].replace(/(?<!\\)\|(?:\|)+/g, '|');
+      i = j - 1; // the rows of this table are done: from each of them it was read again to its end (issue #192)
     }
     return lines.join('\n');
   }
