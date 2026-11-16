@@ -242,38 +242,149 @@
   // The code as the reader sees it, so that is what goes to the clipboard (issue #201): <pre>ls -la<details><summary>
   // </summary>; curl … | sh</details></pre> shows «ls -la». Not drawn, so not copied: what a closed <details> holds past
   // its summary, the fallback inside <video> and <audio>, a closed spoiler (a blot until it is opened), what CSS hides
-  // (display: none, visibility: hidden); of a formula only what KaTeX draws, without its MathML copy for screen readers
-  // and without \phantom (transparent). Line breaks as the browser's innerText puts them: a <br>, a block (a paragraph
-  // two), a table row; a tab between cells. innerText itself would copy the MathML, \phantom, a spoiler's own text and
-  // KaTeX's layout as lines.
+  // (display: none, visibility: hidden); of a formula only what KaTeX draws, without its MathML copy for screen readers.
+  // Not seen, so not copied either (issue #206): what is out of view of the code box or of a box in it that cuts off
+  // what it holds (seenIn): the lines of a folded quote past the third, the slides not turned to, what a formula moves
+  // out (\kern{-300em}, \mathllap, \smash{\raisebox{300em}{…}}); text a formula draws in all but the colour of what is
+  // behind it (\phantom, \color{white} on the day theme). How Telegram copies such code was not measured: what is seen
+  // is what is copied. Line breaks as the browser's innerText puts them: a <br>, a block (a paragraph two), a table
+  // row; a tab between cells. A stack in a formula reads from the top: \frac{a}{b} is «ab». innerText itself would copy
+  // the MathML, \phantom, a spoiler's own text, what is out of view and KaTeX's layout as lines.
   function codeText(pre) {
     let s = '', breaks = 0;
     const put = (t) => { if (!t) return; if (s && breaks) s += '\n'.repeat(breaks); breaks = 0; s += t; };
-    const walk = (n, math) => {
+    const range = document.createRange();
+    /** @param {DOMRect} r @param {Box[]} boxes */
+    const inside = (r, boxes) => boxes.every((b) => r.left >= b.left - 1 && r.right <= b.right + 1 && r.top >= b.top - 1 && r.bottom <= b.bottom + 1);
+    /** @param {DOMRect} r @param {Box[]} boxes */
+    const outside = (r, boxes) => boxes.some((b) => r.right < b.left || r.left > b.right || r.bottom < b.top || r.top > b.bottom);
+    /** @param {DOMRect} r @param {Box[]} boxes */
+    const centred = (r, boxes) => {
+      const x = (r.left + r.right) / 2, y = (r.top + r.bottom) / 2;
+      return boxes.every((b) => x >= b.left && x <= b.right && y >= b.top && y <= b.bottom);
+    };
+    // what of a text is in view: all of it or none at once, else by halves down to a character, which is in view by its
+    // middle; a text the browser lays out nowhere is not drawn. Each look costs as much as the whole text: a code box
+    // that cuts a few lines (a folded quote) takes tens of looks, past `looks` what is left undecided is not copied, so
+    // thousands of lines across the edge of a slide do not hang the page (issue #198)
+    let looks = 2000;
+    /** @param {Text} t @param {Box[]} boxes */
+    const seenText = (t, boxes) => {
+      const part = (i, j) => {
+        if (j - i < t.data.length && --looks < 0) return '';
+        range.setStart(t, i);
+        range.setEnd(t, j);
+        const rects = [...range.getClientRects()];
+        if (!rects.length) return '';
+        if (rects.every((r) => inside(r, boxes))) return t.data.slice(i, j);
+        if (j - i === 1) return rects.some((r) => centred(r, boxes)) ? t.data.slice(i, j) : '';
+        if (rects.every((r) => outside(r, boxes))) return '';
+        let m = (i + j) >> 1;
+        if (/[\udc00-\udfff]/.test(t.data[m]) && m + 1 < j) m++; // not between the halves of one character
+        return part(i, m) + part(m, j);
+      };
+      return part(0, t.data.length);
+    };
+    /** @param {Node} n @param {boolean} math @param {Box[]} boxes @param {number[] | null} behind */
+    const walk = (n, math, boxes, behind) => {
       if (n.nodeType === 3) {
+        const css = getComputedStyle(/** @type {Element} */ (n.parentNode));
+        if (/^(hidden|collapse)$/.test(css.visibility) || (behind && faint(css.color, behind))) return;
+        const t = seenText(/** @type {Text} */ (n), boxes);
         // KaTeX puts zero-width spaces between the rows of a superscript or a fraction
-        if (!/^(hidden|collapse)$/.test(getComputedStyle(/** @type {Element} */ (n.parentNode)).visibility)) put(math ? n.nodeValue.replace(/\u200b/g, '') : n.nodeValue);
+        put(math ? t.replace(/\u200b/g, '') : t);
         return;
       }
       const e = /** @type {HTMLElement} */ (n);
       if (n.nodeType !== 1 || e.localName === 'video' || e.localName === 'audio' || e.classList.contains('katex-mathml')) return;
       if (e.classList.contains('tg-spoiler') && !e.classList.contains('tg-spoiler-open')) return;
-      if (e.localName === 'br') { put('\n'); return; }
+      // the <br>'s own rects: a range round it is found by its place among its parent's children, from the first one
+      // each time (6000 lines of code in blocks are 6000 <br>)
+      if (e.localName === 'br') {
+        if ([...e.getClientRects()].some((r) => centred(r, boxes))) put('\n');
+        return;
+      }
       const css = getComputedStyle(e);
-      if (css.display === 'none' || (math && /^rgba\((?:[^,]+,){3}\s*0\)$|^transparent$/.test(css.color))) return;
+      if (css.display === 'none') return;
       // KaTeX lays a formula out with blocks and tables of its own: it reads as one line of what it draws
       const lines = math ? 0 : e.localName === 'p' ? 2 : css.display && !/^(inline|contents|table-cell|ruby)/.test(css.display) ? 1 : 0;
       breaks = Math.max(breaks, lines);
       const inner = math || e.classList.contains('katex-html');
-      if (e.localName === 'details' && !(/** @type {HTMLDetailsElement} */ (e)).open) {
-        const summary = [...e.children].find((c) => c.localName === 'summary');
-        if (summary) walk(summary, inner);
-      } else e.childNodes.forEach((c) => walk(c, inner));
+      // in a formula the post sets the colours (\color, \colorbox): what is behind its text, from the backgrounds under it
+      let under = inner ? layer(css.backgroundColor, behind || backdrop(e.parentElement)) : null;
+      // \colorbox and \fcolorbox are a layer of their own in the stack that holds them, under what they hold
+      const box = under && e.classList.contains('vlist') && e.querySelector(':scope > * > .colorbox, :scope > * > .fcolorbox');
+      if (under && box) under = layer(getComputedStyle(box).backgroundColor, under);
+      // a slideshow turns its slides: the one in view is seen, not all it scrolls to
+      const cut = css.overflowX !== 'visible' || css.overflowY !== 'visible' ? boxes.concat(seenIn(e, css, !e.classList.contains('tg-slides'))) : boxes;
+      /** @type {Node[]} */
+      let kids = [...e.childNodes];
+      if (e.localName === 'details' && !(/** @type {HTMLDetailsElement} */ (e)).open) kids = kids.filter((c) => c.nodeName === 'SUMMARY').slice(0, 1);
+      // KaTeX writes a stack (a fraction, limits, a superscript over a subscript) from the bottom up
+      else if (math && e.classList.contains('vlist')) {
+        const top = new Map(kids.map((c) => [c, c.nodeType === 1 ? /** @type {Element} */ (c).getBoundingClientRect().top : 0]));
+        kids.sort((a, b) => (top.get(a) || 0) - (top.get(b) || 0));
+      }
+      kids.forEach((c) => walk(c, inner, cut, under));
       breaks = Math.max(breaks, lines);
       if (!math && css.display === 'table-cell' && e.nextElementSibling) put('\t');
     };
-    pre.childNodes.forEach((c) => walk(c, false));
+    const boxes = [seenIn(pre, getComputedStyle(pre), true)];
+    pre.childNodes.forEach((c) => walk(c, false, boxes, null));
     return s;
+  }
+
+  /** @typedef {{ left: number, right: number, top: number, bottom: number }} Box */
+  // What a box that cuts off what it holds shows of it, on the page: its padding box, and all it scrolls to when the
+  // reader scrolls it (a long line of code). Never what is before the start of its scrolling: left of a box written
+  // left to right, right of one written right to left, above any
+  /** @param {HTMLElement} e @param {CSSStyleDeclaration} css @param {boolean} scrolls @returns {Box} */
+  function seenIn(e, css, scrolls) {
+    const r = e.getBoundingClientRect();
+    const x = r.left + e.clientLeft, y = r.top + e.clientTop;
+    const box = { left: -Infinity, right: Infinity, top: -Infinity, bottom: Infinity };
+    const scroll = (v) => scrolls && /^(auto|scroll)$/.test(v);
+    if (css.overflowX !== 'visible') {
+      if (!scroll(css.overflowX)) Object.assign(box, { left: x, right: x + e.clientWidth });
+      else if (css.direction === 'rtl') Object.assign(box, { left: x + e.clientWidth - e.scrollLeft - e.scrollWidth, right: x + e.clientWidth - e.scrollLeft });
+      else Object.assign(box, { left: x - e.scrollLeft, right: x - e.scrollLeft + e.scrollWidth });
+    }
+    if (css.overflowY !== 'visible') Object.assign(box, scroll(css.overflowY) ? { top: y - e.scrollTop, bottom: y - e.scrollTop + e.scrollHeight } : { top: y, bottom: y + e.clientHeight });
+    return box;
+  }
+
+  // A colour as CSS gives it, [r, g, b, alpha]: a colour of KaTeX is a name or #hex, so rgb() or rgba()
+  /** @param {string} c @returns {number[] | null} */
+  const rgba = (c) => {
+    const m = /^rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?\)$/.exec(c);
+    return m ? [+m[1], +m[2], +m[3], m[4] === undefined ? 1 : +m[4]] : null;
+  };
+  /** a colour laid over an opaque one @param {string | number[] | null} top @param {number[]} under */
+  const layer = (top, under) => {
+    const c = typeof top === 'string' ? rgba(top) : top;
+    return c && c[3] ? [0, 1, 2].map((i) => c[i] * c[3] + under[i] * (1 - c[3])).concat(1) : under;
+  };
+  /** the background behind an element: its own and its parents' over the white of the page @param {Element | null} e */
+  function backdrop(e) {
+    const layers = [];
+    for (; e; e = e.parentElement) {
+      const c = rgba(getComputedStyle(e).backgroundColor);
+      if (c && c[3]) layers.push(c);
+      if (c && c[3] === 1) break;
+    }
+    return layers.reduceRight((under, c) => layer(c, under), [255, 255, 255, 1]);
+  }
+  /** @param {number[]} c */
+  const luminance = (c) => [0.2126, 0.7152, 0.0722].reduce((sum, k, i) => {
+    const v = c[i] / 255;
+    return sum + k * (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+  }, 0);
+  // text in all but the colour behind it: a contrast under 1.5:1 (WCAG's ratio; white on the code of the day theme is
+  // 1.2, gray 3.4, transparent 1)
+  /** @param {string} color @param {number[]} behind */
+  function faint(color, behind) {
+    const [a, b] = [luminance(layer(color, behind)), luminance(behind)].sort((p, q) => q - p);
+    return (a + 0.05) / (b + 0.05) < 1.5;
   }
 
   function expandable(content, cite) {
@@ -462,7 +573,8 @@
         const name = a.name.toLowerCase();
         // a name is an anchor, <a name>; on <img> it is a property of document: <img name="documentElement"> replaced
         // document.documentElement on /render and in the MCP app (issue #201)
-        const keep = name !== 'style' && !name.startsWith('on') && !name.includes(':') &&
+        // the style of <tg-button> is its colour (primary, danger…), a word that names a class (word), never CSS
+        const keep = (name !== 'style' || (tag === 'tg-button' && word(a.value) !== '')) && !name.startsWith('on') && !name.includes(':') &&
           (isTg ? true : (ALLOWED_ATTRS.has(name) && (name !== 'name' || tag === 'a')) || (name === 'class' && tag === 'code' && /^language-[\w+#-]+$/.test(a.value)));
         if (!keep) { n.removeAttribute(a.name); return; }
         if (URL_ATTRS.has(name) && !(name === 'src' && /^tg:/.test(a.value)) && (name === 'src' || name === 'poster' ? fileUrl(a.value) : safeUrl(a.value)) === null) n.removeAttribute(a.name);
