@@ -13,7 +13,9 @@ clicks (`posts.reply_errors`).
 """
 
 import asyncio
+import bisect
 import logging
+import re
 import time
 from collections.abc import Sequence
 
@@ -54,6 +56,16 @@ FORBIDDEN_EPHEMERAL = {
 }
 
 
+# an answer kept for no button (AGENTS.md rule 1: it stays in the post as it came, the check says so)
+NO_BUTTON = (
+    "ответ без кнопки — кнопки с таким callback_data нет ни под постом, ни в его тексте, нажать нечего; ответ "
+    "хранится как есть"
+)
+CALLBACK_DATA = "callback_data"
+BUTTON_END = re.compile(rf"</{spec.chats.HTML_BUTTON[0]}\s*>", re.I)
+TAG = re.compile(r"<[^>]*>")
+
+
 def _labels(markup) -> dict[str, str]:
     """callback_data → the text on its button, so a message names the button the author sees."""
     rows = markup.get("inline_keyboard") if isinstance(markup, dict) else None
@@ -62,6 +74,62 @@ def _labels(markup) -> dict[str, str]:
         for b in row if isinstance(row, list) else []:
             if isinstance(b, dict) and isinstance(b.get("callback_data"), str) and isinstance(b.get("text"), str):
                 out.setdefault(b["callback_data"], b["text"])
+    return out
+
+
+def buttons(post) -> dict[str, str]:
+    """callback_data → the text of its first button, for every button whose press the studio answers from the post's
+    `callbacks`. A press is looked up by the message of the post (updates.handle_update), so these are the keyboard
+    under it, named first, and the buttons in its text (text_buttons). The buttons of a rich reply, of the first
+    comment and of the poll after the post are on other messages: their presses get no answer, none is here."""
+    if not isinstance(post, dict):
+        return {}
+    out = _labels(post.get("reply_markup"))
+    for data, text in text_buttons(post.get("rich_message")).items():
+        out.setdefault(data, text)
+    return out
+
+
+def text_buttons(rich_message) -> dict[str, str]:
+    """callback_data → the text of its first button, for the callback buttons inside rich_message: an object of its
+    blocks with a callback_data (a button of a «Кнопки» block, wherever it stands: the field's name, not a list of
+    blocks, AGENTS.md rule 2) and a <tg-button> of its html or markdown (raw HTML there, as in the preview) whose
+    action is callback_data, as spec.chats.html_button reads it."""
+    out: dict[str, str] = {}
+    if not isinstance(rich_message, dict):
+        return out
+    todo = [rich_message.get("blocks")]
+    while todo:  # not recursive: a deep post must not stop the check
+        v = todo.pop()
+        if isinstance(v, dict):
+            data = v.get(CALLBACK_DATA)
+            if isinstance(data, str):
+                text = v.get("text")
+                out.setdefault(data, text if isinstance(text, str) and text.strip() else data)
+            todo += reversed(list(v.values()))
+        elif isinstance(v, list):
+            todo += reversed(v)
+    for key in ("html", "markdown"):
+        src = rich_message.get(key)
+        if isinstance(src, str):
+            for data, text in _html_buttons(src):
+                out.setdefault(data, text or data)
+    return out
+
+
+def _html_buttons(src: str) -> list[tuple[str, str]]:
+    """(data, its text) of every <tg-button> with the action callback_data in rich HTML, in order."""
+    ends = [m.start() for m in BUTTON_END.finditer(src)]
+    out: list[tuple[str, str]] = []
+    for m in spec.chats.START_TAG.finditer(src):
+        if m[1].lower() != spec.chats.HTML_BUTTON[0]:
+            continue
+        action, data = spec.chats.html_button(m[0])
+        if action != CALLBACK_DATA or data is None:
+            continue
+        i = bisect.bisect_left(ends, m.end())
+        inner = src[m.end() : ends[i]] if i < len(ends) else ""
+        out.append((data, " ".join(spec.tg_unescape(TAG.sub("", inner)).split())))
     return out
 
 
@@ -77,20 +145,23 @@ def forbidden(reply: dict) -> list[str]:
 
 
 def check(post: dict, places: Sequence[tuple[str, str]] = ()) -> dict:
-    """Errors and warnings of the answers to the post's buttons, each with the button it is for. A text and an object
-    of answerCallbackQuery fields are what they always were: anything odd in them is a warning, as Telegram may still
-    take it. The rich reply is checked like a post: its errors stop the post. `places`: the chats of the post
-    (publisher.places), where the reply is shown, ephemeral or not."""
+    """Errors and warnings of the answers to the post's buttons, each with the button it is for (buttons()); an answer
+    no button has is a warning, never dropped. A text and an object of answerCallbackQuery fields are what they always
+    were: anything odd in them is a warning, as Telegram may still take it. The rich reply is checked like a post: its
+    errors stop the post. `places`: the chats of the post (publisher.places), where the reply is shown, ephemeral or
+    not."""
     cbs = post.get("callbacks")
     if cbs is None or cbs == {}:
         return {"errors": [], "warnings": []}
     if not isinstance(cbs, dict):
         return {"errors": ["callbacks: нужен объект {callback_data: ответ}"], "warnings": []}
-    labels = _labels(post.get("reply_markup"))
+    labels = buttons(post)
     errors: list[str] = []
     warnings: list[str] = []
     for data, answer in cbs.items():
         where = f"ответ на кнопку «{labels.get(data) or data}»"
+        if data not in labels:
+            warnings.append(f"{where}: {NO_BUTTON}")
         e, w = _check_answer(answer, places)
         errors += [f"{where}: {x}" for x in e]
         warnings += [f"{where}: {x}" for x in w]

@@ -14,6 +14,7 @@ from telegram.uploads import MissingUpload, collect_uploads
 
 from . import channels, kinds, publisher
 from .callbacks import check as check_answers
+from .callbacks import text_buttons
 from .updates import poll_results, remember_preview
 
 log = logging.getLogger("rich-studio.posts")
@@ -331,7 +332,9 @@ async def unpin(pid: str) -> dict | None:
 
 async def set_buttons(pid: str, reply_markup: dict | None, callbacks: dict | None, actor: str = "api") -> dict | None:
     """Replace only the buttons (editMessageReplyMarkup); the text is untouched. Like an edit, the next version is
-    taken before Telegram is asked and the buttons before go into the post's history."""
+    taken before Telegram is asked and the buttons before go into the post's history. `callbacks` replace the answers
+    of the buttons under the post: the buttons in its text stay, and so do their answers unless `callbacks` has a new
+    one (None: every answer as it was)."""
     bad = spec.keyboard_errors(reply_markup)
     if bad:  # the same rule as a full send: Telegram would refuse the whole request
         raise Invalid({"message": "кнопки не прошли проверку", "ok": False, "errors": bad, "warnings": []})
@@ -352,7 +355,11 @@ async def set_buttons(pid: str, reply_markup: dict | None, callbacks: dict | Non
     else:
         holder.pop("reply_markup", None)
     if callbacks is not None:
-        payload["callbacks"] = callbacks
+        # a <tg-button> or a «Кнопки» block keeps its answer: the editor sends only the keyboard's (#196)
+        old = payload.get("callbacks")
+        text = text_buttons(payload.get("rich_message"))
+        kept = {k: v for k, v in old.items() if k in text} if isinstance(old, dict) else {}
+        payload["callbacks"] = {**kept, **callbacks}
     if payload == p["payload"]:  # nothing to change: no new version
         return p
     taken = store.claim_version(pid, None)
