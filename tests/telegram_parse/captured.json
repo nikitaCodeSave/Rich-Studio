@@ -763,6 +763,29 @@
   "source": "<ol start=\"5\"><li>пять</li><li>шесть</li></ol><ul><li><input type=\"checkbox\" checked> да</li><li><input type=\"checkbox\"> нет</li></ul>",
   "spec": "Bot API 10.3"
  },
+ "html-math-nested": {
+  "blocks": [
+   {
+    "text": [
+     "Формула в формуле ",
+     {
+      "expression": "abc",
+      "type": "mathematical_expression"
+     },
+     " и в блоке"
+    ],
+    "type": "paragraph"
+   },
+   {
+    "expression": "x+y",
+    "type": "mathematical_expression"
+   }
+  ],
+  "captured_at": "2026-11-16",
+  "format": "html",
+  "source": "<p>Формула в формуле <tg-math>a<tg-math>b</tg-math>c</tg-math> и в блоке</p><tg-math-block>x+<tg-math>y</tg-math></tg-math-block>",
+  "spec": "Bot API 10.4"
+ },
  "html-math-time": {
   "blocks": [
    {
@@ -1209,6 +1232,39 @@
   "format": "markdown",
   "source": "Текст со сноской[^1].\n\n[^1]: Текст сноски.",
   "spec": "Bot API 10.3"
+ },
+ "md-heading-indent": {
+  "blocks": [
+   {
+    "size": 1,
+    "text": "h",
+    "type": "heading"
+   },
+   {
+    "text": "a&#xD800;b",
+    "type": "pre"
+   },
+   {
+    "type": "divider"
+   },
+   {
+    "text": "a&#xD800;b",
+    "type": "pre"
+   },
+   {
+    "size": 1,
+    "text": "h",
+    "type": "heading"
+   },
+   {
+    "text": "a&#xD800;b",
+    "type": "pre"
+   }
+  ],
+  "captured_at": "2026-11-16",
+  "format": "markdown",
+  "source": "# h\n    a&#xD800;b\n\n***\n    a&#xD800;b\n\nh\n===\n    a&#xD800;b",
+  "spec": "Bot API 10.4"
  },
  "md-headings": {
   "blocks": [
