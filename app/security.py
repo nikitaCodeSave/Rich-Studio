@@ -115,7 +115,8 @@ async def guard(request: Request, call_next):
         return JSONResponse({"detail": "неизвестный Host; добавьте его в ALLOWED_HOSTS"}, status_code=400)
     # any method: a page cannot read the answer to a GET from another site, but the work is done. An open studio asks for
     # no cookie, SameSite=Strict sends it from another port of localhost, and <img src=/api/export> builds a zip.
-    # No Sec-Fetch-Site (curl, MCP clients) passes. Pages, /static/, /media/ stay open: the HTML export loads /media/
+    # No Sec-Fetch-Site (curl, MCP clients, any browser on plain http under a name other than localhost or 127.0.0.1)
+    # passes. Pages, /static/, /media/ stay open: the HTML export loads /media/
     from_other_site = path.startswith("/api/") and request.headers.get("sec-fetch-site") in OTHER_SITE
     if from_other_site or (request.method not in SAFE_METHODS and _cross_site(request)):
         return JSONResponse({"detail": "запрос с другого сайта отклонён"}, status_code=403)
