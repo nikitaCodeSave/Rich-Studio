@@ -161,24 +161,14 @@ def test_a_top_level_field_the_post_does_not_have_is_a_warning(client, tg):
     assert not tg.calls
 
 
-def test_chat_ids_in_the_body_of_validate_points_to_the_query_parameter(client, tg):
-    r = client.post("/api/validate", json={**BLOCKS_POST, "chat_ids": ["@simple_test_general"]})
-    assert r.status_code == 200 and r.json()["ok"] is True
-    (w,) = _unused(r.json()["warnings"], "chat_ids")
-    assert "?chat_ids=" in w and "query" in w
-
-
 def test_a_top_level_field_stays_in_the_post_and_never_reaches_bot_api(client, tg):
-    post = {**BLOCKS_POST, "foo_bar": 1, "disable_notification": True, "chat_ids": ["@other"]}
+    post = {**BLOCKS_POST, "foo_bar": 1, "disable_notification": True}
     r = client.post("/api/send", json={"post": post})
     assert r.status_code == 200, r.text
     warnings = r.json()["warnings"]
     assert _unused(warnings, "foo_bar") and _unused(warnings, "disable_notification")
-    (w,) = _unused(warnings, "chat_ids")
-    assert "рядом с post" in w  # /api/send takes the channels next to the post, not in it
     body = tg.last("sendRichMessage")["body"]
-    assert body["chat_id"] == "@test_channel"  # the default channel: chat_ids inside the post is not a target
-    assert not {"foo_bar", "disable_notification", "chat_ids"} & set(body)
+    assert not {"foo_bar", "disable_notification"} & set(body)
     # the record keeps the post as it came (AGENTS.md rule 1)
     assert client.get("/api/posts/" + r.json()["post"]["id"]).json()["payload"]["foo_bar"] == 1
     # a dry run of a schedule shows it before anything is queued
@@ -192,9 +182,8 @@ def test_mcp_tools_warn_about_a_top_level_field_and_the_draft_keeps_it(client, t
     import store
     from test_mcp import call
 
-    _, v, _ = call(client, "validate_post", post={**BLOCKS_POST, "foo_bar": 1, "chat_ids": ["@x"]})
-    assert _unused(v["warnings"], "foo_bar")
-    assert "рядом с post" in _unused(v["warnings"], "chat_ids")[0]  # the tool's own argument chat_ids
+    _, v, _ = call(client, "validate_post", post={**BLOCKS_POST, "foo_bar": 1})
+    assert v["ok"] is True and _unused(v["warnings"], "foo_bar")
     _, d, _ = call(client, "save_draft", post={**BLOCKS_POST, "foo_bar": 1}, title="Черновик")
     assert _unused(d["validation"]["warnings"], "foo_bar")
     assert store.get_draft(d["id"])["payload"]["foo_bar"] == 1
@@ -203,6 +192,70 @@ def test_mcp_tools_warn_about_a_top_level_field_and_the_draft_keeps_it(client, t
     _, sent, _ = call(client, "publish_post", draft_id=d["id"], version=d["version"])
     assert _unused(sent["warnings"], "foo_bar")
     assert "foo_bar" not in tg.last("sendRichMessage")["body"]
+
+
+# Where a post goes is the studio's to decide, as with chat_id in options (RESERVED_PARAMS): a chat inside the post
+# is not an unknown field but a wrong address, the post would go to the default channel. An error, not a warning.
+def _chat_errors(errors: list[str], name: str) -> list[str]:
+    return [e for e in errors if f"«{name}»" in e and "верхнем уровне поста" in e]
+
+
+def test_chat_ids_in_the_body_of_validate_is_an_error_that_points_to_the_query_parameter(client, tg):
+    r = client.post("/api/validate", json={**BLOCKS_POST, "chat_ids": ["@simple_test_general"]})
+    assert r.status_code == 200 and r.json()["ok"] is False
+    (e,) = _chat_errors(r.json()["errors"], "chat_ids")
+    assert "?chat_ids=" in e and "query" in e
+    assert not [w for w in r.json()["warnings"] if "chat_ids" in w]
+
+
+@pytest.mark.parametrize("field", ["chat_id", "chat_ids"])
+def test_a_chat_inside_the_post_is_refused_before_anything_goes_out(client, tg, field):
+    import store
+
+    post = {**BLOCKS_POST, field: "@other" if field == "chat_id" else ["@other"]}
+    for path, body in (
+        ("/api/send", {"post": post}),
+        ("/api/send", {"post": post, "dry_run": True}),
+        ("/api/schedule", {"post": post, "at": int(time.time()) + 3600}),
+        ("/api/preview-send", {"post": post}),
+        ("/api/edit", {"post": post, "message_id": 1}),
+    ):
+        r = client.post(path, json=body)
+        assert r.status_code == 400, (path, r.text)
+        assert f"«{field}»" in r.json()["detail"] and "рядом с post" in r.json()["detail"]
+    assert not [c for c in tg.calls if c["method"] in ("sendRichMessage", "editMessageText")]
+    assert store.list_posts() == []
+
+
+def test_mcp_a_chat_inside_the_post_is_an_error_and_the_draft_is_still_saved(client, tg):
+    import store
+    from test_mcp import call
+
+    post = {**BLOCKS_POST, "chat_ids": ["@x"]}
+    _, v, _ = call(client, "validate_post", post=post)
+    assert v["ok"] is False and "рядом с post" in _chat_errors(v["errors"], "chat_ids")[0]
+    # saving is not refused, as with chat_id in options: the agent sees the error and saves again
+    _, d, _ = call(client, "save_draft", post=post, title="Не туда")
+    assert d["validation"]["ok"] is False and _chat_errors(d["validation"]["errors"], "chat_ids")
+    assert store.get_draft(d["id"])["payload"]["chat_ids"] == ["@x"]
+    for tool, extra in (("publish_post", {}), ("schedule_post", {"at": "2099-01-01T09:00:00+03:00"})):
+        res, _, text = call(client, tool, draft_id=d["id"], version=d["version"], **extra)
+        assert res["isError"] and "«chat_ids»" in text, (tool, text)
+    res, _, text = call(client, "send_preview_to_me", post={**BLOCKS_POST, "chat_id": "@x"})
+    assert res["isError"] and "«chat_id»" in text
+    assert not [c for c in tg.calls if c["method"] == "sendRichMessage"]
+    assert store.list_posts() == []
+
+
+def test_a_scheduled_post_with_a_chat_inside_fails_with_the_reason(client, tg):
+    import store
+
+    # queued before a chat inside the post was refused: the scheduler refuses it like chat_id in options
+    (rec,) = store.add_scheduled(["@test_channel"], {**BLOCKS_POST, "chat_ids": ["@other"]}, int(time.time()))
+    asyncio.run(scheduler.run_due_posts())
+    p = store.get_post(rec["id"])
+    assert p["status"] == "failed" and "«chat_ids»" in p["error"]
+    assert not [c for c in tg.calls if c["method"] == "sendRichMessage"]
 
 
 def test_the_notes_of_a_draft_are_not_an_unknown_field_and_stay_in_the_draft(client, tg):

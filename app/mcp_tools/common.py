@@ -30,7 +30,7 @@ PostArg = Annotated[
         "callbacks? ({callback_data: текст | {text?, show_alert?, reply?: {rich_message, "
         "ephemeral_message_parameters?: {replace_callback_query_message?}}}}), poll_after? (опрос сразу после поста)}. "
         "Параметры sendRichMessage (disable_notification…) — в options; другое поле верхнего уровня в Telegram не "
-        "уходит, проверка о нём предупредит"
+        "уходит, проверка о нём предупредит. Каналы — аргументы chat_id/chat_ids, в посте они ошибка"
     ),
 ]
 OptPostArg = Annotated[

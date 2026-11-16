@@ -46,8 +46,9 @@ def validate(
     такого типа не примет по описаниям спецификации: кнопка `web_app` вне лички, `switch_inline_query_current_chat`
     и reply-клавиатура в канале, `message_effect_id` вне лички; блок `thinking` — в любом чате.
 
-    Тело — сам пост. Поле верхнего уровня, которого у поста нет (`disable_notification` вне `options`, `chat_ids`
-    в теле), — предупреждение, а не ошибка: в Telegram оно не уходит."""
+    Тело — сам пост. Поле верхнего уровня, которого у поста нет (`disable_notification` вне `options`), —
+    предупреждение, а не ошибка: в Telegram оно не уходит. `chat_id`/`chat_ids` в теле — ошибка, как `chat_id` в
+    `options`: каналы этого маршрута — query-параметр `chat_ids`, а публикация с ними в посте отвечает 400."""
     return publisher.check(post.model_dump(), publisher.checked_targets(chat_ids), CHATS_IN_QUERY)
 
 
