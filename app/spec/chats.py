@@ -11,7 +11,7 @@ is, Telegram has the last word.
 """
 
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field, replace
 from typing import Any, NamedTuple
 
@@ -289,6 +289,20 @@ def _value_at(hits: list[tuple[str, str, Any]], path: str):
     return next((v for p, _, v in hits if p == path), None)
 
 
+def html_button(start_tag: str) -> tuple[str, str | None]:
+    """A <tg-button> as its start tag says (HTML_BUTTON): its action, the field of RichMessageButton that type="…"
+    names (without a type url when it has a url, else callback_data), and its data="…" (the callback_data of a
+    callback button), entities decoded as Telegram does."""
+    action = _attribute(start_tag, "type") or ("url" if _attribute(start_tag, "url") is not None else "callback_data")
+    return action, _attribute(start_tag, "data")
+
+
+def start_tags(src: str) -> Iterator[re.Match[str]]:
+    """The start tags of rich HTML (START_TAG) in linear time: the search stops at the last ">", so a "<" with no ">"
+    after it is not tried to the end of the source again and again ("<a" × 50 000 took a second)."""
+    return START_TAG.finditer(src, 0, src.rfind(">") + 1)
+
+
 def _html(spec: Spec, src: str, rs: dict[str, Rule], places: list[tuple[str, str]], at: str) -> list[str]:
     """The same rules in rich HTML: a block by its tag (from «corresponding to the HTML tag <x>» of its type), a
     button by the field its type="…" names. Each tag or button action once."""
@@ -300,11 +314,11 @@ def _html(spec: Spec, src: str, rs: dict[str, Rule], places: list[tuple[str, str
                 by_tag.setdefault(tag, name)
     out: list[str] = []
     seen: set[str] = set()
-    for m in START_TAG.finditer(src):
+    for m in start_tags(src):
         tag = m[1].lower()
         key, shown = by_tag.get(tag, ""), f"<{tag}>"
         if tag == HTML_BUTTON[0]:
-            action = _attribute(m[0], "type") or ("url" if _attribute(m[0], "url") is not None else "callback_data")
+            action, _ = html_button(m[0])
             key, shown = f"{HTML_BUTTON[1]}.{action}", f'<{tag} type="{action}">'
         rule = rs.get(key)
         here = [(t, words) for t, words in places if rule and t in rule.refused]

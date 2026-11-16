@@ -69,8 +69,7 @@ export default async function ({ page, check, applyJson }) {
       && /callbacks/.test(oracle.refusals[2]?.detail || '') && /ссылку/.test(oracle.refusals[0]?.detail || ''),
     JSON.stringify({ filled: oracle.filled, changed: oracle.changed.slice(0, 3), refusals: oracle.refusals }));
 
-  // 2. the template form. The editor keeps an answer in callbacks only for a button under the post (editor.js
-  // callbacksFor), so there is one with the same callback_data
+  // 2. the template form; a button under the post shares the callback_data of the first <tg-button>
   await page.click('#btn-new');
   await applyJson({
     rich_message: { html: '<p>Голосуем</p>' + row('<tg-button type="callback_data" data="vote">Да</tg-button><tg-button data="free">Нет</tg-button><tg-button type="url" url="https://e.example/">Сайт</tg-button>') },

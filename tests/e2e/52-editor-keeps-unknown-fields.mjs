@@ -89,4 +89,5 @@ export default async function ({ page, check, mockLog, until, BASE }) {
   check('A chat inside the post stays with the draft, the check says it is an error, and publishing is refused before Telegram',
     refused && kept?.payload?.chat_id === '@other' && status === 400 && sendsAfter === sendsBefore,
     JSON.stringify({ refused, kept: kept?.payload, status, sendsBefore, sendsAfter }));
+  await page.click('#btn-new'); // leave the draft with the error for the checks after this one
 }
