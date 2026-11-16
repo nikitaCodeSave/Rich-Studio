@@ -96,7 +96,7 @@ curl -s "${A[@]}" -X POST $S/api/validate -H 'content-type: application/json' -d
 curl -s "${A[@]}" -X POST "$S/api/render?theme=dark" -H 'content-type: application/json' -d @post.json > preview.html  # standalone preview page
 curl -s "${A[@]}" -X POST $S/api/drafts -H 'content-type: application/json' -d '{"title":"Анонс","post":'"$(cat post.json)"'}'  # open it in the web editor
 curl -s "${A[@]}" -X POST $S/api/preview-send -H 'content-type: application/json' -d '{"post":'"$(cat post.json)"'}'  # to the user's DM
-curl -s "${A[@]}" "$S/api/check?chat_id=@channel"                                   # bot is admin with can_post_messages?
+curl -s "${A[@]}" -X POST "$S/api/check?chat_id=@channel"                           # bot is admin with can_post_messages? (remembers the channel)
 curl -s "${A[@]}" -X POST $S/api/send -H 'content-type: application/json' -d '{"chat_id":"@channel","post":'"$(cat post.json)"',"dry_run":true}'  # exactly what would go to Telegram, nothing sent
 K=$(uuidgen)   # one key per post; reuse it when retrying the same send
 curl -s "${A[@]}" -X POST $S/api/send -H 'content-type: application/json' -H "Idempotency-Key: $K" -H 'X-Studio-Client: claude-code' -d '{"chat_id":"@channel","post":'"$(cat post.json)"'}'

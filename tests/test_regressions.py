@@ -332,6 +332,25 @@ def test_the_notes_of_a_draft_are_not_an_unknown_field_and_stay_in_the_draft(cli
     assert client.get("/api/drafts/" + d["id"]).json()["payload"]["_studio"] == notes
 
 
+def test_a_get_of_check_neither_asks_telegram_nor_remembers_the_channel(client, tg):
+    """<img src="/api/check?chat_id=@x"> in a preview, or on any page while the studio is open, was a GET with the
+    editor's cookies that saved someone else's channel in «Каналы» (issue #201): a check remembers the channel, so it
+    is a POST, and a GET changes nothing."""
+    from test_access import token
+
+    r = client.get("/api/check?chat_id=@stranger")
+    assert r.status_code == 405
+    assert not tg.calls
+    assert "@stranger" not in {c["chat_id"] for c in client.get("/api/channels").json()}
+    r = client.post("/api/check?chat_id=@other")
+    assert r.status_code == 200 and r.json()["can_post"], r.text
+    assert "@other" in {c["chat_id"] for c in client.get("/api/channels").json()}
+    # it writes to the studio, so a read token may not, as with POST /api/channels
+    read, draft = token("r", "read"), token("d", "draft")
+    assert client.post("/api/check?chat_id=@third", headers=read).status_code == 403
+    assert client.post("/api/check?chat_id=@third", headers=draft).status_code == 200
+
+
 # ---------- #204: upload:<name> is a file of the uploads, never a path or a URL of its own ----------
 # a path, not a name: the studio would read outside the uploads, and the list of posts would point the browser at
 # another route of the studio (`/media/../api/export` is GET /api/export with the editor's cookie)
