@@ -5,9 +5,9 @@ the post, never in its JSON keys. A value is always text, never markup: escaped 
 string anywhere else (Telegram does not parse the text of a block). In HTML a {{key}} stands in text or in a quoted
 attribute value. A link (an HTML link attribute such as href or src, a JSON string under the key url) takes only a url
 field, as its whole value, and never a file upload:name (a file goes only in a media field). The callback_data of a
-button with an answer in callbacks takes no field: a key of callbacks is never filled. Markdown is not filled
-in this version: how to escape a value for Telegram's Markdown was never checked against Telegram, so such a template
-is refused with a hint to use the visual mode or HTML.
+button with an answer in callbacks (in HTML data="…" of a <tg-button>) takes no field: a key of callbacks is never
+filled. Markdown is not filled in this version: how to escape a value for Telegram's Markdown was never checked
+against Telegram, so such a template is refused with a hint to use the visual mode or HTML.
 Filling changes nothing in the post but the {{key}} marks (AGENTS.md rule 1), and makes a new draft without channels.
 The size of the filled post is counted before it is built: one field repeated many times must not build gigabytes.
 """
@@ -17,8 +17,11 @@ import html
 import json
 import re
 from collections.abc import Callable, Iterator
+from dataclasses import dataclass, field
+from typing import NamedTuple
 from urllib.parse import urlsplit
 
+import spec
 import store
 from errors import Conflict, Invalid, NotFound, StudioError
 
@@ -31,7 +34,7 @@ MAX_DEPTH = 200  # as the validator's MAX_JSON_DEPTH: deeper is a broken post, n
 # what a url field may hold: the links the preview opens (render.js safeUrl) and an uploaded file
 URL_SCHEMES = ("http", "https", "tg", "mailto", "tel")
 # HTML attributes that hold a link (render.js URL_ATTRS and the other link attributes of HTML and SVG): only a
-# whole url field goes there, checked like safeUrl
+# whole url field goes there, checked like safeUrl. data is a link but in a <tg-button> (_is_link)
 URL_ATTRS = {
     "href",
     "src",
@@ -53,6 +56,15 @@ URL_KEY = "url"
 CALLBACKS = "callbacks"
 # what a button of the post gives the bot when pressed: its answer is the key of callbacks with this value
 CALLBACK_DATA = "callback_data"
+# where the studio answers no press, so no button there has an answer to lose: a rich reply to a button
+# (callbacks.<data>.reply), the first comment and the poll after the post. A press is looked up by the message of the
+# post itself (updates.handle_update), and the comment and the poll are other messages
+NO_ANSWERS = (CALLBACKS, "comment", "poll_after")
+# a button in rich HTML (spec/chats.py): <tg-button type="…">, its callback_data in data="…" (html-export.js writes it,
+# render.js reads it). render.js also reads the synonym callback_data="…", but whether Telegram takes it is not
+# checked against Telegram: it is neither a link nor the button's data here
+BUTTON_TAG = spec.chats.HTML_BUTTON[0]
+BUTTON_DATA = "data"
 MARKDOWN = (
     "{{…}} в Markdown пока не подставляется: переведите пост в визуальный режим или в HTML и сохраните шаблон снова"
 )
@@ -136,10 +148,25 @@ class _Unclear(Exception):
     """An HTML construct the template refuses: browsers and Telegram may read it differently."""
 
 
-def _html_scan(src: str) -> tuple[list[tuple[int, int, str]], list[tuple[int, int]]]:
-    """The quoted attribute values of an HTML source as (start, end, attribute name), and every tag and comment as
-    (start, end); the rest is text. Raises _Unclear on anything HTML5 reads with a parse error."""
-    quoted: list[tuple[int, int, str]] = []
+@dataclass
+class _Tag:
+    name: str
+    attrs: dict[str, str] = field(default_factory=dict)  # as written; of a repeated name the first, as HTML5 keeps
+
+
+class _Quoted(NamedTuple):
+    """A quoted attribute value: where it stands in the source, the attribute's name and its tag."""
+
+    start: int
+    end: int
+    attr: str
+    tag: _Tag
+
+
+def _html_scan(src: str) -> tuple[list[_Quoted], list[tuple[int, int]]]:
+    """The quoted attribute values of an HTML source, and every tag and comment as (start, end); the rest is text.
+    Raises _Unclear on anything HTML5 reads with a parse error."""
+    quoted: list[_Quoted] = []
     marks: list[tuple[int, int]] = []
     n, i = len(src), 0
     while (lt := src.find("<", i)) >= 0:
@@ -163,7 +190,7 @@ def _html_scan(src: str) -> tuple[list[tuple[int, int, str]], list[tuple[int, in
                 raise _Unclear(f"знак {src[j]} в имени тега")
             j += 1
         name = src[start:j].lower()
-        j = _tag_rest(src, j, quoted)
+        j = _tag_rest(src, j, quoted, _Tag(name))
         marks.append((lt, j))
         if start == lt + 1 and name in RAW_TEXT:
             raise _Unclear(f"<{name}>: его содержимое браузер не разбирает как теги")
@@ -171,8 +198,8 @@ def _html_scan(src: str) -> tuple[list[tuple[int, int, str]], list[tuple[int, in
     return quoted, marks
 
 
-def _tag_rest(src: str, j: int, quoted: list[tuple[int, int, str]]) -> int:
-    """The attributes of a tag after its name, as HTML5 reads them; the index after its ">"."""
+def _tag_rest(src: str, j: int, quoted: list[_Quoted], tag: _Tag) -> int:
+    """The attributes of a tag after its name, as HTML5 reads them, into `tag`; the index after its ">"."""
     n = len(src)
     while True:
         while j < n and src[j] in WS:
@@ -197,6 +224,7 @@ def _tag_rest(src: str, j: int, quoted: list[tuple[int, int, str]]) -> int:
         while k < n and src[k] in WS:
             k += 1
         if not src.startswith("=", k):
+            tag.attrs.setdefault(attr, "")
             j = k  # an attribute without a value
             continue
         k += 1
@@ -208,38 +236,72 @@ def _tag_rest(src: str, j: int, quoted: list[tuple[int, int, str]]) -> int:
             close = src.find(src[k], k + 1)
             if close < 0:
                 raise _Unclear(f"кавычка значения {attr} не закрыта")
-            quoted.append((k + 1, close, attr))
+            quoted.append(_Quoted(k + 1, close, attr, tag))
+            tag.attrs.setdefault(attr, src[k + 1 : close])
             j = close + 1
             if j < n and src[j] not in WS and src[j] not in "/>":
                 raise _Unclear(f"после значения {attr} нет пробела")
             continue
+        value = k
         while k < n and src[k] not in WS and src[k] != ">":  # an unquoted value
             if src[k] in "\"'<=`":
                 raise _Unclear(f"знак {src[k]} в значении {attr} без кавычек")
             k += 1
+        tag.attrs.setdefault(attr, src[value:k])
         j = k
 
 
-def _html_places(src: str) -> list[tuple[re.Match, str | None, str]]:
+def _html_places(src: str) -> list[tuple[re.Match, str | None, str, _Tag | None]]:
     """Every {{key}} of an HTML source with its place: None in text; inside a quoted attribute value, the attribute's
-    name and the whole value; "" anywhere else in a tag or a comment (a tag or attribute name, an unquoted value)."""
+    name, the whole value and its tag; "" anywhere else in a tag or a comment (a tag or attribute name, an unquoted
+    value)."""
     quoted, marks = _html_scan(src)
-    starts, mark_starts = [q[0] for q in quoted], [t[0] for t in marks]
-    places: list[tuple[re.Match, str | None, str]] = []
+    starts, mark_starts = [q.start for q in quoted], [t[0] for t in marks]
+    places: list[tuple[re.Match, str | None, str, _Tag | None]] = []
     for m in VAR.finditer(src):
         k = bisect.bisect_right(starts, m.start()) - 1
         t = bisect.bisect_right(mark_starts, m.start()) - 1
-        if k >= 0 and m.end() <= quoted[k][1]:
-            a, b, name = quoted[k]
-            places.append((m, name, src[a:b]))
+        if k >= 0 and m.end() <= quoted[k].end:
+            q = quoted[k]
+            places.append((m, q.attr, src[q.start : q.end], q.tag))
         elif t >= 0 and m.start() < marks[t][1]:
-            places.append((m, "", ""))
+            places.append((m, "", "", None))
         else:
-            places.append((m, None, ""))
+            places.append((m, None, "", None))
     return places
 
 
-def _check_html(src: str, fields: dict[str, dict], where: str) -> None:
+def _is_link(attr: str | None, tag: _Tag | None) -> bool:
+    """An attribute holding a link: data is one (<object data>) but in a <tg-button>, where it is the callback_data."""
+    return attr in URL_ATTRS and not (attr == BUTTON_DATA and tag is not None and tag.name == BUTTON_TAG)
+
+
+def _with_defaults(s: str, fields: dict[str, dict], escape: bool = False) -> str:
+    """The string as filling it with the defaults makes it; in HTML (escape) as Telegram reads the attribute then."""
+    if not escape:
+        return VAR.sub(lambda m: fields[m[1]]["default"], s)
+    return spec.tg_unescape(VAR.sub(lambda m: html.escape(fields[m[1]]["default"], quote=True), s))
+
+
+def _button_data(attr: str, tag: _Tag | None, fields: dict[str, dict]) -> bool:
+    """The attribute is the callback_data of a button: data of a <tg-button> whose action is callback_data, which its
+    type names, or without a type a button without a url (as spec/chats.py reads it)."""
+    if attr != BUTTON_DATA or tag is None or tag.name != BUTTON_TAG:
+        return False
+    action = _with_defaults(tag.attrs.get("type", ""), fields, escape=True)
+    return (action or ("url" if "url" in tag.attrs else CALLBACK_DATA)) == CALLBACK_DATA
+
+
+def _loses_answer(where: str, key: str, data: str, place: str) -> Invalid:
+    return Invalid(
+        f"{where}: {mark(key)} в {place}: кнопка связана с ответом на нажатие в {CALLBACKS} («{data}»), а ключ "
+        f"{CALLBACKS} полем не меняется — после заполнения кнопка останется без ответа. Оставьте {place} как есть"
+    )
+
+
+def _check_html(src: str, fields: dict[str, dict], where: str, answered: set[str]) -> None:
+    """`answered`: the keys of callbacks a button of this HTML is answered by (none where the studio answers no
+    press)."""
     try:
         places = _html_places(src)
     except _Unclear as e:
@@ -247,7 +309,7 @@ def _check_html(src: str, fields: dict[str, dict], where: str) -> None:
             f"{where}: HTML с полями разбирается неоднозначно ({e}): поправьте разметку, иначе значение поля "
             "может оказаться внутри тега"
         ) from None
-    for m, attr, value in places:
+    for m, attr, value, tag in places:
         if attr is None:
             continue
         if attr == "":
@@ -257,12 +319,16 @@ def _check_html(src: str, fields: dict[str, dict], where: str) -> None:
             )
         if attr.startswith("on"):
             raise Invalid(f"{where}: {m[0]} в обработчике {attr}: туда переменные не подставляются")
-        if attr in URL_ATTRS and (value != m[0] or fields[m[1]]["type"] != "url"):
+        link = _is_link(attr, tag)
+        if link and (value != m[0] or fields[m[1]]["type"] != "url"):
             raise Invalid(
                 f'{where}: {m[0]} в атрибуте {attr}: ссылку подставляет только поле типа url, целиком ({attr}="{m[0]}")'
             )
-        if attr in URL_ATTRS and fields[m[1]]["default"].startswith("upload:"):
+        if link and fields[m[1]]["default"].startswith("upload:"):
             raise Invalid(f"{where}: {m[0]}: {UPLOAD_IN_HTML}")
+        # the rule of a JSON callback_data (_check) for the callback_data of a <tg-button>
+        if _button_data(attr, tag, fields) and (data := _with_defaults(value, fields, escape=True)) in answered:
+            raise _loses_answer(where, m[1], data, f"data у <{BUTTON_TAG}> (callback_data кнопки)")
 
 
 # upload:<name> becomes attach:// only in the post's media fields (telegram/), never inside HTML or in a link
@@ -284,7 +350,7 @@ def _link_fields(payload: dict) -> dict[str, str]:
         if not VAR.search(s):
             continue
         if _source(path) == "html":
-            out.update((m[1], UPLOAD_IN_HTML) for m, attr, _ in _html_places(s) if attr in URL_ATTRS)
+            out.update((m[1], UPLOAD_IN_HTML) for m, attr, _, tag in _html_places(s) if _is_link(attr, tag))
         elif _key(path) == URL_KEY:
             out.update((k, UPLOAD_IN_JSON_LINK) for k in VAR.findall(s))
     return out
@@ -379,18 +445,13 @@ def _check(payload: dict, fields: list[dict]) -> None:
                 )
             if link["default"].startswith("upload:"):
                 raise Invalid(f"{where}: {mark(keys[0])}: {UPLOAD_IN_JSON_LINK}")
-        # a button of the post (not of a rich reply: the studio does not answer those) with an answer in callbacks.
-        # A key of callbacks is never a field, so another value would leave the button without its answer
-        if _key(path) == CALLBACK_DATA and path[0] != CALLBACKS:
-            data = VAR.sub(lambda m: by_key[m[1]]["default"], s)
-            if data in answered:
-                raise Invalid(
-                    f"{where}: {mark(keys[0])} в callback_data: кнопка связана с ответом на нажатие в {CALLBACKS} "
-                    f"(«{data}»), а ключ {CALLBACKS} полем не меняется — после заполнения кнопка останется без "
-                    "ответа. Оставьте callback_data как есть"
-                )
+        # a button of the post with an answer in callbacks. A key of callbacks is never a field, so another value
+        # would leave the button without its answer
+        here = set() if path[0] in NO_ANSWERS else answered
+        if _key(path) == CALLBACK_DATA and (data := _with_defaults(s, by_key)) in here:
+            raise _loses_answer(where, keys[0], data, CALLBACK_DATA)
         if source == "html":
-            _check_html(s, by_key, where)
+            _check_html(s, by_key, where, here)
     if unused := [k for k in by_key if k not in used]:
         raise Invalid(f"поле {unused[0]} нигде не стоит в посте: вставьте {mark(unused[0])} или уберите поле")
 
