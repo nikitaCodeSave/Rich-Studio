@@ -19,14 +19,13 @@ const hasVar = (/** @type {string} */ s) => /\{\{[A-Za-z_][A-Za-z0-9_]{0,31}\}\}
 const TYPES = { text: 'Строка', multiline: 'Несколько строк', url: 'Ссылка или файл' };
 // a tag (quoted values may hold >) or a comment of an HTML source
 const TAG = /<!--[\s\S]*?(?:-->|$)|<(?:"[^"]*"|'[^']*'|[^"'>])*>?/g;
-const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: '\u00a0' };
 
-/** HTML text as the person reads it. @param {string} s */
+/** HTML text as Telegram reads it: its 16 names (case matters) and numeric entities as measured (RichRender, one table
+ * with the preview and the validator); what Telegram does not decode stays as typed. @param {string} s */
 function unescapeHtml(s) {
-  return s.replace(/&(?:#(\d+)|#x([0-9a-f]+)|([a-z]+));/gi, (m, dec, hex, name) => {
-    if (name) return ENTITIES[name.toLowerCase()] ?? m;
-    const cp = dec ? parseInt(dec, 10) : parseInt(hex, 16);
-    return cp > 0 && cp <= 0x10ffff ? String.fromCodePoint(cp) : m;
+  return s.replace(/&(?:#([0-9]+)|#x([0-9a-fA-F]+)|([A-Za-z]+));/g, (m, dec, hex, name) => {
+    if (name) return Object.hasOwn(RichRender.tgEntities, name) ? RichRender.tgEntities[name] : m;
+    return RichRender.tgChar(RichRender.entityCode(dec, hex), false) ?? m;
   });
 }
 /** @param {string} s */
@@ -240,6 +239,9 @@ export class RsTemplateForm extends LitElement {
     this.fields = [];
     /** @type {Record<string, string>} */
     this.values = {};
+    // what a field's string was in the HTML source (&mdash;): ✕ puts it back so, while the default is still the string
+    /** @type {Record<string, { text: string, raw: string }>} */
+    this.sources = {};
   }
 
   willUpdate(changed) {
@@ -274,6 +276,7 @@ export class RsTemplateForm extends LitElement {
     const old = parent[last];
     parent[last] = spot.start === undefined ? '{{' + key + '}}' : old.slice(0, spot.start) + '{{' + key + '}}' + old.slice(spot.end);
     this.post = post;
+    if (spot.start !== undefined) this.sources[key] = { text: spot.value, raw: old.slice(spot.start, spot.end) };
     this.fields = [...this.fields, { key, label, type: spot.url ? 'url' : spot.value.includes('\n') ? 'multiline' : 'text', required: true, default: spot.value }];
   }
 
@@ -281,7 +284,9 @@ export class RsTemplateForm extends LitElement {
   removeField(i) {
     const f = this.fields[i];
     const mark = '{{' + f.key + '}}';
-    this.post = mapStrings(this.post, (s, path) => s.split(mark).join(sourceOf(path) === 'html' ? escapeHtml(f.default) : f.default));
+    const src = this.sources[f.key];
+    const back = src && src.text === f.default ? src.raw : escapeHtml(f.default);
+    this.post = mapStrings(this.post, (s, path) => s.split(mark).join(sourceOf(path) === 'html' ? back : f.default));
     this.fields = this.fields.filter((_, j) => j !== i);
   }
 

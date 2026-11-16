@@ -16,6 +16,10 @@ declare const RichRender: {
   isTonAddress(s: unknown): boolean;
   /** a link address that goes through: what makes Telegram drop a link %-encoded, U+2028 taken out */
   percentAddress(url: string): string;
+  /** the named entities Telegram decodes, and the character of a numeric one (null: it erases the text) */
+  tgEntities: Record<string, string>;
+  tgChar(n: number, pre: boolean): string | null;
+  entityCode(dec: string | undefined, hex: string | undefined): number;
 };
 interface Window {
   RichRender: typeof RichRender;

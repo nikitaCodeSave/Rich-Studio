@@ -64,8 +64,8 @@ CALLBACK_DATA = "callback_data"
 # post itself (updates.handle_update), and the comment and the poll are other messages
 NO_ANSWERS = (CALLBACKS, "comment", "poll_after")
 # a button in rich HTML (spec/chats.py): <tg-button type="…">, its callback_data in data="…" (html-export.js writes it,
-# render.js reads it). render.js also reads the synonym callback_data="…", but whether Telegram takes it is not
-# checked against Telegram: it is neither a link nor the button's data here
+# render.js reads it). render.js also reads the synonym callback_data="…"; whether Telegram takes it is not checked
+# against Telegram, so it is guarded like data (a 422 there breaks nothing, a field there would unbind the answer)
 BUTTON_TAG = spec.chats.HTML_BUTTON[0]
 BUTTON_DATA = "data"
 MARKDOWN = (
@@ -289,7 +289,7 @@ def _with_defaults(s: str, fields: dict[str, dict], escape: bool = False) -> str
 def _button_data(attr: str, tag: _Tag | None, fields: dict[str, dict]) -> bool:
     """The attribute is the callback_data of a button: data of a <tg-button> whose action is callback_data, which its
     type names, or without a type a button without a url (as spec/chats.py reads it)."""
-    if attr != BUTTON_DATA or tag is None or tag.name != BUTTON_TAG:
+    if attr not in (BUTTON_DATA, CALLBACK_DATA) or tag is None or tag.name != BUTTON_TAG:
         return False
     action = _with_defaults(tag.attrs.get("type", ""), fields, escape=True)
     return (action or ("url" if "url" in tag.attrs else CALLBACK_DATA)) == CALLBACK_DATA
