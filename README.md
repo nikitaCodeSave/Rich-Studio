@@ -346,7 +346,7 @@ claude mcp add --transport http rich-studio http://localhost:7424/mcp --header "
 
 <img src="docs/images/health.jpg" alt="Окно «Студия в порядке»: 11 проверок с зелёными галочками" width="640">
 
-Для Claude Code: когда сессия открывается в папке студии, хук `SessionStart` (`.claude/hooks/studio_health.py`) одной строкой говорит, если студия не в порядке. Skill `studio-health` объясняет каждую проверку, субагент `studio-monitor` только читает и коротко докладывает (попросите «проверь студию» или запустите `/loop 30m` с ним). Через MCP то же дают `studio_health` и `studio_logs`. Устройство: [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md).
+Для Claude Code: когда сессия открывается в папке студии, хук `SessionStart` (`.claude/hooks/studio_health.py`) одной строкой говорит, если студия не в порядке. Skill `studio-health` объясняет каждую проверку, субагент `studio-monitor` только читает и коротко докладывает (попросите «проверь студию» или запустите `/loop 30m` с ним). Через MCP то же дают `studio_health` и `studio_logs`. Как устроены журнал, отчёт о состоянии, уборка и сигнал снаружи: [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md).
 
 `DEADMAN_URL` (healthchecks.io и похожие): студия пингует его раз в 5 минут, `…/fail` при отчёте `fail`; если пинги пропали, внешний сервис напишет вам.
 
