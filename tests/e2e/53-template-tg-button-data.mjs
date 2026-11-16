@@ -61,7 +61,7 @@ export default async function ({ page, check, applyJson }) {
       row('<tg-button type="url" url="{{x}}">Сайт</tg-button>'),
       row('<tg-button type="callback_data" data="{{x}}">Да</tg-button>'),
     ],
-    ['"><b>x</b>', "' onclick='x", 'javascript:alert(1)', 'a&b &amp; <i>', '</tg-button><b>y</b>', 'z data=1 type=url'],
+    ['"><b>x</b>', "' onclick='x", 'javascript:alert(1)', 'a&b &amp; <i>', '</tg-button><b>y</b>', 'z data=1 type=url', 'a\nb\n</tg-button>\n<b>', 'x\ty\fz'],
   ]);
   const notRefused = oracle.refusals.filter((r) => r.status !== 422);
   check('HTML5 oracle: a text field in data of a <tg-button> stays inside it for any value; <object data>, <tg-button url> and data with an answer are refused',

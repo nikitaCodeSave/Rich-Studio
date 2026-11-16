@@ -465,7 +465,7 @@
         const keep = name !== 'style' && !name.startsWith('on') && !name.includes(':') &&
           (isTg ? true : (ALLOWED_ATTRS.has(name) && (name !== 'name' || tag === 'a')) || (name === 'class' && tag === 'code' && /^language-[\w+#-]+$/.test(a.value)));
         if (!keep) { n.removeAttribute(a.name); return; }
-        if (URL_ATTRS.has(name) && !(name === 'src' && /^tg:/.test(a.value)) && (name === 'src' || name === 'poster' ? fileUrl(a.value) : safeUrl(a.value)) === null) n.removeAttribute(a.name);
+        if (URL_ATTRS.has(name) && !(name === 'src' && /^tg:/.test(a.value)) && (name === 'src' || name === 'poster' ? fileUrl(a.value) : safeUrl(a.value)) === null) { if (name === 'url') n.setAttribute(a.name, ''); else n.removeAttribute(a.name); }
       });
       if (tag === 'input' && (n.getAttribute('type') || '').toLowerCase() !== 'checkbox') n.remove();
     });
@@ -517,7 +517,7 @@
       else if (tag === 'tg-button-row') rep = el('div', { class: 'tg-btn-row tg-align-' + (word(attr('align')) || 'center') }, kids().filter((k) => k.nodeType !== 3));
       else if (tag === 'tg-button') {
         const b = { text: node.textContent, style: attr('style') || undefined };
-        const type = attr('type') || (attr('url') ? 'url' : 'callback_data');
+        const type = attr('type') || (attr('url') !== null && attr('url') !== undefined ? 'url' : 'callback_data');
         if (type === 'url') b.url = safeUrl(attr('url')) || ''; else if (type === 'copy_text') b.copy_text = { text: attr('text') }; else if (type === 'disabled') b.disabled = {}; else b[type] = attr('data') || attr(type) || '';
         rep = buttonEl(b, ctx);
       } else if (tag === 'tg-document' || ((tag === 'img' || tag === 'video' || tag === 'audio') && /^tg:/.test(attr('src') || ''))) {
@@ -1061,5 +1061,5 @@
     return out.join('').replace(/ +/g, ' ').replace(/<br> /g, '<br>').replace(/ <\/pre>/g, '</pre>').replace(/ ?(<math-block:[^>]*>|<hr>|<anchor>) ?/g, '$1').trim().replace(/ ?(<\/?(?:p|h\d|li[^>]*|ul|ol|blockquote|tr|t[hd][^>]*|table[^>]*|footer|summary|details[^>]*|pre[^>]*|caption|cite|pullquote|expandable)>) ?/g, '$1');
   }
 
-  global.RichRender = { render, renderRT, renderBlocks, formatTime, mediaSrc, safeUrl, outline, isTonAddress, percentAddress };
+  global.RichRender = { render, renderRT, renderBlocks, formatTime, mediaSrc, safeUrl, outline, isTonAddress, percentAddress, tgEntities: TG_ENTITIES, tgChar, entityCode: codeOf };
 })(window);

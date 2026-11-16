@@ -453,6 +453,8 @@ def test_the_data_of_a_tg_button_is_its_callback_data_not_a_link(client, attrs):
     [
         ('type="callback_data" data="{{d}}"', "vote", {"vote": "Спасибо"}),
         ('data="{{d}}"', "vote", {"vote": "Спасибо"}),
+        # the synonym render.js also reads: whether Telegram takes it is not checked, so it is guarded like data
+        ('callback_data="{{d}}"', "vote", {"vote": "Спасибо"}),
         ('type="callback_data" data="vo{{d}}"', "te", {"vote": "Спасибо"}),
         # Telegram decodes the entities of an attribute, and the value goes in escaped
         ('data="a&amp;{{d}}"', "<b>", {"a&<b>": "Спасибо"}),

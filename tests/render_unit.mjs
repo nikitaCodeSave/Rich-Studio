@@ -363,6 +363,13 @@ check('safeUrl gives an address back as written, a #name trimmed', await page.ev
   check('html: a button with a space before its https address opens it, a javascript: one does not', JSON.stringify(opened) === '["https://example.com/x"]', JSON.stringify(opened));
 }
 
+{
+  // url="" is a url button, as the service and spec/chats.py read it, not a callback_data one (issue #197)
+  const r = await render({ html: '<tg-button-row><tg-button url="">a</tg-button><tg-button>b</tg-button></tg-button-row>' });
+  const titles = [...r.html.matchAll(/class="tg-btn[^"]*" title="([^"]*)"/g)].map((m) => m[1]);
+  check('html: <tg-button url=""> is a url button, one without url is callback_data', titles.length === 2 && titles[0] === '' && titles[1] === 'callback: ', JSON.stringify(titles));
+}
+
 // ---------- attributes ----------
 {
   const r = await render({ html: '<p style="position:fixed" class="evil" id="x" data-x="1" title="ok">t</p><span class="tg-spoiler">s</span>' });
