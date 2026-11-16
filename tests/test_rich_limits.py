@@ -441,10 +441,19 @@ def test_tags_without_a_measurement_only_warn(current):
 
 
 def test_deep_html_is_checked_in_linear_time(current):
-    started = time.perf_counter()
-    r = check(current, html="<b>" * 50000 + "a" + "</i>" * 50000 + "<p>x" * 50000)
-    assert not r["ok"] and r["stats"]["depth"] == 50001
-    assert time.perf_counter() - started < 2
+    """By how much the time grows with the input, not by a fixed limit: under coverage on a slow CI runner the
+    linear check of 50 000 levels took 2.0 s against 0.3 s here and failed a limit of 2 s. Four times the input
+    takes about four times as long when linear and about sixteen when quadratic, on any machine."""
+
+    def seconds(n: int) -> float:
+        started = time.perf_counter()
+        r = check(current, html="<b>" * n + "a" + "</i>" * n + "<p>x" * n)
+        assert not r["ok"] and r["stats"]["depth"] == n + 1
+        return time.perf_counter() - started
+
+    small = min(seconds(12500) for _ in range(2))
+    big = min(seconds(50000) for _ in range(2))
+    assert big < 8 * small + 0.2, (small, big)
 
 
 @pytest.mark.parametrize(
