@@ -429,6 +429,35 @@ def test_a_waiting_post_is_not_replaced_with_an_upload_that_is_no_file(client, t
     assert p["payload"]["rich_message"] == _photo("upload:cat.png")["rich_message"] and p["version"] == rec["version"]
 
 
+@pytest.mark.parametrize("sent", [False, True], ids=["scheduled", "sent"])
+def test_buttons_replaced_with_a_reply_whose_file_is_no_upload_are_refused(client, tg, sent):
+    """«Кнопки» (POST /api/posts/{id}/buttons) checks the files of the rich replies as a send does (#213): stored,
+    such a reply failed only at a press, when find refused its name (callback.reply_failed)."""
+    like = {"inline_keyboard": [[{"text": "👍", "callback_data": "like"}]]}
+    client.post("/api/media", files={"file": ("cat.png", b"\x89PNG", "image/png")})
+    if sent:
+        pid = client.post("/api/send", json={"post": BLOCKS_POST}).json()["post"]["id"]
+    else:
+        pid = client.post("/api/schedule", json={"post": BLOCKS_POST, "at": LATER}).json()["id"]
+    before = client.get("/api/posts/" + pid).json()
+    start = len(tg.calls)
+
+    def buttons(ref: str):
+        body = {"reply_markup": like, "callbacks": {"like": {"reply": _photo(ref)}}}
+        return client.post(f"/api/posts/{pid}/buttons", json=body)
+
+    for ref, why in (("upload:../api/export", "это путь"), ("upload:gone.png", "не найден")):
+        r = buttons(ref)
+        assert r.status_code == 400 and why in r.json()["detail"], r.text
+    assert len(tg.calls) == start
+    p = client.get("/api/posts/" + pid).json()
+    assert p["payload"] == before["payload"] and p["version"] == before["version"]
+    r = buttons("upload:cat.png")
+    assert r.status_code == 200 and r.json()["payload"]["callbacks"]["like"]["reply"] == _photo("upload:cat.png"), (
+        r.text
+    )
+
+
 @pytest.mark.parametrize("name", ["../api/export", "a\x00b.png", "x" * 300 + ".png"], ids=["path", "nul", "long"])
 def test_a_scheduled_post_stored_with_such_a_name_fails_with_the_reason_and_is_not_resent(client, tg, name):
     """Queued before the check (or by an older studio): refused before Telegram is asked, never «may have gone»."""
@@ -506,6 +535,29 @@ def test_a_symlink_loop_in_the_uploads_does_not_break_the_list_health_or_the_cle
     assert r.status_code == 200 and [f["name"] for f in r.json()] == ["ok.png"], r.text
     assert next(c for c in health.report()["checks"] if c["name"] == "storage")["status"] == "ok"
     assert client.post("/api/media/cleanup").status_code == 200
+
+
+def test_deleting_a_symlink_in_the_uploads_removes_the_link_never_the_file_it_points_to(client):
+    """Put there by hand: DELETE /api/media/<name> takes the entry of the folder, as the cleanup does (#213). It used
+    to resolve the name (find), so the file the link points to went and the link stayed, dangling."""
+    import os
+
+    from services import media
+
+    folder = media.media_dir()
+    (folder / "real.png").write_bytes(b"\x89PNG")
+    os.symlink("real.png", folder / "link.png")
+    outside = folder.parent / "outside.png"  # beside the uploads: never one of their files
+    outside.write_bytes(b"\x89PNG")
+    os.symlink(outside, folder / "out.png")
+    os.symlink("loop.png", folder / "loop.png")
+    for name in ("link.png", "out.png", "loop.png"):
+        r = client.delete("/api/media/" + name)
+        assert r.status_code == 200 and not os.path.lexists(folder / name), (name, r.text)
+    assert sorted(os.listdir(folder)) == ["real.png"] and outside.read_bytes() == b"\x89PNG"
+    # still only a name of the folder; ".." itself httpx turns into DELETE /api, so it goes as %2e%2e
+    for name in ("%2e%2e", ".hidden", "a\\b"):
+        assert client.delete("/api/media/" + name).status_code == 400, name
 
 
 def test_a_file_with_a_name_that_is_not_utf8_is_listed_opens_and_is_deleted_by_its_url(client):

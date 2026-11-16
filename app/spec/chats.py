@@ -40,7 +40,7 @@ HTML_TAGS = re.compile(r"\bcorresponding to the (?:custom )?HTML tags? ((?:<[a-z
 # a button in rich HTML is <tg-button type="…">, the type naming the field of RichMessageButton that is its action
 # (url without a type when it has a url, else callback_data), as render.js and html-export.js read it
 HTML_BUTTON = ("tg-button", "RichMessageButton")
-START_TAG = re.compile(r"<([a-z][\w-]*)\b[^>]*>", re.I)
+START_TAG = re.compile(r"<([a-z][^\t\n\f\r />]*)[^>]*>", re.I)
 SENTENCE = re.compile(r"(?<=\.)\s+(?=[A-Z])")
 # advice shown with a warning about a field of this type, written by hand: (the types holding the field, the advice).
 # A reply keyboard has no link button, so the advice is for inline and rich message buttons only

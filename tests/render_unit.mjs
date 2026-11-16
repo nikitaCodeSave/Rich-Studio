@@ -183,17 +183,8 @@ for (const [name, url] of Object.entries(URLS)) {
   }
   check('a link with a character Telegram drops it over is its text only; U+2028 is taken out of the address', wrong.length === 0, wrong.join('; '));
   // <a href> (measured, issue #195): a U+2028 typed as it is Telegram takes out, over one an entity makes it drops the
-  // link. The same table is HREF_U2028 in tests/test_rich_limits.py, for the check (tg_href)
-  const HREF_U2028 = [
-    ['"https://example.com/?q=a\u2028b"', 'https://example.com/?q=ab'],
-    ["'https://example.com/?q=a\u2028b'", 'https://example.com/?q=ab'],
-    ['https://example.com/?q=a\u2028b', 'https://example.com/?q=ab'],
-    ['"https://example.com/?q=a&#x2028;b"', null],
-    ['"https://example.com/?q=a&#8232;b"', null],
-    ['"https://example.com/?q=a&#x0002028;b"', null],
-    ['"https://example.com/?q=a\u2028&#x2028;b"', null],
-    ['"https://example.com/?q=a&#X2028;b"', 'https://example.com/?q=a&#X2028;b'],
-  ];
+  // link. The table is telegram_parse/href_u2028.json, also read by tests/test_rich_limits.py for the check (tg_href)
+  const HREF_U2028 = JSON.parse(readFileSync(fileURLToPath(new URL('telegram_parse/href_u2028.json', import.meta.url)), 'utf8')).cases;
   const u2028 = [];
   for (const [href, want] of HREF_U2028) {
     const html = `<p>до <a title="x\u2028y" href=${href}>ссылка</a> после</p>`;

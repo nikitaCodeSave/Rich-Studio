@@ -43,6 +43,8 @@ for url in "http://127.0.0.1:$MOCK_PORT/log" "http://127.0.0.1:$STUDIO_PORT/api/
 done
 
 set +e
-BASE="http://localhost:$STUDIO_PORT" MOCK="http://localhost:$MOCK_PORT" E2E_ONLY="${1:-}" node "$ROOT/tests/e2e_ui.mjs"
+# DATA_DIR: the stand's database, for a check that puts in records the API no longer takes (e2e/57)
+BASE="http://localhost:$STUDIO_PORT" MOCK="http://localhost:$MOCK_PORT" DATA_DIR="$WORK/data" E2E_ONLY="${1:-}" \
+  node "$ROOT/tests/e2e_ui.mjs"
 status=$?
 exit "$status"

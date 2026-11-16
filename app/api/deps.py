@@ -24,6 +24,11 @@ def actor(
     return client or "api"
 
 
+def ui(x_studio_client: str | None = Header(None, include_in_schema=False)) -> bool:
+    """The request comes from the editor (X-Studio-Client: ui): hints say where in the editor to fix it."""
+    return (x_studio_client or "").strip().split("@")[0] == "ui"
+
+
 def need(level: str):
     """Dependency for routes that need more than guard checks by method: publish, admin."""
 

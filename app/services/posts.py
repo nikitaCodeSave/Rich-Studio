@@ -58,10 +58,11 @@ async def send(
     actor: str = "api",
     dry_run: bool = False,
     as_new: bool = False,
+    ui: bool = False,
 ) -> dict:
     _not_an_edit_copy(draft_id, as_new)
     chats = publisher.targets(chat_id, chat_ids, draft_id)
-    report = publisher.validate(post, chats)
+    report = publisher.validate(post, chats, ui=ui)
     publisher.check_thread(chats, post)
     if dry_run:
         return dry_run_report(chats, post, report["warnings"])
@@ -127,8 +128,8 @@ def dry_run_report(chats: list, post: dict, warnings: list[str]) -> dict:
     return {"dry_run": True, "requests": requests, "after_send": steps, "warnings": warnings}
 
 
-async def preview(post: dict, chat_id=None) -> dict:
-    publisher.validate(post, chats_hint=PREVIEW_CHAT)
+async def preview(post: dict, chat_id=None, ui: bool = False) -> dict:
+    publisher.validate(post, chats_hint=PREVIEW_CHAT, ui=ui)
     target = chat_id or settings.get().preview_chat
     if not target:  # never fall back to the default channel: a preview must not go public
         raise StudioError("не задан TG_PREVIEW_CHAT (ваш user id) — некуда отправить предпросмотр")
@@ -182,7 +183,13 @@ def after_edit(old: dict, post: dict) -> dict:
 
 
 async def edit_message(
-    post: dict, chat_id, message_id: int, actor: str = "api", rec: dict | None = None, claimed: bool = False
+    post: dict,
+    chat_id,
+    message_id: int,
+    actor: str = "api",
+    rec: dict | None = None,
+    claimed: bool = False,
+    ui: bool = False,
 ) -> dict:
     """Replace the content of any channel message (editMessageText + rich_message).
 
@@ -192,7 +199,7 @@ async def edit_message(
     chat = publisher.resolve_chat(chat_id)
     # files only of what still goes out: the poll after the post went at publish time, the comment may have too
     sends = publisher.edit_uploads(rec or store.find_sent(chat, message_id))
-    publisher.validate(post, chats_hint=EDIT_MESSAGE_CHAT, uploads_in=sends)
+    publisher.validate(post, chats_hint=EDIT_MESSAGE_CHAT, uploads_in=sends, ui=ui)
     params = {
         "chat_id": chat,
         "message_id": message_id,
@@ -227,10 +234,11 @@ def schedule(
     actor: str = "api",
     dry_run: bool = False,
     as_new: bool = False,
+    ui: bool = False,
 ) -> dict:
     _not_an_edit_copy(draft_id, as_new)
     chats = publisher.targets(chat_id, chat_ids, draft_id)
-    report = publisher.validate(post, chats)
+    report = publisher.validate(post, chats, ui=ui)
     when = publisher.parse_at(at)
     publisher.check_thread(chats, post)
     if dry_run:
@@ -242,7 +250,9 @@ def schedule(
     return recs[0] if len(recs) == 1 else {**recs[0], "all": recs}
 
 
-async def edit(pid: str, post: dict, actor: str = "api", post_version: int | None = None) -> dict | None:
+async def edit(
+    pid: str, post: dict, actor: str = "api", post_version: int | None = None, ui: bool = False
+) -> dict | None:
     """Replace a post published or scheduled through the studio.
 
     `post_version`: the version the caller read (get_post); someone else's edit since then gives 409
@@ -256,7 +266,7 @@ async def edit(pid: str, post: dict, actor: str = "api", post_version: int | Non
         raise StudioError(f"пост в статусе {p['status']}, редактировать нечего")
     # a waiting post goes out whole with the new content; of a sent one only its text, buttons and what waits
     sends = None if p["status"] in WAITING else publisher.edit_uploads(p)
-    publisher.validate(post, chats_hint=EDIT_CHAT, uploads_in=sends)
+    publisher.validate(post, chats_hint=EDIT_CHAT, uploads_in=sends, ui=ui)
     taken = store.claim_version(pid, post_version)
     if taken is None:
         now = (store.get_post(pid) or {}).get("version")
@@ -345,6 +355,8 @@ async def set_buttons(pid: str, reply_markup: dict | None, callbacks: dict | Non
     answers = check_answers(with_text)
     if answers["errors"]:  # a rich reply is checked like the post it answers for
         raise Invalid({"message": "ответ на кнопку не прошёл проверку", "ok": False, **answers})
+    # and its files, as a send checks them: a name that is no upload would fail only at a press (callback.reply_failed)
+    publisher.check_uploads({"callbacks": callbacks})
     if p["status"] not in ("sent", *WAITING):
         raise StudioError(f"пост в статусе {p['status']}")
     # a Live Photo or paid media keeps its keyboard among its own parameters, where a scheduled send takes it from
