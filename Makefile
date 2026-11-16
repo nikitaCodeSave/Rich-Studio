@@ -9,7 +9,7 @@ UV = $(if $(wildcard .venv/bin/uv),.venv/bin/uv,uv)
 
 check: check-py check-js
 
-# Быстрая проверка между шагами, без браузера. Перед PR всё равно нужен `make check`.
+# Быстрая проверка между шагами и перед PR, без браузера: полный набор прогонит CI.
 check-fast:
 	$(PY) -m ruff check .
 	$(PY) -m ruff format --check .
