@@ -6,6 +6,9 @@ import { $ } from './dom.js';
 export const dirty = signal(false);
 export const saveState = signal(''); // text next to the Save button
 export const dark = signal(matchMedia('(prefers-color-scheme: dark)').matches);
+/** the studio's own theme from the header (#ui-theme; theme.js sets it before the page is drawn); null: not chosen,
+ * the page follows the system's. `dark` above is the Telegram preview's theme (☾), apart from this one. */
+export const uiTheme = signal(/** @type {'light' | 'dark' | null} */ (null));
 /** the published or scheduled post the open draft is a working copy of (<rs-edit-bar> shows it) */
 export const editing = signal(/** @type {PostRow | null} */ (null));
 /** the blocks Telegram made of the post at the last «Мне в личку» (<rs-parse-check> compares the preview with them) */

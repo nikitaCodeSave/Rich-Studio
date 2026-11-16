@@ -176,11 +176,33 @@ for (const [name, url] of Object.entries(URLS)) {
       if (JSON.stringify(got) !== JSON.stringify(drops.includes(c) ? [] : [url])) wrong.push(`${JSON.stringify(c)} in ${Object.keys(rm)[0]}: ${JSON.stringify(got)}`);
     }
   }
-  for (const rm of [{ html: '<p><a href="https://example.com/?q=a&#x2028;b">ссылка</a></p>' }, { blocks: [{ type: 'paragraph', text: { type: 'url', text: 'ссылка', url: 'https://example.com/?q=a\u2028b' } }] }]) {
-    const got = await hrefs(rm);
-    if (JSON.stringify(got) !== '["https://example.com/?q=ab"]') wrong.push(`U+2028 in ${Object.keys(rm)[0]}: ${JSON.stringify(got)}`);
+  {
+    const got = await hrefs({ blocks: [{ type: 'paragraph', text: { type: 'url', text: 'ссылка', url: 'https://example.com/?q=a\u2028b' } }] });
+    if (JSON.stringify(got) !== '["https://example.com/?q=ab"]') wrong.push(`U+2028 in blocks: ${JSON.stringify(got)}`);
   }
   check('a link with a character Telegram drops it over is its text only; U+2028 is taken out of the address', wrong.length === 0, wrong.join('; '));
+  // <a href> (measured, issue #195): a U+2028 typed as it is Telegram takes out, over one an entity makes it drops the
+  // link. The same table is HREF_U2028 in tests/test_rich_limits.py, for the check (tg_href)
+  const HREF_U2028 = [
+    ['"https://example.com/?q=a\u2028b"', 'https://example.com/?q=ab'],
+    ["'https://example.com/?q=a\u2028b'", 'https://example.com/?q=ab'],
+    ['https://example.com/?q=a\u2028b', 'https://example.com/?q=ab'],
+    ['"https://example.com/?q=a&#x2028;b"', null],
+    ['"https://example.com/?q=a&#8232;b"', null],
+    ['"https://example.com/?q=a&#x0002028;b"', null],
+    ['"https://example.com/?q=a\u2028&#x2028;b"', null],
+    ['"https://example.com/?q=a&#X2028;b"', 'https://example.com/?q=a&#X2028;b'],
+  ];
+  const u2028 = [];
+  for (const [href, want] of HREF_U2028) {
+    const html = `<p>до <a title="x\u2028y" href=${href}>ссылка</a> после</p>`;
+    const [got, text] = await page.evaluate((html) => {
+      const out = RichRender.render({ rich_message: { html } }, {});
+      return [[...out.querySelectorAll('.tg-body a')].map((a) => a.getAttribute('href')), out.querySelector('.tg-body p')?.textContent];
+    }, html);
+    if (JSON.stringify(got) !== JSON.stringify(want === null ? [] : [want]) || text !== 'до ссылка после') u2028.push(`${href}: ${JSON.stringify(got)} ${text}`);
+  }
+  check('html: a typed U+2028 is taken out of an address, over one from an entity the link is its text only', u2028.length === 0, u2028.join('; '));
   const texts = await page.evaluate(() => RichRender.outline({ rich_message: { html: '<p>до <a href="https://example.com/? x">ссылка</a> после</p>' } }));
   check('the text of a dropped link stays', texts === '<p>до ссылка после</p>', texts);
   // U+2028 comes out of the address after the sanitizer looked at it: «/ /evil» is a path, «//evil» is another site
@@ -219,8 +241,8 @@ for (const [name, url] of Object.entries(URLS)) {
   check('blocks: ton_address is link-coloured text with the address in its title, no handler', ok && !r.xss && !clicked, r.html);
 }
 {
-  // Telegram finds a TON address in HTML and Markdown text by itself: EQ…/UQ… of 48 characters, not a card number
-  // with spaces (tests/telegram_parse/captured.json: html-detected-card-ton); not in code, links and formulas
+  // Telegram finds a TON address in HTML and Markdown text by itself: 48 characters with a right checksum, not a card
+  // number with spaces (tests/telegram_parse/captured.json: html-detected-card-ton); not in code, links and formulas
   const eq = 'EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c';
   const uq = 'UQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAJKZ';
   const found = async (rm) => { await render(rm); return page.evaluate(() => [...document.querySelectorAll('#out .tg-ton')].map((n) => n.textContent)); };
@@ -228,8 +250,8 @@ for (const [name, url] of Object.entries(URLS)) {
   check('html: TON addresses in text are link-coloured, a card number with spaces stays text', JSON.stringify(html) === JSON.stringify([eq, uq]), JSON.stringify(html));
   const md = await found({ markdown: `Адрес ${eq}, ещё **${uq}**` });
   check('markdown: TON addresses in text are found the same way', JSON.stringify(md) === JSON.stringify([eq, uq]), JSON.stringify(md));
-  const not = await found({ html: `<p><code>${eq}</code> <a href="https://t.me/x">${eq}</a> <tg-math>${eq}</tg-math> x${eq} ${eq}x ${eq.slice(0, -1)} kQ${eq.slice(2)} 0:${'a'.repeat(64)}</p><pre>${uq}</pre>` });
-  check('html: no TON address in code, links, formulas, glued to other letters, of another length or prefix', not.length === 0, JSON.stringify(not));
+  const not = await found({ html: `<p><code>${eq}</code> <a href="https://t.me/x">${eq}</a> <tg-math>${eq}</tg-math> x${eq} ${eq}x ${eq.slice(0, -1)} ${'A'.repeat(48)} 0:${'a'.repeat(64)}</p><pre>${uq}</pre>` });
+  check('html: no TON address in code, links, formulas, glued to other letters, of another length or flags', not.length === 0, JSON.stringify(not));
   const off = await found({ html: `<p>${eq}</p>`, skip_entity_detection: true });
   check('html: skip_entity_detection leaves a TON address as text', off.length === 0, JSON.stringify(off));
   // in the strings of blocks too (measured: a plain «адрес EQAA…AM9c конец» comes back as ton_address), not in code
@@ -237,18 +259,27 @@ for (const [name, url] of Object.entries(URLS)) {
   check('blocks: a TON address in a plain string is found, not in code', JSON.stringify(blocks) === JSON.stringify([eq, uq]), JSON.stringify(blocks));
   const blocksOff = await found({ blocks: [{ type: 'paragraph', text: eq }], skip_entity_detection: true });
   check('blocks: skip_entity_detection leaves a TON address as text', blocksOff.length === 0, JSON.stringify(blocksOff));
-  // only with a right checksum (measured: …AM9d and EQCD39…qB2X stay text); base64 and base64url are the same address
+  // only with a right checksum (measured: …AM9d and EQCD39…qB2X stay text); base64, base64url and a mix of both are
+  // the same address (measured, issue #195)
   const b64 = 'EQAAW7YRbMcifdgzjulEn/pVsAtmwRx30i2I4z6Z9E+qBcnt';
   const b64url = 'EQAAW7YRbMcifdgzjulEn_pVsAtmwRx30i2I4z6Z9E-qBcnt';
-  const sums = await found({ html: `<p>${eq.slice(0, -1)}d EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2X EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2N ${b64} ${b64url} EQAAW7YRbMcifdgzjulEn/pVsAtmwRx30i2I4z6Z9E-qBcnt</p>` });
-  check('html: only addresses with a right checksum are found, in base64 and base64url, not in a mix of both',
-    JSON.stringify(sums) === JSON.stringify(['EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2N', b64, b64url]), JSON.stringify(sums));
-  // a mix of both alphabets is neither; «EQE…» with a right checksum is workchain 1, not the EQ… Telegram finds
   const mixed = 'EQAAW7YRbMcifdgzjulEn/pVsAtmwRx30i2I4z6Z9E-qBcnt';
-  const workchain1 = 'EQEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEKA';
-  const table = await page.evaluate((list) => list.map((s) => RichRender.isTonAddress(s)).join(),
-    [eq, uq, b64, b64url, mixed, workchain1, eq.slice(0, -1) + 'd', eq.toLowerCase(), eq + 'A', 'EQ', null, 42]);
-  check('isTonAddress table', table === 'true,true,true,true,false,false,false,false,false,false,false,false', table);
+  const sums = await found({ html: `<p>${eq.slice(0, -1)}d EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2X EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2N ${b64} ${b64url} ${mixed}</p>` });
+  check('html: only addresses with a right checksum are found, in base64, base64url and a mix of both',
+    JSON.stringify(sums) === JSON.stringify(['EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2N', b64, b64url, mixed]), JSON.stringify(sums));
+  // measured, issue #195 (each with a right checksum): flags 0x11 EQ…, 0x51 UQ…, 0x91 kQ… and 0xd1 0Q… are addresses,
+  // 0x00 (48 «A») and 0x12 Eg… text; any workchain is: 1 EQE…, 2, 0x7f, 0x80 (−128) and 0xff (−1, Ef8…); a raw 0:hex
+  // and an address in lower case are text
+  const yes = [eq, uq, 'kQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHTW', '0QAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACkT',
+    'EQEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEKA', 'EQIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMTF',
+    'EX8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPYW', 'EYAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAle',
+    'Ef8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADAU', 'Ef8AW7YRbMcifdgzjulEn_pVsAtmwRx30i2I4z6Z9E-qBTal', b64, b64url, mixed];
+  const no = ['A'.repeat(48), 'EgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHsS', eq.slice(0, -1) + 'd', eq.toLowerCase(),
+    `0:${'0'.repeat(64)}`, eq + 'A', 'EQ', null, 42];
+  const table = await page.evaluate((list) => list.map((s) => RichRender.isTonAddress(s)), [...yes, ...no]);
+  check('isTonAddress table', JSON.stringify(table) === JSON.stringify([...yes.map(() => true), ...no.map(() => false)]), JSON.stringify(table));
+  const flags = await found({ html: `<p>${yes.join(' ')} ${no.slice(0, 5).join(' ')}</p>` });
+  check('html: every address of the table is found in text, and nothing else', JSON.stringify(flags) === JSON.stringify(yes), JSON.stringify(flags));
   // neighbouring strings of RichText are one text for Telegram
   const split = await found({ blocks: [{ type: 'paragraph', text: ['адрес ', eq.slice(0, 20), eq.slice(20), ' конец'] }] });
   check('blocks: an address split between neighbouring strings is found', JSON.stringify(split) === JSON.stringify([eq]), JSON.stringify(split));

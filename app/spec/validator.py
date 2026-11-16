@@ -490,7 +490,9 @@ def _plain(rt) -> str:
 # a «Кнопки» button, with its web_app.url and login_url.url; each message deleted right away). A link (<a href>, a url
 # element) it drops over any of LINK_DROPS and keeps its text. A button it refuses with the whole post
 # (BUTTON_URL_INVALID) over BUTTON_REFUSES; a space or a tab in a button it writes as %20 and %09 itself. U+2028 it
-# takes out of either address and keeps the link or the button (a warning). U+007F, U+0080, U+00AD, U+FEFF, ' \ { | }
+# takes out of either address and keeps the link or the button (a warning); but one an entity makes in <a href>
+# (&#x2028;) it keeps there and drops the link over it (issue #195, tg_href; in <tg-button url> that was not measured,
+# an entity there counts as typed). U+007F, U+0080, U+00AD, U+FEFF, ' \ { | }
 # stay as they are. Not measured: the other Unicode spaces (UNMEASURED_SPACES) in either, and in a button the rest of
 # LINK_DROPS: a warning that says so. Buttons under the post (reply_markup) were not measured at all. Mirrored in
 # render.js (LINK_DROPS); js/html-export.js writes these characters %-encoded. To be measured again with a new Bot API.
@@ -529,22 +531,29 @@ def _encoded(chars: list[str]) -> str:
     return ", ".join(f"{_char(c)} — {quote(c, safe='')}" for c in chars)
 
 
-def address_notes(kind: str, url: str) -> list[tuple[bool, str]]:
+def address_notes(kind: str, url: str, written: str | None = None) -> list[tuple[bool, str]]:
     """What Telegram does with the address of a link (kind "link") or a button ("button"), entities decoded: a list of
-    (is it an error, what to say after «ссылка «текст»: »), empty when it takes the address as it is."""
+    (is it an error, what to say after «ссылка «текст»: »), empty when it takes the address as it is. written: the
+    href of an <a> as html has it, its entities not decoded (tg_href)."""
     addr = _short(url, 60)
     if url.startswith("upload:"):
         return [(True, f"адрес {addr}: {UPLOAD_IN_LINK}")]
     link = kind == "link"
+    typed = TAKEN_OUT in (url if written is None else written)
+    url = url.replace(TAKEN_OUT, "") if written is None else tg_href(written)  # a U+2028 left came from an entity
     chars = list(dict.fromkeys(url))
+    drops = "молча выбрасывает ссылку и оставляет только текст"
     notes = []
     if bad := [c for c in chars if c in (LINK_DROPS if link else BUTTON_REFUSES)]:
-        verdict = (
-            "молча выбрасывает ссылку и оставляет только текст" if link else "отклоняет весь пост (BUTTON_URL_INVALID)"
-        )
+        verdict = drops if link else "отклоняет весь пост (BUTTON_URL_INVALID)"
         say = f"в адресе {addr} есть {', '.join(map(_char, bad))}, а с этим Telegram {verdict}"
         notes.append((True, f"{say}; в адресе их пишут так: {_encoded(bad)}"))
     if TAKEN_OUT in chars:
+        say = f"в адресе {addr} {CHAR_NAMES[TAKEN_OUT]} записан сущностью (&#x2028;, &#8232;), а так Telegram {drops}"
+        notes.append(
+            (True, f"{say}, хотя сам символ из адреса только убирает; в адресе его пишут так: {_encoded([TAKEN_OUT])}")
+        )
+    if typed:
         stays = "ссылка" if link else "кнопка"
         notes.append((False, f"из адреса {addr} Telegram уберёт {CHAR_NAMES[TAKEN_OUT]}, {stays} останется"))
     if odd := [c for c in chars if c in (UNMEASURED_SPACES if link else BUTTON_UNMEASURED)]:
@@ -640,8 +649,13 @@ HTML_ENDS_P = frozenset(
 
 
 TG_ENTITY_RE = re.compile(rf"&(?:({'|'.join(TG_ENTITIES)})|#([0-9]+)|#x([0-9a-fA-F]+));")
-# an attribute right after the quote of the one before it counts too (<a title="x"href="…">), as in html.parser
-ATTR_RE = re.compile(r"""(?<=[\s"'/])([^\s"'=/>]+)(?:\s*=\s*("[^"]*"|'[^']*'|[^\s>]*))?""")
+# an attribute right after the quote of the one before it counts too (<a title="x"href="…">), as in html.parser; the
+# spaces around it are the ASCII ones of html, so a U+2028 is part of a value without quotes, as for the browser (where
+# a typed one ends tells it from one an entity makes: tg_href). The same source in render.js (ATTR_RE), compared by
+# tests/test_rich_limits.py.
+ATTR_RE = re.compile(
+    r"""(?<=[\t\n\f\r "'/])([^\t\n\f\r "'=/>]+)(?:[\t\n\f\r ]*=[\t\n\f\r ]*("[^"]*"|'[^']*'|[^\t\n\f\r >]*))?"""
+)
 # A tag, to tell the text of html from its tags: a piece of text between two tags is what Telegram erases for an
 # entity it makes no character of (TG_ENTITIES). Linear in the source: no «<» inside, so a «<» without its «>» costs
 # a look up to the next «<»; the name is taken whole ((?=(…))\1 is an atomic group, as JavaScript has none), so the
@@ -691,6 +705,13 @@ def tg_unescape(s: str) -> str:
         return m[0] if c is None else c
 
     return TG_ENTITY_RE.sub(one, s)
+
+
+def tg_href(written: str) -> str:
+    """The href of an <a> as Telegram reads it: a U+2028 typed as it is taken out, then the entities decoded, so one
+    that an entity makes (&#x2028;, &#8232;) stays in the address, and over it Telegram drops the link (measured, issue
+    #195). render.js reads it the same way before the browser does (hrefTyped)."""
+    return tg_unescape(written.replace(TAKEN_OUT, ""))
 
 
 def vanishing(text: str) -> str | None:
@@ -811,13 +832,13 @@ def _erased(found: list[tuple[str, str]], markdown: bool, maybe: bool = False) -
     )
 
 
-def _attribute(start_tag: str, name: str) -> str | None:
-    """An attribute of a start tag as written («<a href='…'>»), entities decoded as Telegram does."""
-    inner = start_tag[1:].split(None, 1)
-    for m in ATTR_RE.finditer(" " + inner[1] if len(inner) > 1 else ""):
+def _attribute(start_tag: str, name: str, decoded: bool = True) -> str | None:
+    """An attribute of a start tag («<a href='…'>»), entities decoded as Telegram does, or as written."""
+    for m in ATTR_RE.finditer(start_tag):  # the name of the tag comes after «<», so it is no attribute
         if m[1].lower() == name:
             value = m[2] or ""
-            return tg_unescape(value[1:-1] if value[:1] in ("'", '"') else value)
+            value = value[1:-1] if value[:1] in ("'", '"') else value
+            return tg_unescape(value) if decoded else value
     return None
 
 
@@ -919,11 +940,13 @@ class _HtmlWalk(HTMLParser):
             i if tag == "tr" else -1 if tag == "table" else top.row,
         )
         # an address Telegram does not take as it is (address_notes). html.parser decodes every HTML5 entity in
-        # attributes, Telegram only a few and numbers its own way: the value is read from the tag as written
+        # attributes, Telegram only a few and numbers its own way: the value is read from the tag as written, and in
+        # <a href> a U+2028 typed as it is differs from one an entity makes (tg_href)
         if tag in ("a", "tg-button"):
             kind = "link" if tag == "a" else "button"
-            address = _attribute(self.get_starttag_text() or "", "href" if tag == "a" else "url")
-            if address is not None and (notes := address_notes(kind, address)):
+            written = _attribute(self.get_starttag_text() or "", "href" if tag == "a" else "url", decoded=False)
+            href = written if tag == "a" else None
+            if written is not None and (notes := address_notes(kind, tg_unescape(written), href)):
                 e.link = (kind, notes, [])
                 self.links.append(e.link)
         self.stack.append(e)

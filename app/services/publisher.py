@@ -5,8 +5,9 @@ Error policy (see docs/REVIEW_CHECKLIST.md, section 2):
 - a send the database refused to record (a full or read-only disk) is in the channel all the same: the answer says
   where, with its message_id, and the record is written later (`unrecorded`);
 - a network error during a send means "may have gone out": never retried automatically;
-- one failing channel never stops the others;
-- a send Telegram refused, or that may have gone, is recorded as failed with the error.
+- one failing channel never stops the others, nor undoes the ones the post went to: a refusal (Telegram's or the
+  studio's) after that is the result of its channel, never an error of the request;
+- a send Telegram or the studio refused, or that may have gone, is recorded as failed with the error.
 """
 
 import asyncio
@@ -604,12 +605,20 @@ def _mark_failed(pid: str, error: str, unknown: bool = False) -> None:
         log.exception("could not record the failed send %s", pid)
 
 
+def may_be_out(r: dict) -> bool:
+    """A result of publish() for one chat: the post is there, or may be (a send cut off mid-request)."""
+    return bool(r["ok"]) or MAY_HAVE_GONE in (r.get("error") or "")
+
+
 async def publish(chats: list, post: dict, draft_id: str | None = None, kind: str = kinds.RICH, actor: str = "api"):
     """Send to every chat; one failing channel does not stop the others. Returns (results, warnings).
 
     Each send is written down as "sending" before Telegram is asked, like a scheduled one: if the process dies
     between Telegram's answer and the update, the row is still there, and the next start marks it "may have gone".
-    If the database refuses the update, the result says the post is out all the same (unrecorded_send)."""
+    If the database refuses the update, the result says the post is out all the same (unrecorded_send).
+    Once the post is (or may be) in one chat, a failure in the next is that chat's result, never an exception: a
+    refusal raised from here (StudioError, TelegramError) means nothing went out anywhere, and frees the
+    Idempotency-Key for a retry that sends the post again (#212)."""
     out: list[dict] = []
     warnings: list[str] = []
     write_unrecorded()  # what an earlier send could not write down goes first
@@ -617,9 +626,9 @@ async def publish(chats: list, post: dict, draft_id: str | None = None, kind: st
         try:
             rec = store.add_post(chat, post, draft_id, "sending", kind=kind, actor=actor)
         except Exception as e:
-            if not any(r["ok"] for r in out):  # nothing is out anywhere: the request fails as it is, nothing was sent
+            if not any(may_be_out(r) for r in out):  # nothing is out anywhere: the request fails as it is
                 raise
-            # the post is in an earlier chat already: the answer must still say where, so this one is "not sent"
+            # the post is (or may be) in an earlier chat: the answer must still say where, so this one is "not sent"
             log.exception("could not write the row of the send to %s; not sent there", chat)
             error = f"не отправлено: студия не смогла записать строку поста ({_reason(e)})"
             out.append({"chat_id": chat, "ok": False, "error": error})
@@ -634,9 +643,14 @@ async def publish(chats: list, post: dict, draft_id: str | None = None, kind: st
                 raise
             out.append({"chat_id": chat, "ok": False, "error": e.description})
             continue
-        except StudioError:  # the request itself is wrong (e.g. a missing upload): nothing went out anywhere
-            store.delete_post(rec["id"])
-            raise
+        except StudioError as e:  # the request itself is wrong (a file deleted since the check): not sent here
+            if not any(may_be_out(r) for r in out):  # nor anywhere: no trace, and the request fails as it is
+                store.delete_post(rec["id"])
+                raise
+            # an earlier chat has the post: kept as sent, this one is a failure of the send like a refusal
+            _mark_failed(rec["id"], str(e))
+            out.append({"chat_id": chat, "ok": False, "error": str(e)})
+            continue
         except Exception as e:
             err = f"{type(e).__name__}: {e}. {MAY_HAVE_GONE}"
             _mark_failed(rec["id"], err, unknown=True)
