@@ -553,7 +553,7 @@ def address_notes(kind: str, url: str, written: str | None = None) -> list[tuple
         notes.append(
             (True, f"{say}, хотя сам символ из адреса только убирает; в адресе его пишут так: {_encoded([TAKEN_OUT])}")
         )
-    if typed:
+    if typed and not any(is_error for is_error, _ in notes):  # an error already says what happens to the link
         stays = "ссылка" if link else "кнопка"
         notes.append((False, f"из адреса {addr} Telegram уберёт {CHAR_NAMES[TAKEN_OUT]}, {stays} останется"))
     if odd := [c for c in chars if c in (UNMEASURED_SPACES if link else BUTTON_UNMEASURED)]:

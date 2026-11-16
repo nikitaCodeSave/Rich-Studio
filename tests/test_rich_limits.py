@@ -834,17 +834,8 @@ def test_u2028_is_taken_out_of_a_link_address_a_warning(current):
 
 
 # <a href> (measured, issue #195): a U+2028 typed as it is Telegram takes out, over one an entity makes it drops the
-# link (tg_href). The same table is HREF_U2028 in tests/render_unit.mjs, for the preview (hrefTyped); None: dropped
-HREF_U2028 = [
-    ('"https://example.com/?q=a\u2028b"', "https://example.com/?q=ab"),
-    ("'https://example.com/?q=a\u2028b'", "https://example.com/?q=ab"),
-    ("https://example.com/?q=a\u2028b", "https://example.com/?q=ab"),
-    ('"https://example.com/?q=a&#x2028;b"', None),
-    ('"https://example.com/?q=a&#8232;b"', None),
-    ('"https://example.com/?q=a&#x0002028;b"', None),
-    ('"https://example.com/?q=a\u2028&#x2028;b"', None),
-    ('"https://example.com/?q=a&#X2028;b"', "https://example.com/?q=a&#X2028;b"),
-]
+# link (tg_href). The table is telegram_parse/href_u2028.json, also read by tests/render_unit.mjs for the preview (hrefTyped); None: dropped
+HREF_U2028 = [tuple(case) for case in json.loads((PARSE / "href_u2028.json").read_text("utf-8"))["cases"]]
 
 
 @pytest.mark.parametrize(("href", "kept"), HREF_U2028, ids=repr)
@@ -859,7 +850,9 @@ def test_u2028_from_an_entity_in_a_link_address_drops_the_link(current, href, ke
         assert "%E2%80%A8" in err, err
     else:
         assert r["ok"], r
-    assert ("\u2028" in href) == has(r["warnings"], "уберёт разделитель строк U+2028"), r["warnings"]
+    assert ("\u2028" in href and kept is not None) == has(r["warnings"], "уберёт разделитель строк U+2028"), r[
+        "warnings"
+    ]
 
 
 def test_u2028_from_an_entity_in_a_button_address_was_not_measured(current):
@@ -1152,3 +1145,10 @@ def test_a_rich_reply_to_a_button_is_held_to_the_same_limits(client, tg):
     (link,) = errors({"html": '<p><a href="https://example.com/?q=&quot;x&quot;">ссылка</a></p>'})
     assert "%22" in link, link
     assert errors({"blocks": [{"type": "table", "cells": [[{"text": "a"}]]}]}) == []
+
+
+def test_u2028_warning_is_not_added_when_the_address_already_has_an_error(current):
+    """A typed U+2028 plus a character that drops the link: the error says it all, "the link stays" would contradict it."""
+    r = check(current, html=link_html(chr(0x2028) + "&#x2003;"))
+    assert not r["ok"], r
+    assert not any("уберёт" in w for w in r["warnings"]), r

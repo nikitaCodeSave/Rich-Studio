@@ -1,0 +1,37 @@
+{
+  "_comment": "<a href> (measured, issue #195): [the href as typed in html, the address Telegram keeps; null: the link is dropped]. Read by tests/test_rich_limits.py and tests/render_unit.mjs",
+  "cases": [
+    [
+      "\"https://example.com/?q=a\u2028b\"",
+      "https://example.com/?q=ab"
+    ],
+    [
+      "'https://example.com/?q=a\u2028b'",
+      "https://example.com/?q=ab"
+    ],
+    [
+      "https://example.com/?q=a\u2028b",
+      "https://example.com/?q=ab"
+    ],
+    [
+      "\"https://example.com/?q=a&#x2028;b\"",
+      null
+    ],
+    [
+      "\"https://example.com/?q=a&#8232;b\"",
+      null
+    ],
+    [
+      "\"https://example.com/?q=a&#x0002028;b\"",
+      null
+    ],
+    [
+      "\"https://example.com/?q=a\u2028&#x2028;b\"",
+      null
+    ],
+    [
+      "\"https://example.com/?q=a&#X2028;b\"",
+      "https://example.com/?q=a&#X2028;b"
+    ]
+  ]
+}
