@@ -1287,7 +1287,7 @@
   },
   "/api/check": {
    "post": {
-    "description": "`?chat_id=@канал`, без него канал по умолчанию. POST, а не GET: проверка запоминает канал в списке «Каналы», а\nGET запросил бы и `<img src=\"/api/check?…\">` в чужом посте.",
+    "description": "`?chat_id=@канал`, без него канал по умолчанию.",
     "operationId": "check_api_check_post",
     "parameters": [
      {
@@ -1371,7 +1371,7 @@
     ]
    },
    "post": {
-    "description": "Файл `upload:<имя>` может быть ещё не загружен; путь вместо имени (`/`, `\\`, `..`) — 400.",
+    "description": "Файл `upload:<имя>` можно загрузить позже; путь вместо имени (`/`, `\\`, `..`) — 400.",
     "operationId": "create_draft_api_drafts_post",
     "requestBody": {
      "content": {
@@ -1403,7 +1403,7 @@
       "description": "Validation Error"
      }
     },
-    "summary": "Новый черновик; он сразу открывается в редакторе",
+    "summary": "Новый черновик: он появится в списке редактора",
     "tags": [
      "drafts"
     ]
@@ -1487,7 +1487,7 @@
     ]
    },
    "put": {
-    "description": "`chat_ids` — каналы черновика: публикация из него без `chat_id` уходит туда. Без поля остаются прежние.\nРедактор присылает `_studio` целиком, и оно сохраняется как есть; без `_studio` в посте остаются заметки студии\n(`source`, `warnings` пересланного поста), а буферы редактора (`buffers`, `json`, `format`) сбрасываются.\nФайл `upload:<имя>` может быть ещё не загружен; путь вместо имени — 400.",
+    "description": "`chat_ids` — каналы черновика: туда уходит публикация из него без `chat_id`; без поля остаются прежние.\n`_studio` в посте сохраняется как есть (так шлёт редактор); без него заметки студии (`source`, `warnings`\nпересланного поста) остаются, а буферы редактора сбрасываются. Файл `upload:<имя>` можно загрузить позже; путь\nвместо имени — 400.",
     "operationId": "put_draft_api_drafts__did__put",
     "parameters": [
      {
@@ -1974,7 +1974,7 @@
   },
   "/api/media-post": {
    "post": {
-    "description": "Отдельное сообщение, не rich-пост: в блоках `InputRichMessage` таких медиа нет. Платный контент требует,\nчтобы в канале была разрешена публикация платных медиа (`can_send_paid_media`).",
+    "description": "Отдельное сообщение, не rich-пост: в `InputRichMessage` таких медиа нет. Платный контент канал примет, только\nесли в нём разрешены платные медиа (`can_send_paid_media`).",
     "operationId": "send_media_api_media_post_post",
     "parameters": [
      {
@@ -2239,7 +2239,7 @@
   },
   "/api/posts": {
    "get": {
-    "description": "Для каждого поста: `title`, `thumb`, `link`, нажатия (`clicks`) и текст кнопки каждого `callback_data`\n(`buttons`), rich-ответы на нажатия, которые не дошли (`reply_errors`: `{callback_data: {n, error, at}}`).\nОтправка, которой Telegram отказал, — статус `failed` с ошибкой. `outcome_unknown: true` у `failed`:\nисход неизвестен (Telegram не ответил, студия остановилась или упала посреди отправки), пост мог уйти. Такая\nзапись не уходит после успешной отправки того же черновика и видна в `/api/health`, пока её не уберут `DELETE`.\n`comment_status: sending` и `comment_in_flight: true`: первый комментарий отправляется сейчас; `false`: он не\nподтверждён, его никто больше не отправляет — например, Telegram его принял, а база не приняла запись (событие\n`send.unrecorded` с `message_id` в журнале), или Telegram отказал, а сбой не записался (ошибка «could not record\nthe failed first comment»); мог уйти, заново его не публикуйте; `null`: процесс студии в резерве, комментарии\nотправляет другой, отсюда не видно, идёт запрос или нет.",
+    "description": "Для каждого поста: `title`, `thumb`, `link`, нажатия (`clicks`) и текст кнопки каждого `callback_data`\n(`buttons`), недошедшие rich-ответы на нажатия (`reply_errors`: `{callback_data: {n, error, at}}`).\n`failed` с `outcome_unknown: true`: пост мог уйти; запись видна в `/api/health`, пока её не уберут `DELETE`\n(повторная отправка её не убирает). `comment_status: sending` с `comment_in_flight`: `true` — первый комментарий\nотправляется сейчас; `false` — его никто больше не отправляет, а исход не записан: мог уйти, заново не\nпубликуйте; `null` — этот процесс студии в резерве и не знает.",
     "operationId": "list_posts_api_posts_get",
     "parameters": [
      {
@@ -2315,7 +2315,7 @@
   },
   "/api/posts/{pid}": {
    "delete": {
-    "description": "`DELETE` неудачной отправки убирает только её запись из списка, в канале ничего не удаляется. Запись с\n`outcome_unknown: true` (пост мог уйти) так и решают: проверили канал и убрали её, тогда она уходит и из\n`/api/health`.",
+    "description": "У неудачной отправки (`failed`) удаляется только запись, в канале ничего. Запись с `outcome_unknown: true`\nубирают так же, проверив канал: тогда она пропадает и из `/api/health`.",
     "operationId": "delete_post_api_posts__pid__delete",
     "parameters": [
      {
@@ -2394,7 +2394,7 @@
   },
   "/api/posts/{pid}/buttons": {
    "post": {
-    "description": "Прежние кнопки попадают в историю поста (`/versions`), `version` поста растёт. Ответы на кнопки\n(`callbacks`, с rich-ответом `reply`) проверяются, как при публикации: с ошибкой 422 и в Telegram ничего.",
+    "description": "Прежние кнопки попадают в историю поста (`/versions`). `callbacks` заменяют ответы кнопок, что были под постом,\nостальные ответы остаются; проверяются как при публикации: ошибка — 422, в Telegram ничего не уходит.",
     "operationId": "set_buttons_api_posts__pid__buttons_post",
     "parameters": [
      {
@@ -2463,7 +2463,7 @@
   },
   "/api/posts/{pid}/edit": {
    "post": {
-    "description": "`?post_version=` — поле `version` поста из `GET /api/posts/{id}`: если пост с тех пор заменили, 409.",
+    "description": "У опубликованного поста `callbacks` и `comment` без новых остаются, а без `reply_markup` кнопки пропадают;\nотложенный и пропущенный заменяются целиком. `?post_version=` — `version` из `GET /api/posts/{id}`: если пост\nс тех пор заменили, 409.",
     "operationId": "edit_post_api_posts__pid__edit_post",
     "parameters": [
      {
@@ -2542,7 +2542,7 @@
       "description": "Validation Error"
      }
     },
-    "summary": "Заменить содержимое поста, опубликованного через студию",
+    "summary": "Заменить содержимое поста студии: опубликованного, отложенного или пропущенного",
     "tags": [
      "telegram"
     ]
@@ -2767,7 +2767,7 @@
   },
   "/api/preview-send": {
    "post": {
-    "description": "В ответе `parsed`: блоки, на которые Telegram разобрал пост, и они же для повторной отправки (`input_blocks`).\n`chat_id`, отличный от `TG_PREVIEW_CHAT`, требует права `publish`: это уже отправка в чужой чат.",
+    "description": "`parsed` в ответе: блоки, на которые Telegram разобрал пост, и они же для отправки (`input_blocks`).\n`chat_id`, отличный от `TG_PREVIEW_CHAT`, требует права `publish`.",
     "operationId": "preview_send_api_preview_send_post",
     "requestBody": {
      "content": {
@@ -2807,7 +2807,7 @@
   },
   "/api/raw/{method}": {
    "post": {
-    "description": "Только для уровня admin; `RAW_API=off` выключает маршрут совсем.",
+    "description": "Только для уровня admin; `RAW_API=off` выключает маршрут. Метод, который не только читает и отправляет\nсообщения, и `getUpdates` требуют заголовок `X-Confirm: yes`.",
     "operationId": "raw_api_raw__method__post",
     "parameters": [
      {
@@ -3237,7 +3237,7 @@
   },
   "/api/suggested-posts": {
    "get": {
-    "description": "`state`: pending (ждёт решения), approved, declined, paid, refunded, failed. Студия видит предложения,\nпришедшие, пока она запущена: бот — админ канала с правом «Личные сообщения канала».",
+    "description": "`state`: open (ждёт решения, решается или одобрение не прошло), pending, approving, declining, approved,\ndeclined, paid, refunded, failed; без него все. Студия видит предложения, пришедшие, пока она запущена; бот —\nадмин канала с правом «Личные сообщения канала».",
     "operationId": "list_suggested_api_suggested_posts_get",
     "parameters": [
      {
@@ -3454,7 +3454,7 @@
   },
   "/api/suggested-posts/{sid}/reopen": {
    "post": {
-    "description": "Только человек (уровень admin; в MCP этого нет) и только после проверки в личных сообщениях канала, что\nрешение не дошло.\nДошедшее решение Telegram, скорее всего, второй раз не примет, а его итог всё равно придёт и обновит состояние.",
+    "description": "Уровень admin, в MCP нет. Сначала проверьте в личных сообщениях канала, что решение не дошло: дошедшее\nTelegram второй раз, скорее всего, не примет, а его итог всё равно придёт и обновит состояние.",
     "operationId": "reopen_api_suggested_posts__sid__reopen_post",
     "parameters": [
      {
@@ -3530,7 +3530,7 @@
     ]
    },
    "post": {
-    "description": "Значение поля всегда текст: в HTML экранируется, в блоках остаётся строкой. 422, если {{key}} стоит там,\nгде значение стало бы разметкой: в теге, в ключе JSON, в атрибуте без кавычек, в Markdown. Ссылку (href/src\nв HTML, ключ url в JSON: ссылка в блоке, кнопка) подставляет только поле type url целиком, без кусков вроде\nhttps://site/{{slug}}, иначе тоже 422. 422 и для поля рядом с parse_mode или entities (подпись медиа) и в\ncallback_data кнопки, у которой есть ответ в callbacks: ключ callbacks не заполняется.",
+    "description": "Значение поля всегда текст: в HTML экранируется, в блоках остаётся строкой. 422, если {{key}} стоит там,\nгде значение стало бы разметкой (в теге, в ключе JSON, в атрибуте без кавычек, в Markdown), рядом с\n`parse_mode` или `entities` (подпись медиа) или в `callback_data` кнопки с ответом в `callbacks`. Ссылку\n(href/src в HTML, ключ url в JSON) подставляет только поле type url целиком, не https://site/{{slug}}.",
     "operationId": "create_template_api_templates_post",
     "requestBody": {
      "content": {
@@ -3775,7 +3775,7 @@
   },
   "/api/validate": {
    "post": {
-    "description": "Для проверенных каналов (окно «Каналы», `POST /api/channels`) ещё предупреждения о том, что Telegram в чате\nтакого типа не примет по описаниям спецификации: кнопка `web_app` вне лички, `switch_inline_query_current_chat`\nи reply-клавиатура в канале, `message_effect_id` вне лички; блок `thinking` — в любом чате.\n\nТело — сам пост. Поле верхнего уровня, которого у поста нет (`disable_notification` вне `options`), —\nпредупреждение, а не ошибка: в Telegram оно не уходит. `chat_id`/`chat_ids` в теле — ошибка, как `chat_id` в\n`options`: каналы этого маршрута — query-параметр `chat_ids`, а публикация с ними в посте отвечает 400.",
+    "description": "Тело — сам пост, каналы — query-параметр `chat_ids`; `chat_id`/`chat_ids` в посте — ошибка. Для проверенных\nканалов (`POST /api/channels`) ещё предупреждения о том, что Telegram в чате такого типа не примет (кнопка\n`web_app` в канале…). Поле верхнего уровня, которого у поста нет (`disable_notification` вне `options`), —\nпредупреждение: в Telegram оно не уходит.",
     "operationId": "validate_api_validate_post",
     "parameters": [
      {

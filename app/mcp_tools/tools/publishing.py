@@ -32,11 +32,10 @@ def register(tool: ToolDecorator) -> None:
         version: VersionArg = None,
     ) -> dict:
         """Опубликовать пост в канал. Только после явного подтверждения пользователя для этого поста и канала
-        (назовите канал по названию из list_channels). Пост или draft_id с version; без chat_id пост уходит в каналы
-        черновика, а если их нет, в канал по умолчанию. Опубликованный из черновика пост связан с ним. Ушёл не во все
-        каналы: results[].ok и error по каждому; заново по всему списку не публикуйте (будет дубль), только в каналы с
-        ok: false и с новым idempotency_key. Канал, где error говорит «мог уйти», сначала проверьте с пользователем:
-        пост там, может быть, уже есть."""
+        (называйте канал по названию из list_channels). post или draft_id с version; без chat_id пост уходит в каналы
+        черновика, если их нет — в канал по умолчанию. Ушёл не во все каналы: results[].ok и error по каждому; не
+        публикуйте заново по всему списку (будет дубль), только в каналы с ok: false и с новым idempotency_key. Канал,
+        где error говорит «мог уйти», сначала проверьте вместе с пользователем."""
         p, _ = post_source(post, draft_id, version, publish=not dry_run)
         if dry_run:
             return await posts.send(p, chat_id, chat_ids, draft_id, dry_run=True)
@@ -63,8 +62,8 @@ def register(tool: ToolDecorator) -> None:
         pin: Annotated[bool, Field(description="Закрепить после отправки")] = False,
         idempotency_key: KeyArg = None,
     ) -> dict:
-        """Опрос или викторина отдельным сообщением (в rich-пост опрос не вкладывается), сразу или отложенно.
-        Только после явного подтверждения пользователя для этого опроса и канала."""
+        """Опрос или викторина отдельным сообщением, сразу или отложенно (at); опрос сразу после поста — poll_after
+        в самом посте. Только после явного подтверждения пользователя для этого опроса и канала."""
         body = {"poll": poll, "chat_id": chat_id, "chat_ids": chat_ids, "at": at, "pin": pin}
         return await idempotency.run(
             request_key(idempotency_key, "poll", body),
@@ -84,8 +83,9 @@ def register(tool: ToolDecorator) -> None:
         draft_id: DraftArg = None,
         version: VersionArg = None,
     ) -> dict:
-        """Отложить публикацию. Только после явного подтверждения пользователя. Студия должна работать в это время;
-        если она была выключена и пост опоздал больше schedule_late_min, он станет missed и не уйдёт сам."""
+        """Отложить публикацию. Только после явного подтверждения пользователя. Пост отправляет студия: в это время
+        она должна работать. Опоздавший больше чем на schedule_late_min минут становится missed и сам не уйдёт:
+        вернуть в очередь — reschedule_post."""
         p, _ = post_source(post, draft_id, version, publish=not dry_run)
         if dry_run:
             return posts.schedule(p, at, chat_id, chat_ids, draft_id, dry_run=True)

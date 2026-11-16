@@ -24,9 +24,9 @@ def draft(did: str):
     return d
 
 
-@router.post("/api/drafts", summary="Новый черновик; он сразу открывается в редакторе")
+@router.post("/api/drafts", summary="Новый черновик: он появится в списке редактора")
 def create_draft(req: DraftReq):
-    """Файл `upload:<имя>` может быть ещё не загружен; путь вместо имени (`/`, `\\`, `..`) — 400."""
+    """Файл `upload:<имя>` можно загрузить позже; путь вместо имени (`/`, `\\`, `..`) — 400."""
     publisher.check_uploads(req.post, must_exist=False)
     return store.save_draft(
         None, req.title, req.post, post_id=req.post_id, chat_ids=publisher.normalize_chats(req.chat_ids) or None
@@ -35,10 +35,10 @@ def create_draft(req: DraftReq):
 
 @router.put("/api/drafts/{did}", summary="Сохранить черновик; с version — 409, если его сохранили в другом месте")
 def put_draft(did: str, req: DraftReq):
-    """`chat_ids` — каналы черновика: публикация из него без `chat_id` уходит туда. Без поля остаются прежние.
-    Редактор присылает `_studio` целиком, и оно сохраняется как есть; без `_studio` в посте остаются заметки студии
-    (`source`, `warnings` пересланного поста), а буферы редактора (`buffers`, `json`, `format`) сбрасываются.
-    Файл `upload:<имя>` может быть ещё не загружен; путь вместо имени — 400."""
+    """`chat_ids` — каналы черновика: туда уходит публикация из него без `chat_id`; без поля остаются прежние.
+    `_studio` в посте сохраняется как есть (так шлёт редактор); без него заметки студии (`source`, `warnings`
+    пересланного поста) остаются, а буферы редактора сбрасываются. Файл `upload:<имя>` можно загрузить позже; путь
+    вместо имени — 400."""
     publisher.check_uploads(req.post, must_exist=False)
     prev = store.get_draft(did) or {}
     old = prev.get("chat_ids")

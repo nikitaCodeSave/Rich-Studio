@@ -22,14 +22,13 @@ def _changed(e: Conflict) -> Conflict:
 def register(tool: ToolDecorator) -> None:
     @tool(READ)
     async def list_post_templates() -> list:
-        """Шаблоны постов (рубрики) пользователя, последние сверху: id, title, version и fields — поля формы
-        {key, label, type, required, default}. Сам пост с {{key}} отдаёт get_post_template."""
+        """Шаблоны постов (рубрики) пользователя, последние сверху: id, title, version, fields. Сам пост с {{key}}
+        отдаёт get_post_template."""
         return templates.list_templates()
 
     @tool(READ)
     async def get_post_template(template_id: TemplateIdArg) -> dict:
-        """Шаблон целиком: payload — пост с {{key}} в строковых значениях, fields, version для save_post_template
-        и draft_from_template."""
+        """Шаблон целиком: payload (пост с {{key}}), fields, version для save_post_template и draft_from_template."""
         return templates.get(template_id)
 
     @tool(LOCAL)
@@ -47,16 +46,12 @@ def register(tool: ToolDecorator) -> None:
             int | None, Field(description="С template_id: version из get_post_template, иначе ошибка, а не перезапись")
         ] = None,
     ) -> dict:
-        """Сохранить пост шаблоном с полями. {{key}} ставьте только в строковые значения: в блоках — в текст,
-        в HTML — в текст или в атрибут в кавычках. В ссылку (href/src в HTML, ключ url в JSON: ссылка в блоке,
-        кнопка) — только поле type url целиком (href="{{link}}", "url": "{{link}}"), без кусков вроде
-        https://site/{{slug}}.
-        Значение при заполнении всегда текст: разметки оно не создаёт. В Markdown поля пока не подставляются:
-        возьмите блоки или HTML. Файл подставляет поле url целиком со значением upload:имя в медиа поста (блок,
-        rich_message.media), не в атрибут HTML и не в url. HTML с полями должен разбираться без ошибок HTML5
-        (без «=» без имени, лишних кавычек в тегах, < вне тегов). Не поле: строка рядом с parse_mode или entities
-        (подпись медиа) и callback_data кнопки, у которой есть ответ в callbacks (ключ callbacks не заполняется,
-        кнопка осталась бы без ответа). Ничего не публикует."""
+        """Сохранить пост шаблоном с полями; ничего не публикует. {{key}} — только в строковых значениях: в тексте
+        блоков, в HTML в тексте или в атрибуте в кавычках; в Markdown полей нет, возьмите блоки или HTML. Значение
+        подставляется как текст, разметки не создаёт. Ссылку (href/src, ключ url в JSON) задаёт только поле type url
+        целиком ("url": "{{link}}", не https://site/{{slug}}); файл — тоже поле url со значением upload:имя, и
+        только в медиа поста (блок, rich_message.media). Поля не ставятся рядом с parse_mode или entities (подпись
+        медиа) и в callback_data кнопки с ответом в callbacks."""
         try:
             return templates.save(title, parse_post(post), [f.model_dump() for f in fields], template_id, version)
         except Conflict as e:
@@ -71,10 +66,9 @@ def register(tool: ToolDecorator) -> None:
         ],
         title: Annotated[str, Field(description="Название черновика; пусто — название шаблона")] = "",
     ) -> dict:
-        """Заполнить шаблон: новый черновик без каналов с подставленными значениями и его проверка (validation).
-        Дальше как с любым черновиком: preview_post, publish_post с draft_id и version; канал — chat_id в
-        publish_post (goes_to показывает, куда черновик уйдёт без него).
-        Обязательное пустое поле или ссылка не той схемы — ошибка, черновик не создаётся."""
+        """Заполнить шаблон: новый черновик без каналов и его validation. Дальше как с любым черновиком:
+        preview_post, затем publish_post с draft_id, version и chat_id (без него — канал по умолчанию, см. goes_to).
+        Пустое обязательное поле или негодная ссылка — ошибка, черновик не создаётся."""
         try:
             d = templates.fill(template_id, version, values, title)
         except Conflict as e:

@@ -31,7 +31,7 @@ def register(tool: ToolDecorator) -> None:
     ) -> dict:
         """Live Photo или платный контент отдельным сообщением: в rich-пост такие медиа не вкладываются. Файлы
         сначала загрузите (upload_media). Только после явного подтверждения пользователя для этого сообщения,
-        цены и канала. Платный контент — только там, где разрешены платные медиа (каналы)."""
+        цены и канала. Платный контент канал примет, только если в нём разрешены платные медиа."""
         body = {"kind": kind, "params": params, "chat_id": chat_id, "chat_ids": chat_ids, "at": at, "pin": pin}
         return await idempotency.run(
             request_key(idempotency_key, "media-post", body),

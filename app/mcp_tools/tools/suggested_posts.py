@@ -29,9 +29,9 @@ def register(tool: ToolDecorator) -> None:
             ),
         ] = "open",
     ) -> list:
-        """Посты, которые подписчики предложили в личных сообщениях канала: text, media, author, price_amount и
-        price_currency (XTR — звёзды), send_date (время, которое выбрал автор), state. Покажите их пользователю
-        и спросите, что принять."""
+        """Посты, которые подписчики предложили в личных сообщениях канала: текст, медиа, автор, цена
+        (price_currency XTR — звёзды), send_date (время, выбранное автором), state. Покажите их пользователю и
+        спросите, что принять."""
         return suggested_posts.listing(state)
 
     @tool(PUBLIC)
