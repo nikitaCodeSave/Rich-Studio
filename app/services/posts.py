@@ -345,6 +345,8 @@ async def set_buttons(pid: str, reply_markup: dict | None, callbacks: dict | Non
     answers = check_answers(with_text)
     if answers["errors"]:  # a rich reply is checked like the post it answers for
         raise Invalid({"message": "ответ на кнопку не прошёл проверку", "ok": False, **answers})
+    # and its files, as a send checks them: a name that is no upload would fail only at a press (callback.reply_failed)
+    publisher.check_uploads({"callbacks": callbacks})
     if p["status"] not in ("sent", *WAITING):
         raise StudioError(f"пост в статусе {p['status']}")
     # a Live Photo or paid media keeps its keyboard among its own parameters, where a scheduled send takes it from
