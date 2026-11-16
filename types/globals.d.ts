@@ -14,6 +14,8 @@ declare const RichRender: {
   outline(post: object): string;
   /** a user-friendly TON address Telegram finds in text: the right form and checksum */
   isTonAddress(s: unknown): boolean;
+  /** a link address that goes through: what makes Telegram drop a link %-encoded, U+2028 taken out */
+  percentAddress(url: string): string;
 };
 interface Window {
   RichRender: typeof RichRender;

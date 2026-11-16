@@ -275,10 +275,12 @@ await refused('Names of Object\'s own properties are not types', [{ type: 'const
 }
 check('Every type HTML cannot say is refused by name in this file (none now)', noHtml.length === 0, 'add a refusal check for: ' + noHtml.join(', '));
 {
-  // with &quot; in the address Telegram drops the link (captured html-href-quot); %22 keeps it (html-href-pct22)
+  // with &quot; in the address Telegram drops the link (captured html-href-quot); %22 keeps it (html-href-pct22), and
+  // the same with a space, %20 (measured, issue #174): the HTML has the link the author meant, the blocks would lose it
   const quoted = [{ type: 'paragraph', text: ['Поиск ', { type: 'url', text: 'по фразе', url: 'https://example.com/?q="x y"' }] }];
-  const { ok, r, info } = await exportsAs(quoted, await look({ blocks: quoted }));
-  check('A " in a link address is written as %22, not &quot;', ok && r.html === '<p>Поиск <a href="https://example.com/?q=%22x y%22">по фразе</a></p>', info);
+  const meant = [{ type: 'paragraph', text: ['Поиск ', { type: 'url', text: 'по фразе', url: 'https://example.com/?q=%22x%20y%22' }] }];
+  const { ok, r, info } = await exportsAs(quoted, await look({ blocks: meant }));
+  check('A " and a space in a link address are written as %22 and %20, not &quot;', ok && r.html === '<p>Поиск <a href="https://example.com/?q=%22x%20y%22">по фразе</a></p>', info);
   // in a button Telegram refuses the whole post for it (BUTTON_URL_INVALID)
   const b = await toHtml([{ type: 'buttons', buttons: [btn('кнопка', { url: 'https://t.me/?q="x"' }), btn('приложение', { web_app: { url: 'https://telegram.org/?q="y"' } })] }]);
   check('A " in a button address is written as %22 too', b.ok && b.html.includes('url="https://t.me/?q=%22x%22"') && b.html.includes('url="https://telegram.org/?q=%22y%22"') && !b.html.includes('&quot;'), JSON.stringify(b));

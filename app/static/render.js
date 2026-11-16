@@ -125,7 +125,7 @@
     const inner = () => renderRT(rt.text, ctx);
     if (WRAP[t]) frag.append(el(WRAP[t], {}, inner()));
     else if (t === 'spoiler') frag.append(spoilerEl(inner()));
-    else if (t === 'url') frag.append(el('a', { href: safeUrl(rt.url), target: '_blank', rel: 'noopener', title: rt.url }, inner()));
+    else if (t === 'url') frag.append(linkDropped(rt.url) ? inner() : el('a', { href: safeUrl(tgAddress(rt.url)), target: '_blank', rel: 'noopener', title: rt.url }, inner()));
     else if (t === 'text_mention') frag.append(el('a', { class: 'tg-link', title: 'id ' + (rt.user && rt.user.id) }, inner()));
     else if (t === 'email_address') frag.append(el('a', { href: 'mailto:' + rt.email_address }, inner()));
     else if (t === 'phone_number') frag.append(el('a', { href: 'tel:' + rt.phone_number }, inner()));
@@ -473,10 +473,11 @@
         node.classList.add('tg-task'); node.firstElementChild.disabled = true;
       } else if (tag === 'a' && attr('name') && !attr('href')) {
         rep = el('a', { name: attr('name'), id: 'anchor-' + attr('name'), class: 'tg-anchor' });
-      } else if (tag === 'a' && attr('href') && attr('href').includes('"')) {
-        // Telegram drops a link whose address has a " in it (&quot; in HTML) and keeps only its text
+      } else if (tag === 'a' && linkDropped(attr('href'))) {
+        // Telegram drops a link whose address has a ", a space… in it (LINK_DROPS) and keeps only its text
         node.replaceWith(...kids()); return;
       } else if (tag === 'a' && attr('href')) {
+        node.setAttribute('href', tgAddress(attr('href')));
         // #name links are resolved after the walk, when all anchors and references are known
         if (!attr('href').startsWith('#')) { node.setAttribute('target', '_blank'); node.setAttribute('rel', 'noopener'); }
       } else if (tag === 'pre') {
@@ -534,18 +535,68 @@
   // The named entities Telegram decodes, in html and markdown alike (all 2125 names of HTML5 measured, PR #173; the
   // same table is TG_ENTITIES in app/spec/validator.py), and numeric ones with a small x. Every other «&…» (&laquo;,
   // &NBSP;, &nbsp without «;», &#X22;) stays as typed: the browser gets it as text.
+  // Numeric ones as Telegram makes them, not as a browser does (measured on Bot API 10.4, 2026-11-16, issue #174;
+  // tests/telegram_parse/numeric_entities.json): digits without a limit; 0…31 a space, but &#10; in <pre> a line break;
+  // 128…159 the same code point (a browser reads them by windows-1252: &#128; «€», &#150; «–»); a surrogate or a
+  // number past U+10FFFF erases the whole text it stands in, up to the nearest tag (a heading or a quote left without
+  // text, and Telegram refuses the post). In a markdown code fence they stay as typed, as markdown-it leaves them.
   const TG_ENTITIES = { amp: '&', apos: "'", copy: '©', gt: '>', hellip: '…', ldquo: '“', lsquo: '‘', lt: '<', mdash: '—',
     nbsp: '\u00a0', ndash: '–', quot: '"', rdquo: '”', reg: '®', rsquo: '’', trade: '™' };
-  const ENTITY_SRC = `&(?:(${Object.keys(TG_ENTITIES).join('|')})|#([0-9]{1,8})|#x([0-9a-fA-F]{1,7}));`;
-  const NOT_ENTITY = new RegExp('&(?!' + ENTITY_SRC.slice(1) + ')', 'g');
-  const ENTITY_AT = new RegExp('^' + ENTITY_SRC);
-  const tgEntities = (src) => src.replace(NOT_ENTITY, '&amp;');
-  /** @param {RegExpExecArray} m */
-  function decodeEntity(m) {
-    if (m[1]) return TG_ENTITIES[m[1]];
-    const n = m[2] ? parseInt(m[2], 10) : parseInt(m[3], 16);
-    return n > 0 && n <= 0x10ffff && !(n >= 0xd800 && n <= 0xdfff) ? String.fromCodePoint(n) : m[0];
+  const ENTITY_SRC = `&(?:(${Object.keys(TG_ENTITIES).join('|')})|#([0-9]+)|#x([0-9a-fA-F]+));`;
+  const ENTITY_AT = new RegExp(ENTITY_SRC, 'y');
+  const ENTITY_OR_AMP = new RegExp(ENTITY_SRC + '|&', 'g');
+  // past U+10FFFF every number is the same, so a long one is not read; zeros in front do not count
+  const codeOf = (dec, hex) => {
+    const digits = (dec ?? hex).replace(/^0+(?=.)/, '');
+    return digits.length > 8 ? 0x110000 : parseInt(digits, dec !== undefined ? 10 : 16);
+  };
+  /** What Telegram makes of the numeric entity n; null: it erases the text the entity stands in */
+  function tgChar(n, pre) {
+    if (n > 0x10ffff || (n >= 0xd800 && n <= 0xdfff)) return null;
+    if (n < 32) return n === 10 && pre ? '\n' : ' ';
+    return String.fromCodePoint(n);
   }
+  const vanishes = (s) => [...s.matchAll(ENTITY_OR_AMP)].some((m) => (m[2] ?? m[3]) !== undefined && tgChar(codeOf(m[2], m[3]), false) === null);
+  // A tag, to tell the text of html from its tags (the same as HTML_TAG_RE in app/spec/validator.py): a piece of text
+  // between two tags is what Telegram erases for an entity it makes no character of
+  const TAG = /<\/?[A-Za-z][^\s/<>]*(?:[^<>"']|"[^"<]*"|'[^'<]*')*>/g;
+  // html as the browser must get it to read the entities as Telegram does: a numeric one is the character Telegram
+  // makes (an entity again where it would be markup), in a tag too, but one that erases text stays as typed there (not
+  // measured in attributes); 128…159 go as the characters themselves, as entities the browser would read them by
+  // windows-1252; every other «&» is text
+  function tgEntities(src) {
+    let out = '', at = 0, pre = 0;
+    const put = (s, inTag) => s.replace(ENTITY_OR_AMP, (m, name, dec, hex) => {
+      if (name) return m;
+      if (dec === undefined && hex === undefined) return '&amp;';
+      const n = codeOf(dec, hex);
+      const c = tgChar(n, !inTag && pre > 0);
+      if (c === null) return '&amp;' + m.slice(1);
+      if (n >= 128 && n < 160) return c;
+      if (c === ' ') return inTag ? '&#32;' : ' ';
+      return c === '\n' ? '&#10;' : `&#x${n.toString(16)};`;
+    });
+    const text = (s) => (vanishes(s) ? '' : put(s, false));
+    for (const m of src.matchAll(TAG)) {
+      out += text(src.slice(at, m.index)) + put(m[0], true);
+      const p = /^<(\/?)pre[\s/>]/i.exec(m[0]);
+      if (p) pre = Math.max(0, pre + (p[1] ? -1 : 1));
+      at = (m.index || 0) + m[0].length;
+    }
+    return out + text(src.slice(at));
+  }
+
+  // A link address as Telegram takes it, its entities decoded (measured on Bot API 10.4, 2026-11-16, issue #174; the
+  // same set is LINK_DROPS in app/spec/validator.py): over a " < > space or control character, U+0085, U+00A0, U+2003,
+  // U+3000 or U+200B in it Telegram drops the link and keeps its text, in html and in blocks alike; U+2028 it takes
+  // out of the address. A button looks the same with any address: Telegram refuses the post over a bad one, and the
+  // check says so. js/html-export.js writes these characters %-encoded (percentAddress).
+  // eslint-disable-next-line no-control-regex -- the control characters are the point
+  const LINK_DROPS = /["<>\u0000-\u0020\u0085\u00a0\u2003\u3000\u200b]/;
+  const linkDropped = (url) => typeof url === 'string' && LINK_DROPS.test(url);
+  const tgAddress = (url) => (typeof url === 'string' ? url.replace(/\u2028/g, '') : url);
+  /** @param {string} url the address that goes through: what makes Telegram drop a link %-encoded, U+2028 out */
+  const percentAddress = (url) => tgAddress(url).replace(new RegExp(LINK_DROPS.source, 'g'), encodeURIComponent);
 
   // ---------- TON addresses Telegram finds in the text ----------
   // A user-friendly TON address: 48 characters of base64url or base64 for 36 bytes, that is flags, workchain, a 32-byte
@@ -732,12 +783,18 @@
     return true;
   }
 
-  // markdown-it knows every entity of HTML5; Telegram's markdown only the ones its HTML does
+  // markdown-it knows every entity of HTML5; Telegram's markdown only the ones its HTML does, numbers the same way
   function entity(state, silent) {
     if (state.src.charCodeAt(state.pos) !== 0x26) return false;
-    const m = ENTITY_AT.exec(state.src.slice(state.pos, state.pos + 32));
+    ENTITY_AT.lastIndex = state.pos;
+    const m = ENTITY_AT.exec(state.src);
     if (!m) return false;
-    if (!silent) state.pending += decodeEntity(m);
+    if (!silent) {
+      const c = m[1] ? TG_ENTITIES[m[1]] : tgChar(codeOf(m[2], m[3]), false);
+      // one that erases its text goes on into the HTML as typed, and reading the HTML erases the text around it
+      if (c === null) state.push('html_inline', '', 0).content = m[0];
+      else state.pending += c;
+    }
     state.pos += m[0].length;
     return true;
   }
@@ -888,5 +945,5 @@
     return out.join('').replace(/ +/g, ' ').replace(/<br> /g, '<br>').replace(/ <\/pre>/g, '</pre>').replace(/ ?(<math-block:[^>]*>|<hr>|<anchor>) ?/g, '$1').trim().replace(/ ?(<\/?(?:p|h\d|li[^>]*|ul|ol|blockquote|tr|t[hd][^>]*|table[^>]*|footer|summary|details[^>]*|pre[^>]*|caption|cite|pullquote|expandable)>) ?/g, '$1');
   }
 
-  global.RichRender = { render, renderRT, renderBlocks, formatTime, mediaSrc, safeUrl, outline, isTonAddress };
+  global.RichRender = { render, renderRT, renderBlocks, formatTime, mediaSrc, safeUrl, outline, isTonAddress, percentAddress };
 })(window);

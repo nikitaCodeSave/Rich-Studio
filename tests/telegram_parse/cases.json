@@ -145,14 +145,39 @@
   "source": "<p><a href=\"https://example.com/?q=%22x%22\">ссылка</a></p>"
  },
  {
+  "name": "html-href-space",
+  "format": "html",
+  "source": "<p><a href=\"https://example.com/?q=a b\">ссылка</a></p>"
+ },
+ {
+  "name": "html-href-u2028",
+  "format": "html",
+  "source": "<p><a href=\"https://example.com/?q=a&#x2028;b\">ссылка</a></p>"
+ },
+ {
   "name": "html-entities",
   "format": "html",
   "source": "<p>1&nbsp;2 3&mdash;4 5&laquo;6 7&#X22;8</p>"
  },
  {
+  "name": "html-numeric-entities",
+  "format": "html",
+  "source": "<p>A: &#65; &#0000000000000065; &#x0000000000041; как есть: &#X41; &#65 &#; &#x;</p><p>управляющие: a&#0;b&#1;c&#9;d&#10;e&#13;f&#31;g</p><p>128…160: x&#128;x&#150;x&#159;x&#160;x</p><pre>в pre: a&#0;b&#9;c</pre><p><code>в code: a&#10;b</code></p>"
+ },
+ {
+  "name": "html-numeric-vanish",
+  "format": "html",
+  "source": "<p>первый абзац</p><p>второй a&#xD800;b</p>"
+ },
+ {
   "name": "md-entities",
   "format": "markdown",
   "source": "1&nbsp;2 3&mdash;4 5&laquo;6 7&#X22;8"
+ },
+ {
+  "name": "md-numeric-entities",
+  "format": "markdown",
+  "source": "A: &#65; &#0000000000000065; и x&#128;x&#150;x\n\nвторой a&#xD800;b\n\nтретий **жирный&#1114112;** конец\n\n```\nкод &#65; &#xD800;\n```"
  },
  {
   "name": "md-table-pipes",

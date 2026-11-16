@@ -71,11 +71,16 @@ def client():
 
 
 @pytest.fixture(autouse=True)
-def fresh_data(tmp_path, monkeypatch):
-    """An empty database and uploads folder for every test."""
+def fresh_data(request, monkeypatch):
+    """An empty database and uploads folder for every test. A test marked no_db that does not take `client` gets
+    none: a check that touches neither the studio nor its data saves the database with migrations and fsync that
+    every test would spend most of its time on (issue #174)."""
+    if request.node.get_closest_marker("no_db") and "client" not in request.fixturenames:
+        return None
     import settings
     import store
 
+    tmp_path = request.getfixturevalue("tmp_path")
     monkeypatch.setattr(settings.get(), "data_dir", tmp_path)
     store.init()
     settings.get().media_dir.mkdir(parents=True, exist_ok=True)

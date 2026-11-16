@@ -103,8 +103,12 @@ const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
 const own = (table, key) => (typeof key === 'string' && Object.hasOwn(table, key) ? table[key] : undefined);
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 // a " in an address, written &quot; in HTML, makes Telegram drop a link and refuse a button (BUTTON_URL_INVALID);
-// %22 is the same address and goes through (tests/telegram_parse/captured.json: html-href-quot, html-href-pct22)
-const noQuote = (url) => (typeof url === 'string' ? url.replace(/"/g, '%22') : url);
+// %22 is the same address and goes through (tests/telegram_parse/captured.json: html-href-quot, html-href-pct22). So
+// do a space, < > and the other characters measured with it (issue #174, RichRender.percentAddress): they go %-encoded
+const sendable = (url) => (typeof url === 'string' ? RichRender.percentAddress(url) : url);
+// the blocks with their link addresses as the HTML writes them: a link Telegram would drop over a " in the blocks is
+// a link in the HTML, and the check compares the HTML with the post the author meant
+const meant = (blocks) => JSON.parse(JSON.stringify(blocks), (k, v) => (isObj(v) && v.type === 'url' ? { ...v, url: sendable(v.url) } : v));
 const plain = (v) => typeof v === 'string' ? v : Array.isArray(v) ? v.map(plain).join('') : isObj(v) ? plain(v.text ?? v.alternative_text ?? '') : '';
 
 /**
@@ -126,7 +130,7 @@ export function blocksToHtml(blocks, opts = {}) {
   if (tight.html) {
     // Telegram finds TON addresses in the text of blocks and HTML alike, and with detection off in neither
     const detection = opts.skipEntities ? { skip_entity_detection: true } : {};
-    const theirs = lookOf({ blocks, ...detection });
+    const theirs = lookOf({ blocks: meant(blocks), ...detection });
     const mine = lookOf({ html: tight.html, media: tight.media, ...detection });
     if (mine !== theirs) return { ok: false, problems: ['В предпросмотре HTML выглядит иначе, чем визуальный пост'], diff: firstDifference(theirs, mine) };
   }
@@ -199,7 +203,7 @@ function write(blocks, opts, pretty) {
       case 'url': {
         const special = SPECIAL_HREF.find(([re]) => re.test(String(v.url || '')));
         if (special) say(here, `адрес «${v.url}» Telegram прочитает в HTML как ${special[1]}, а не как ссылку`);
-        return tag('a', [['href', noQuote(v.url)]]);
+        return tag('a', [['href', sendable(v.url)]]);
       }
       case 'text_mention': {
         const id = isObj(v.user) ? v.user.id : undefined;
@@ -247,10 +251,10 @@ function write(blocks, opts, pretty) {
       known(v, ACTION_FIELDS[k], where);
     }
     const list = [['type', k], ['style', b.style]];
-    if (k === 'url') list.push(['url', noQuote(v)]);
+    if (k === 'url') list.push(['url', sendable(v)]);
     else if (k === 'callback_data') list.push(['data', v]);
-    else if (k === 'web_app') list.push(['url', noQuote(v.url)]);
-    else if (k === 'login_url') list.push(['url', noQuote(v.url)], ['forward-text', v.forward_text], ['request-write-access', !!v.request_write_access]);
+    else if (k === 'web_app') list.push(['url', sendable(v.url)]);
+    else if (k === 'login_url') list.push(['url', sendable(v.url)], ['forward-text', v.forward_text], ['request-write-access', !!v.request_write_access]);
     else if (k === 'switch_inline_query' || k === 'switch_inline_query_current_chat') list.push(['query', v]);
     else if (k === 'switch_inline_query_chosen_chat') list.push(['query', v.query], ...['user', 'bot', 'group', 'channel'].map((c) => [`allow-${c}-chats`, !!v[`allow_${c}_chats`]]));
     else if (k === 'copy_text') list.push(['text', v.text]);

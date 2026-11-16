@@ -71,7 +71,7 @@
 
 ## Тесты
 
-- `pytest` — API на фейковом Telegram (`tests/mock_telegram.py`, он же сервер для браузерных проверок). У каждого теста своя пустая папка данных, порядок тестов не важен. Фоновые циклы выключены (`STUDIO_BACKGROUND=off`); тест сам вызывает `scheduler.run_due_posts()` или `updates.handle_update()`.
+- `pytest` — API на фейковом Telegram (`tests/mock_telegram.py`, он же сервер для браузерных проверок). У каждого теста своя пустая папка данных, порядок тестов не важен; тест с меткой `no_db` без фикстуры `client` (чистая проверка, например `test_rich_limits.py`) обходится без неё. Фоновые циклы выключены (`STUDIO_BACKGROUND=off`); тест сам вызывает `scheduler.run_due_posts()` или `updates.handle_update()`.
 - Ожидание в коде подменяется через `_sleep` модуля (`telegram.client`, `services.updates`), а не через `asyncio.sleep`: глобальная подмена останавливает фейковый сервер в соседнем потоке, и тесты зависают.
 - Подменять настройки: `monkeypatch.setattr(settings.get(), "preview_chat", "")`.
 - Подменять Telegram: `monkeypatch.setattr(telegram, "call", fake)`.

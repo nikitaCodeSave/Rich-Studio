@@ -3,9 +3,10 @@
 import re
 import string
 from collections import Counter
+from collections.abc import Iterator
 from dataclasses import dataclass
 from html.parser import HTMLParser
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 from .parse import enum_values
 from .source import Spec
@@ -21,8 +22,14 @@ NOT_TEXT_MIRROR = frozenset({"url", "anchor_link", "reference", "reference_link"
 NOT_REQUIRED = {"RichBlockTableCell": frozenset({"align", "valign"})}
 # The named HTML entities Telegram decodes, measured on the real Bot API 10.4 (2026-11-16, PR #173: all 2125 names of
 # HTML5 with «;», sent in html and in markdown): exactly these 16, the same in both and to the same characters as in
-# HTML5. The other 2109 (&laquo; &euro; &shy; &NBSP;…) and every name without «;» stay in the text as typed. Numeric
-# ones are decoded too (&#34; &#034; &#160; &#x22;), but not with a capital X (&#X22;). Mirrored in render.js.
+# HTML5. The other 2109 (&laquo; &euro; &shy; &NBSP;…) and every name without «;» stay in the text as typed.
+# Numeric ones, measured on Bot API 10.4 (2026-11-16, issue #174; tests/telegram_parse/numeric_entities.json), the
+# same in html text and attributes and in markdown text (in a markdown code fence entities stay as typed): with a
+# small x only (&#X41; stays), digits without a limit (&#0000000000000065; is «A»); 0…31 become a space, except &#10;
+# in <pre>, which stays a line break (in an inline <code> it is a space); 128…159 stay those code points (no
+# windows-1252 table as in HTML5: &#128; is U+0080, not «€»); a surrogate or a number past U+10FFFF (tg_char gives
+# None) makes Telegram erase the whole text it stands in, up to the nearest tag, and refuse the post when that leaves
+# a heading or a quote without text (RICH_MESSAGE_CONTENT_REQUIRED). Mirrored in render.js.
 TG_ENTITIES = {
     "amp": "&",
     "apos": "'",
@@ -253,6 +260,9 @@ def keyboard_errors(markup) -> list[str]:
                 if bad == "пустая ссылка":  # often a button meant to be of another kind, with the link field left over
                     bad += ": впишите адрес или выберите кнопке другой тип (уберите поле url)"
                 errors.append(f"{where}: {bad}")
+            for url in [button.get("url"), *(x.get("url") for x in button.values() if isinstance(x, dict))]:
+                if isinstance(url, str) and url.startswith("upload:"):  # url, web_app.url, login_url.url
+                    errors.append(f"{where}: адрес {_short(url, 60)}: {UPLOAD_IN_LINK}")
     return errors
 
 
@@ -355,7 +365,8 @@ class _Count:
         self.sure_at = self.about_at = "rich_message.blocks"
         self.tables: list[tuple[str, int]] = []  # (path of the table, its columns)
         self.cut: list[tuple[str, int]] = []  # (path of the block, UTF-8 bytes) of strings over MAX_BYTES
-        self.quoted: list[str] = []  # errors for a " in the address of a link or a button
+        # (path of the block, "link" or "button", its text, address_notes) of addresses Telegram does not take as they are
+        self.addresses: list[tuple[str, str, str, list]] = []
         self._tags: dict[str, dict] = {}
         self._holders: dict[str, bool] = {}
 
@@ -393,13 +404,18 @@ class _Count:
             self._reach(level, measured, where)
             self.fields(b, self._tagged("InputRichBlock", b), level, measured, where, where)
 
+    def _address(self, kind: str, url, obj: dict, where: str):
+        if isinstance(url, str) and (notes := address_notes(kind, url)):
+            self.addresses.append((where, kind, _plain(obj.get("text")), notes))
+
     def fields(self, obj: dict, t: str | None, about: int, sure: int, path: str, where: str):
-        url = obj.get("url")
-        if isinstance(url, str) and '"' in url and "text" in obj:
-            if obj.get("type") == "url":  # RichTextUrl: measured, the link goes and its text stays
-                self.quoted.append(f"{where}: {_quoted_link(_plain(obj.get('text')), url)}")
-            elif "type" not in obj:  # RichMessageButton: measured, BUTTON_URL_INVALID for the whole post
-                self.quoted.append(f"{where}: {_quoted_button(_plain(obj.get('text')), url)}")
+        if "text" in obj:
+            if obj.get("type") == "url":  # RichTextUrl
+                self._address("link", obj.get("url"), obj, where)
+            elif "type" not in obj:  # RichMessageButton: its url and the url of its action (web_app, login_url…)
+                actions = [x.get("url") for x in obj.values() if isinstance(x, dict) and "type" not in x]
+                for url in [obj.get("url"), *actions]:
+                    self._address("button", url, obj, where)
         spec_t = self.spec.types.get(t) if t else None
         if spec_t is None:  # a type newer than the spec: at least its text and nested blocks
             self.text(obj.get("text"), about, sure, where)
@@ -469,18 +485,83 @@ def _plain(rt) -> str:
     return _plain(rt.get("text")) if isinstance(rt, dict) else ""
 
 
-def _quoted_link(text: str, href: str) -> str:
-    return (
-        f'ссылка «{_short(" ".join(text.split()), 30)}»: в адресе {_short(href, 60)} есть кавычка ", а с ней Telegram '
-        "молча выбрасывает ссылку и оставляет только текст; запишите кавычку в адресе как %22"
-    )
+# What Telegram does with a character in the address of a link or a button, entities decoded, measured on the real
+# Bot API 10.4 (2026-11-16, issue #174: <a href> and <tg-button url> in html; in blocks the url of a url element and of
+# a «Кнопки» button, with its web_app.url and login_url.url; each message deleted right away). A link (<a href>, a url
+# element) it drops over any of LINK_DROPS and keeps its text. A button it refuses with the whole post
+# (BUTTON_URL_INVALID) over BUTTON_REFUSES; a space or a tab in a button it writes as %20 and %09 itself. U+2028 it
+# takes out of either address and keeps the link or the button (a warning). U+007F, U+0080, U+00AD, U+FEFF, ' \ { | }
+# stay as they are. Not measured: the other Unicode spaces (UNMEASURED_SPACES) in either, and in a button the rest of
+# LINK_DROPS: a warning that says so. Buttons under the post (reply_markup) were not measured at all. Mirrored in
+# render.js (LINK_DROPS); js/html-export.js writes these characters %-encoded. To be measured again with a new Bot API.
+LINK_DROPS = frozenset('"<>' + "".join(map(chr, range(0x21))) + "\x85\xa0\u2003\u3000\u200b")
+BUTTON_REFUSES = frozenset('"<\xa0\u200b')
+BUTTON_ENCODES = frozenset(" \t")
+TAKEN_OUT = "\u2028"
+UNMEASURED_SPACES = frozenset(c for c in map(chr, range(0x3001)) if c.isspace()) - LINK_DROPS - {TAKEN_OUT}
+BUTTON_UNMEASURED = (LINK_DROPS | UNMEASURED_SPACES) - BUTTON_REFUSES - BUTTON_ENCODES
+CHAR_NAMES = {
+    '"': 'кавычка "',
+    " ": "пробел",
+    "\t": "табуляция",
+    "\n": "перевод строки",
+    "\xa0": "неразрывный пробел U+00A0",
+    "\u200b": "пробел нулевой ширины U+200B",
+    TAKEN_OUT: "разделитель строк U+2028",
+}
+# upload:<name> becomes a file only in a file field (telegram/uploads.py, FILE_KEYS); no link is one
+UPLOAD_IN_LINK = (
+    "upload: студия подставляет только в поле файла (media блока или поста), а в ссылке Telegram получит адрес как есть"
+)
+UPLOAD_IN_SRC = (
+    "upload: студия подставляет только в поле файла, а в атрибуте HTML Telegram получит его как есть: файл в HTML "
+    'ставится как src="tg://photo?id=<id>" с элементом <id> в rich_message.media'
+)
 
 
-def _quoted_button(text: str, url: str) -> str:
-    return (
-        f'кнопка «{_short(" ".join(text.split()), 30)}»: в адресе {_short(url, 60)} есть кавычка ", а с ней Telegram '
-        "отклоняет весь пост (BUTTON_URL_INVALID); запишите кавычку как %22"
-    )
+def _char(c: str) -> str:
+    if c in CHAR_NAMES:
+        return CHAR_NAMES[c]
+    return c if c.isprintable() and not c.isspace() else f"U+{ord(c):04X}"
+
+
+def _encoded(chars: list[str]) -> str:
+    return ", ".join(f"{_char(c)} — {quote(c, safe='')}" for c in chars)
+
+
+def address_notes(kind: str, url: str) -> list[tuple[bool, str]]:
+    """What Telegram does with the address of a link (kind "link") or a button ("button"), entities decoded: a list of
+    (is it an error, what to say after «ссылка «текст»: »), empty when it takes the address as it is."""
+    addr = _short(url, 60)
+    if url.startswith("upload:"):
+        return [(True, f"адрес {addr}: {UPLOAD_IN_LINK}")]
+    link = kind == "link"
+    chars = list(dict.fromkeys(url))
+    notes = []
+    if bad := [c for c in chars if c in (LINK_DROPS if link else BUTTON_REFUSES)]:
+        verdict = (
+            "молча выбрасывает ссылку и оставляет только текст" if link else "отклоняет весь пост (BUTTON_URL_INVALID)"
+        )
+        say = f"в адресе {addr} есть {', '.join(map(_char, bad))}, а с этим Telegram {verdict}"
+        notes.append((True, f"{say}; в адресе их пишут так: {_encoded(bad)}"))
+    if TAKEN_OUT in chars:
+        stays = "ссылка" if link else "кнопка"
+        notes.append((False, f"из адреса {addr} Telegram уберёт {CHAR_NAMES[TAKEN_OUT]}, {stays} останется"))
+    if odd := [c for c in chars if c in (UNMEASURED_SPACES if link else BUTTON_UNMEASURED)]:
+        known = (
+            "ссылку с U+00A0, U+2003 или U+3000 он выбрасывает"
+            if link
+            else "кнопку с кавычкой, <, U+00A0 или U+200B он отклоняет вместе с постом"
+        )
+        say = f"в адресе {addr} есть {', '.join(map(_char, odd))}: что с этим сделает Telegram, не замерено ({known})"
+        notes.append((False, f"{say}; надёжнее записать так: {_encoded(odd)}"))
+    return notes
+
+
+def _note_address(v: Validator, kind: str, text: str, notes: list, at: str = ""):
+    head = f"{at}{'ссылка' if kind == 'link' else 'кнопка'} «{_short(' '.join(text.split()), 30)}»: "
+    for is_error, say in notes:
+        (v.errors if is_error else v.warnings).append(head + say)
 
 
 def _block_limits(v: Validator, blocks: list) -> dict:
@@ -496,7 +577,8 @@ def _block_limits(v: Validator, blocks: list) -> dict:
             v.errors.append(f"{where}: строка текста {size} байт в UTF-8: {CUT}")
     elif n.chars > FOLD_CHARS:
         v.warnings.append(FOLDED)
-    v.errors += n.quoted
+    for where, kind, text, notes in n.addresses:
+        _note_address(v, kind, text, notes, f"{where}: ")
     if n.blocks > MAX_BLOCKS:
         v.errors.append(f"блоков вместе с пунктами списков и строками таблиц: {n.blocks}, лимит {MAX_BLOCKS}")
     if n.media > MAX_MEDIA:
@@ -558,19 +640,109 @@ HTML_ENDS_P = frozenset(
 
 
 TG_ENTITY_RE = re.compile(rf"&(?:({'|'.join(TG_ENTITIES)})|#([0-9]+)|#x([0-9a-fA-F]+));")
-ATTR_RE = re.compile(r"""[\s"'/]([^\s"'=/>]+)(?:\s*=\s*("[^"]*"|'[^']*'|[^\s>]*))?""")
+# an attribute right after the quote of the one before it counts too (<a title="x"href="…">), as in html.parser
+ATTR_RE = re.compile(r"""(?<=[\s"'/])([^\s"'=/>]+)(?:\s*=\s*("[^"]*"|'[^']*'|[^\s>]*))?""")
+# A tag, to tell the text of html from its tags: a piece of text between two tags is what Telegram erases for an
+# entity it makes no character of (TG_ENTITIES). No «<» inside, so a «<» without its «>» costs a look up to the next
+# «<», not to the end of the post. Mirrored in render.js (TAG).
+HTML_TAG_RE = re.compile(r"""</?[A-Za-z][^\s/<>]*(?:[^<>"']|"[^"<]*"|'[^'<]*')*>""")
+MD_FENCE_RE = re.compile(r"[ \t]{0,3}(`{3,}|~{3,})")
+MD_CODE_RE = re.compile(r"(`+)(?!`).*?(?<!`)\1(?!`)", re.S)
+
+
+def _code(m: re.Match) -> int:
+    """The number of a numeric entity of TG_ENTITY_RE. Past U+10FFFF every number is the same, so a long one is not
+    read (Python reads at most 4300 digits into an int); zeros in front do not count."""
+    digits = (m[2] or m[3]).lstrip("0") or "0"
+    return int(digits, 10 if m[2] else 16) if len(digits) <= 8 else 0x110000
+
+
+def tg_char(n: int) -> str | None:
+    """What Telegram makes of the numeric entity n (TG_ENTITIES): None when it erases the text the entity stands in.
+    In <pre> &#10; stays a line break; for what the studio counts that is one character all the same."""
+    if n > 0x10FFFF or 0xD800 <= n <= 0xDFFF:
+        return None
+    return " " if n < 32 else chr(n)
 
 
 def tg_unescape(s: str) -> str:
-    """HTML entities as Telegram decodes them in html text and attributes and in markdown text (TG_ENTITIES)."""
+    """HTML entities as Telegram decodes them in html text and attributes and in markdown text (TG_ENTITIES). One
+    that makes Telegram erase its text stays as typed (vanishing tells which)."""
 
     def one(m: re.Match) -> str:
         if m[1]:
             return TG_ENTITIES[m[1]]
-        n = int(m[2]) if m[2] else int(m[3], 16)
-        return chr(n) if 0 < n <= 0x10FFFF and not 0xD800 <= n <= 0xDFFF else m[0]
+        c = tg_char(_code(m))
+        return m[0] if c is None else c
 
     return TG_ENTITY_RE.sub(one, s)
+
+
+def vanishing(text: str) -> str | None:
+    """The first numeric entity in a piece of text that makes Telegram erase it all, or None."""
+    return next((m[0] for m in TG_ENTITY_RE.finditer(text) if not m[1] and tg_char(_code(m)) is None), None)
+
+
+def html_pieces(src: str) -> Iterator[tuple[str, bool]]:
+    """html as its pieces of text and its tags (HTML_TAG_RE), in order: (piece, is it a tag)."""
+    at = 0
+    for m in HTML_TAG_RE.finditer(src):
+        yield src[at : m.start()], False
+        yield m[0], True
+        at = m.end()
+    yield src[at:], False
+
+
+def md_paragraphs(src: str) -> list[str]:
+    """The paragraphs of markdown as written, without its code fences: where Telegram decodes entities."""
+    paras: list[str] = []
+    lines: list[str] = []
+    fence = ""
+    for line in src.split("\n"):
+        f = MD_FENCE_RE.match(line)
+        if fence:
+            if f and f[1][0] == fence[0] and len(f[1]) >= len(fence) and not line[f.end() :].strip():
+                fence = ""
+            continue
+        if f:
+            fence = f[1]
+        if f or not line.strip():
+            if lines:
+                paras.append("\n".join(lines))
+                lines = []
+        else:
+            lines.append(line)
+    if lines:
+        paras.append("\n".join(lines))
+    return paras
+
+
+def erased_texts(src: str, markdown: bool) -> list[tuple[str, str]]:
+    """(the text, the entity) that Telegram erases for a numeric entity it makes no character of: in html the piece of
+    text between two tags (measured); in markdown the paragraph, out of code fences (measured: there entities stay as
+    typed) and out of `code` (not measured; markdown-it in the preview leaves them as typed there). Where in a
+    paragraph of markdown its text ends was not measured, so the whole paragraph is named and left out of the count."""
+    if markdown:
+        texts = [(p, vanishing(MD_CODE_RE.sub("", p))) for p in md_paragraphs(src)]
+    else:
+        texts = [(p, vanishing(p)) for p, tag in html_pieces(src) if not tag]
+    return [(text, entity) for text, entity in texts if entity]
+
+
+def _erased(text: str, entity: str, markdown: bool) -> str:
+    m = TG_ENTITY_RE.fullmatch(entity)
+    what = (
+        "половина суррогатной пары (U+D800…U+DFFF), а не символ: символ пишут одной сущностью (&#x1F600;) или как есть"
+        if m and _code(m) <= 0xDFFF
+        else "больше U+10FFFF, такого символа нет"
+    )
+    where = "абзац" if markdown else "текст"
+    until = "текст вокруг неё до ближайшей разметки" if markdown else "весь этот текст до ближайшего тега"
+    return (
+        f"{where} «{_short(' '.join(text.split()), 40)}»: в нём {_short(entity, 20)} — {what}; с такой сущностью "
+        f"Telegram стирает {until}, а пост, где заголовок или цитата остались без текста, отклоняет "
+        "(RICH_MESSAGE_CONTENT_REQUIRED)"
+    )
 
 
 def _attribute(start_tag: str, name: str) -> str | None:
@@ -596,7 +768,8 @@ class _Open:
     li: int = -1
     cell: int = -1
     row: int = -1
-    link: tuple[str, str, list] | None = None  # (tag, address, text) of an <a> or <tg-button> with a " in it
+    # ("link" or "button", address_notes, its text) of an <a> or <tg-button> whose address Telegram does not take as is
+    link: tuple[str, list, list] | None = None
 
 
 class _HtmlWalk(HTMLParser):
@@ -606,8 +779,9 @@ class _HtmlWalk(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.stack = [_Open("", 0, 0, True, "")]
         self.open: Counter[str] = Counter()
-        self.links: list[tuple[str, str, list]] = []
-        self.quoted: list[tuple[str, str, str]] = []  # (tag, address, text) of links and buttons with a " in it
+        self.links: list[tuple[str, list, list]] = []
+        self.addresses: list[tuple[str, list, str]] = []  # (kind, address_notes, text) of the links and buttons closed
+        self.uploads: list[tuple[str, str]] = []  # (tag, src) of a src with upload:
         self.sure = self.about = 0
         self.sure_path = self.about_path = ""
 
@@ -617,7 +791,7 @@ class _HtmlWalk(HTMLParser):
             self.open[e.tag] -= 1
             if e.link is not None:
                 self.links.pop()
-                self.quoted.append((e.link[0], e.link[1], "".join(e.link[2])))
+                self.addresses.append((e.link[0], e.link[1], "".join(e.link[2])))
 
     def _path(self, text: str = "") -> str:
         """Where the text is, short: «<blockquote> ×15 › <ul> › форматирование ×2 › «текст»»."""
@@ -655,6 +829,7 @@ class _HtmlWalk(HTMLParser):
             top = self.stack[-1]
         if tag in HTML_MEDIA:
             self._reach(0, top.about + 1)
+        self.uploads += [(tag, v) for k, v in attrs if k == "src" and v and v.startswith("upload:")]
         if tag in HTML_VOID:
             return
         i = len(self.stack)
@@ -676,16 +851,14 @@ class _HtmlWalk(HTMLParser):
             i if tag in ("td", "th") else -1 if tag in ("tr", "table") else top.cell,
             i if tag == "tr" else -1 if tag == "table" else top.row,
         )
-        # an address with a " (&quot;): Telegram drops such a link and refuses such a button. html.parser decodes
-        # every HTML5 entity in attributes, Telegram only a few: the value is read from the tag as written
-        address = (
-            _attribute(self.get_starttag_text() or "", "href" if tag == "a" else "url")
-            if tag in ("a", "tg-button")
-            else None
-        )
-        if address and '"' in address:
-            e.link = (tag, address, [])
-            self.links.append(e.link)
+        # an address Telegram does not take as it is (address_notes). html.parser decodes every HTML5 entity in
+        # attributes, Telegram only a few and numbers its own way: the value is read from the tag as written
+        if tag in ("a", "tg-button"):
+            kind = "link" if tag == "a" else "button"
+            address = _attribute(self.get_starttag_text() or "", "href" if tag == "a" else "url")
+            if address is not None and (notes := address_notes(kind, address)):
+                e.link = (kind, notes, [])
+                self.links.append(e.link)
         self.stack.append(e)
         self.open[tag] += 1
 
@@ -713,17 +886,28 @@ def _short(s: str, n: int) -> str:
     return s if len(s) <= n else s[:n] + "…"
 
 
+# html.parser reads every numeric entity into an int, and more than 4300 digits are a ValueError (a 500): the walk
+# gets them with the zeros in front taken out, and one past U+10FFFF as the first number past it
+LONG_NUMBER_RE = re.compile(r"&#(?:([0-9]{9,})|([xX])([0-9a-fA-F]{9,}))")
+
+
+def _short_number(m: re.Match) -> str:
+    digits = (m[1] or m[3]).lstrip("0") or "0"
+    if len(digits) > 8:
+        digits = "1114112" if m[1] else "110000"
+    return "&#" + (m[2] or "") + digits
+
+
 def _html_shape(v: Validator, src: str) -> int:
     """Nesting and links of html: an error where the measured reading is surely over the limit, a warning where only
     tags without a measurement take it over. Returns the levels of the measured reading."""
     walk = _HtmlWalk()
-    walk.feed(src)
+    walk.feed(LONG_NUMBER_RE.sub(_short_number, src))
     walk.close()
-    for tag, address, text in walk.quoted:
-        if tag == "a":
-            v.errors.append(_quoted_link(text, address))
-        else:
-            v.errors.append(_quoted_button(text, address))
+    for kind, notes, text in walk.addresses:
+        _note_address(v, kind, text, notes)
+    for tag, src in walk.uploads:
+        v.errors.append(f"<{tag} src={_short(src, 60)}>: {UPLOAD_IN_SRC}")
     if walk.sure > MAX_DEPTH:
         v.errors.append(
             f"{walk.sure} уровней вложенности, лимит {MAX_DEPTH}: {walk.sure_path} (уровень — каждый элемент на пути "
@@ -752,7 +936,13 @@ HTTP_MEDIA_RE = re.compile(
 def source_chars(src: str, markdown: bool) -> tuple[int, int]:
     """Text characters of html or markdown as far as the source tells without Telegram's parser: about how many
     (without tags and link addresses), and at least how many (also without spaces and, in Markdown, markup and table
-    lines). tests/test_rich_limits.py keeps the second one under Telegram's own count for every captured parse."""
+    lines). tests/test_rich_limits.py keeps the second one under Telegram's own count for every captured parse. The
+    text Telegram erases for a numeric entity (erased_texts) is not counted."""
+    if markdown:
+        for erased, _ in erased_texts(src, markdown):
+            src = src.replace(erased, "", 1)
+    else:
+        src = "".join(p for p, tag in html_pieces(src) if tag or not vanishing(p))
     text = TAG_RE.sub("", src)
     # entities as Telegram decodes them; in markdown the link addresses (not decoded at all) are gone already
     text = tg_unescape(MD_TARGET_RE.sub("]", text) if markdown else text)
@@ -778,6 +968,8 @@ def _source_limits(v: Validator, rm: dict) -> dict:
     for mid in sorted(x for x in media_ids - {mid for _, mid in refs} if x):
         v.warnings.append(f"media id={mid!r} нигде не используется в тексте")
     is_html = bool(rm.get("html"))
+    for text, entity in erased_texts(src, markdown=not is_html):
+        v.errors.append(_erased(text, entity, markdown=not is_html))
     chars, at_least = source_chars(src, markdown=not is_html)
     size = utf8_size(src)
     if at_least > MAX_CHARS:
