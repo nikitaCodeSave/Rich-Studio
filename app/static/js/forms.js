@@ -153,7 +153,8 @@ export function fieldEditor(f, obj, key, depth, redraw) {
     }
     if (t === 'Integer' || t === 'Float') {
       const wrap = h('div', { class: 'row' });
-      // the spec's range (heading size 1–6): the arrows stay in it, a typed value outside it is marked and the check warns
+      // the spec's range (heading size 1–6): the arrows stay in it, a typed value outside it is outlined (app.css) and
+      // the check warns
       const [min, max] = f.range || [];
       const inp = h('input', { type: 'number', step: t === 'Float' ? 'any' : '1', min, max, value: obj[key] ?? '', oninput: (e) => set(e.target.value === '' ? undefined : Number(e.target.value)) });
       wrap.append(inp);

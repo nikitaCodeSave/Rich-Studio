@@ -296,3 +296,5 @@ dialog::backdrop { background: rgba(0,0,0,.4); }
 .poll-after .row input[type=text] { flex: 1; width: auto; }
 .list .badge { display: inline-block; margin-left: 6px; font-size: 10px; padding: 0 5px; border-radius: 6px; border: 1px solid var(--border); color: var(--muted); vertical-align: 1px; }
 .list .badge.ok { color: var(--ok); border-color: var(--ok); } .list .badge.w { color: var(--warn); border-color: var(--warn); }
+/* a number outside the range of its spec field (heading size 1–6): the check warns too */
+input[type=number]:invalid { border-color: var(--err); }
