@@ -11,7 +11,7 @@ import { readIssue, reveal } from './issues.js';
 import { answers, renderKeyboard } from './keyboard.js';
 import { plural } from './labels.js';
 import { renderMedia } from './media.js';
-import { chats, dark, dirty, parsed, S, saveState, showParsed } from './state.js';
+import { chats, dark, dirty, parsed, S, saveState, showParsed, target } from './state.js';
 
 // ---------- change tracking ----------
 export const refreshPreview = debounce(() => { renderPreview(); validate(); }, 250);
@@ -207,7 +207,10 @@ export function renderOptions() {
   const m = S.spec.methods.sendRichMessage;
   if (m) {
     const known = new Set(['chat_id', 'rich_message', 'reply_markup', 'disable_notification', 'protect_content']);
-    const rest = m.fields.filter((f) => !known.has(f.name));
+    // what options may hold (PostOptions: chat_id, ephemeral_message_parameters… are the studio's); a stored one it
+    // may not stays in the field, so the check's error about it can be fixed here
+    const allowed = new Set(((S.spec.post && S.spec.post.types.PostOptions) || m).fields.map((f) => f.name));
+    const rest = m.fields.filter((f) => !known.has(f.name) && (allowed.has(f.name) || S.options[f.name] !== undefined));
     const extra = {};
     for (const f of rest) if (S.options[f.name] !== undefined) extra[f.name] = S.options[f.name];
     const ta = h('textarea', { class: 'code', style: 'min-height:70px', value: Object.keys(extra).length ? JSON.stringify(extra, null, 1) : '' , placeholder: '{"message_effect_id": "..."}' });
@@ -218,7 +221,7 @@ export function renderOptions() {
         Object.assign(S.options, v); ta.style.borderColor = ''; changed();
       } catch { ta.style.borderColor = 'var(--err)'; }
     });
-    box.append(h('p', { class: 'muted small' }, 'Другие параметры sendRichMessage (из спецификации): ', rest.map((f, i) => [i ? ', ' : '', h('code', { title: f.description, text: f.name })])), ta);
+    box.append(h('p', { class: 'muted small' }, 'Другие параметры sendRichMessage (из спецификации): ', rest.filter((f) => allowed.has(f.name)).map((f, i) => [i ? ', ' : '', h('code', { title: f.description, text: f.name })])), ta);
   }
 }
 
@@ -280,7 +283,9 @@ export const validate = debounce(async () => {
   const box = $('#validation');
   const pill = $('#check-pill');
   try {
-    const r = await api('POST', '/api/validate', buildPost());
+    // the chats it goes to: the check warns about what Telegram refuses in them (web_app in a channel…)
+    const where = new URLSearchParams(target().chat_ids.map((c) => ['chat_ids', c])).toString();
+    const r = await api('POST', '/api/validate' + (where ? '?' + where : ''), buildPost());
     const st = r.stats || {};
     const statLine = h('span', { class: 'muted small', text: ' · ' + plural(st.chars ?? 0, 'символ', 'символа', 'символов') + (st.blocks ? ' · ' + plural(st.blocks, 'блок', 'блока', 'блоков') : '') + (st.media ? ` · ${st.media} медиа` : '') + ` · проверено по ${r.spec_version}` });
     const item = (msg, cls) => {

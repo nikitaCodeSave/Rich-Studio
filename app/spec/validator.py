@@ -41,6 +41,19 @@ TG_ENTITIES = {
     "rsquo": "’",
     "trade": "™",
 }
+# Chats Telegram refuses a field in though its description does not say so, measured on the real Bot API 10.4
+# (2026-11-16, issue #166: sendRichMessage to a test channel and a test forum supergroup): a switch_inline_query button
+# under a post is refused in the channel and taken in the group. Everything else spec/chats.py warns about is read
+# from the descriptions; the same measurement found Telegram doing what they say (web_app refused in the group too,
+# message_effect_id and the thinking block refused in both), each time with an error, never dropped in silence.
+# key (as in spec/chats.py): chat types it is refused in, Telegram's answer, when it was measured
+REFUSED_IN = {
+    "InlineKeyboardButton.switch_inline_query": (
+        frozenset({"channel"}),
+        "can't use … button in a channel chat",
+        "Bot API 10.4, 2026-11-16",
+    ),
+}
 
 
 def text_mirror_field(spec_t: dict, const) -> str | None:

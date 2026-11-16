@@ -47,6 +47,21 @@ interface SpecSummary {
   gaps: SpecGap[];
   last_check: { at: number; error: string | null } | null;
   post: SpecPost;
+  /** where Telegram refuses a field or a type, read from the descriptions (spec/chats.py): "Type.field", "Type",
+   * "sendRichMessage.parameter" */
+  chat_rules: Record<string, ChatRule>;
+}
+
+/** A rule of `chat_rules` in GET /api/spec */
+interface ChatRule {
+  /** Chat.type values (and "ephemeral", a rich reply to a press) Telegram refuses it in: the sentence of the
+   * description that says so, or Telegram's answer and when it was measured ("Bot API 10.4, 2026-11-16") */
+  refused: Record<string, { why: string; measured: string | null }>;
+  /** the only method it works in (the thinking block: sendRichMessageDraft), so in no post; `why` says so */
+  only_in: string | null;
+  why: string | null;
+  /** the way out, written by hand (a direct link to a Mini App instead of web_app) */
+  hint: string | null;
 }
 
 /** What labels.js or render.js does not know yet (spec/coverage.py) */

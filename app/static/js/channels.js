@@ -2,8 +2,9 @@
 import { api } from './api.js';
 import { closeDialog, openDialog } from './dialogs.js';
 import { $, act, h, toast } from './dom.js';
-import { changed, renderPreview } from './editor.js';
+import { changed, renderPreview, validate } from './editor.js';
 import { showInviteLinks } from './invite-links.js';
+import { renderKeyboard } from './keyboard.js';
 import { channelOf, channelTitle, chatLabel, chats, S } from './state.js';
 
 export { channelTitle };
@@ -14,6 +15,9 @@ export async function loadChannels() {
   S.channels = await api('GET', '/api/channels');
   showTarget();
   renderPreview(); // the preview's header shows the channel's title
+  // a checked chat has a type now: what Telegram refuses in it (the button cards, the check)
+  renderKeyboard();
+  validate();
 }
 
 // the header: where the post goes, by name, and the forum topic when there is one channel

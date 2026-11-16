@@ -45,6 +45,8 @@ FORBIDDEN = {
     "business_connection_id": "ответ уходит от бота, не от бизнес-аккаунта",
     "allow_paid_broadcast": "платная рассылка в ответе на нажатие не включается: каждое нажатие стоило бы звёзд",
 }
+# where a reply goes, for the rules of spec/chats.py
+EPHEMERAL = (spec.chats.EPHEMERAL, "в rich-ответе на нажатие")
 FORBIDDEN_EPHEMERAL = {
     "callback_query_id": "его задаёт студия при нажатии",
     "receiver_user_id": "кто нажмёт, заранее не известно, а Telegram примет ответ только нажавшему",
@@ -151,7 +153,8 @@ def _check_reply(reply) -> tuple[list[str], list[str]]:
         else:
             v.check(value, f["types"], f"{REPLY}.{k}")
     errors += v.errors + spec.keyboard_errors(reply.get("reply_markup"))
-    warnings += v.warnings
+    # an ephemeral message: what the spec says does not work in one (spec/chats.py), and what works in no post
+    warnings += v.warnings + spec.chats.warnings(spec.current, reply, [EPHEMERAL], at=f"{REPLY}.", options="")
     if _labels(reply.get("reply_markup")):
         warnings.append(f"{REPLY}.reply_markup: на кнопки callback_data внутри ответа студия не отвечает")
     return errors, warnings

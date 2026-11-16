@@ -68,7 +68,8 @@ def build() -> MCPServer:
         Ничего не отправляет. Файлы upload:<имя> в чате не загружаются."""
         p, version = post_source(post, draft_id, None, publish=False)
         # version: what to pass to publish_post/edit_post, so exactly the version shown here goes out
-        out = {"post": p, "validation": publisher.check(p)}
+        # the chats it goes to: the draft's, else the default channel, as publish_post without chat_id
+        out = {"post": p, "validation": publisher.check(p, publisher.checked_targets(None, draft_id))}
         return out if version is None else {**out, "version": version, **draft_links(draft_id or "")}
 
     server = MCPServer(name="rich-studio", title="Rich Studio", instructions=INSTRUCTIONS, extensions=[apps])
