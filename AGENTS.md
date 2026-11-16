@@ -1,34 +1,32 @@
 # Rich Studio: правила для агентов
 
-Локальный сервис для rich-постов Telegram-канала: визуальный редактор, предпросмотр как в Telegram, REST API для агентов, skill для Claude Code. Личный инструмент одного человека на одной машине, не продукт.
+Сервис для rich-постов Telegram-канала: визуальный редактор, предпросмотр как в Telegram, REST API и MCP для агентов, skill для Claude Code. Личный инструмент одного человека (на своём компьютере или сервере, `deploy/`), не продукт.
 
 Устройство кода, слои и «куда добавлять новое»: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Прочитай его перед первым изменением.
 
 ## Проверка
 
 ```
-pip install -r requirements-dev.txt && npm ci   # один раз
-make check                                      # всё: ruff, format, mypy, слои, pytest, eslint, tsc, санитайзер, сверка с Telegram, скриншоты предпросмотра
+pip install -r requirements-dev.txt && npm ci   # один раз; в облачной сессии это делает .claude/hooks/session-start.sh
+make check-fast                                 # между шагами и перед PR
 make fmt                                        # автоисправление формата и линтеров
 ```
 
-Изменение готово к ревью, когда зелёный CI в PR: он гоняет те же шаги, что `make check`, и весь `make e2e-local` (job `e2e` ждёт зелёный `python`). Пока работаешь, запускай `make check-fast` и тесты своей области: `pytest tests/<файл> -k …`, `make e2e-local ONLY=<проверка>`, а для редактора, санитайзера и предпросмотра нужные `npm run test:…` (`render`, `parity`, `shots`, `export`, `completion`, `codemirror`: в `check-fast` их нет). Полный набор прогонит CI. Изменил маршруты, модели API или инструменты MCP намеренно — `make docs` и закоммить `docs/openapi.json` и `docs/reference/` (тесты `test_openapi_contract.py` и `test_reference_docs.py` сверяют их). Браузерные проверки: `make e2e-local` (свой стенд на свободных портах рядом с рабочей студией; нужен Chromium для Playwright).
+Изменение готово к ревью, когда зелёный CI в PR: он гоняет те же шаги, что `make check` (это `check-fast` плюс JS-тесты `npm run test:…`), и все браузерные проверки. Локально, кроме `make check-fast`, запускай тесты своей области: `pytest tests/<файл> -k …`, нужные `npm run test:…` (`render`, `parity`, `shots`, `export`, `completion`, `codemirror`), `make e2e-local ONLY=<часть имени проверки>` (свой стенд: подставной Telegram и студия с пустым `DATA_DIR` на портах 7499 и 8099; нужен Chromium для Playwright). Изменил маршруты, модели API или инструменты MCP намеренно: `make docs` и закоммить `docs/openapi.json` и `docs/reference/` (их сверяют `test_openapi_contract.py` и `test_reference_docs.py`).
 
 ## Главные правила
 
-1. **Payload уходит в Bot API как есть.** Не переименовывай и не «чини» поля поста. `telegram/` меняет только `upload:<имя>` → `attach://`. Незнакомые поля дают предупреждение, а не ошибку: так новые возможности Bot API работают в день релиза.
-2. **Редактор генерируется из спецификации** (`app/bundled/api.json`, кэш в `DATA_DIR`). Не заводи жёстких списков блоков и полей. Руками поддерживаются только русские подписи (`labels.js`), сниппеты (`snippets.js`), отрисовка новых блоков в `render.js` и таблица экспорта в HTML (`html-export.js`). Чего из этого не хватает для текущей `api.json`, перечисляет `tests/test_spec_coverage.py`: после обновления спецификации сделай его зелёным.
-3. **Слои** `api | mcp_tools → services → telegram | store | spec`. Сервисы и ниже не импортируют FastAPI. Проверяет `lint-imports` (контракты в `pyproject.toml`), нарушение роняет `make check`.
-4. **Политика ошибок отправки** (ARCHITECTURE.md): ушедший пост всегда записан как отправленный; при сетевой ошибке во время отправки повтора нет (`MayHaveGone`, и `Idempotency-Key` тоже не даёт повторить); предпросмотр никогда не уходит в канал по умолчанию. Новый маршрут, который публикует в канал, оборачивай в `services.idempotency.run` и передавай `actor` (см. `api/posts.py`).
-5. **Безопасность.** Пользовательский HTML в DOM только через `h()`/`textContent` или `RichRender` (санитайзер). `innerHTML` запрещён ESLint. CSP без inline-скриптов. Новая дыра в санитайзере: сначала пример в `tests/render_unit.mjs`.
+1. **Payload уходит в Bot API как есть.** Не переименовывай и не «чини» поля поста: `telegram/` меняет только `upload:<имя>` на `attach://`. Незнакомое поле даёт предупреждение, а не ошибку: так новые возможности Bot API работают в день релиза.
+2. **Редактор генерируется из спецификации** (`app/bundled/api.json`, кэш в `DATA_DIR`). Не заводи жёстких списков блоков и полей. Руками пишутся русские подписи (`labels.js`), сниппеты (`snippets.js`), отрисовка новых блоков (`render.js`), таблица «В HTML» (`html-export.js`) и замеры Telegram, которых нет в спецификации (README, «Что обновляется вручную»). Чего не хватает для текущей `api.json`, перечисляет `tests/test_spec_coverage.py`.
+3. **Слои** `api | mcp_tools → services → telegram | store | spec`: сервисы и ниже не импортируют FastAPI. Контракты `lint-imports` в `pyproject.toml`.
+4. **Политика ошибок отправки** (`docs/ARCHITECTURE.md`): ушедший пост всегда записан как отправленный; при сетевой ошибке во время отправки повтора нет (`MayHaveGone`, и `Idempotency-Key` тоже не даёт повторить); предпросмотр никогда не уходит в канал по умолчанию. Маршрут, который публикует в канал, оборачивай в `services.idempotency.run` и передавай `actor` (как в `app/api/posts.py`).
+5. **Безопасность.** Пользовательский HTML в DOM только через `h()` (`dom.js`), `textContent` или `RichRender` (санитайзер); `innerHTML`, `outerHTML` и `insertAdjacentHTML` запрещает ESLint. CSP без inline-скриптов. Новая дыра в санитайзере: сначала пример в `tests/render_unit.mjs`.
 6. **Секреты.** Токен бота только в `.env` (в git не попадает). Не логируй URL запросов к Telegram целиком: в них токен.
 
 ## Несколько агентов параллельно
 
-Над репозиторием работают несколько агентов сразу. Чтобы их PR не конфликтовали:
-
-- **Одна задача = один PR = заранее объявленные пути** (шаблон `.github/ISSUE_TEMPLATE/agent-task.md`). Задачи с пересекающимися путями не идут параллельно: либо по очереди, либо одна интеграционная ветка.
-- **Вертикальный срез делает один агент**: сервис + маршрут + инструмент MCP + тест + документация. Не делите задачу по слоям между агентами.
+- **Одна задача = один PR = заранее объявленные пути** (шаблон `.github/ISSUE_TEMPLATE/agent-task.md`). Задачи с пересекающимися путями идут по очереди или в одной интеграционной ветке.
+- **Вертикальный срез делает один агент**: сервис, маршрут, инструмент MCP, тест и документация в одном PR.
 - **Области**, задача берёт одну:
 
 | Область | Пути |
@@ -37,29 +35,28 @@ make fmt                                        # автоисправление
 | api+mcp | `app/api/`, `app/mcp_tools/`, `app/models.py`, `docs/openapi.json`, `docs/reference/` |
 | editor | `app/static/`, `types/`, `tests/e2e/`, `tests/*.mjs` |
 | platform | `Dockerfile`, `docker-compose.yml`, `deploy/`, `requirements.lock`, `.github/`, `Makefile`, `scripts/`, `.claude/hooks/` |
-| docs | `README.md`, `.claude/skills/`, `docs/` |
+| docs | `README.md`, все `AGENTS.md` и `CLAUDE.md`, `.claude/skills/`, `.claude/agents/`, `docs/` |
 
-- Общие списки разнесены по файлам, чтобы параллельные PR не правили одну строку: шаг схемы — новый файл `app/store/migrations/NNNN_имя.sql`, инструмент MCP — функция в `app/mcp_tools/tools/<область>.py` (новая область — новый файл), браузерная проверка — новый файл `tests/e2e/NN-имя.mjs`. Списки маршрутов и инструментов в `docs/reference/` собирает `make docs`; при конфликте в них не сливайте руками, а пересоберите. README и `SKILL.md` правьте точечно, без переформатирования соседних строк.
-- Перед PR: свежий `main` (`git merge origin/main`), `make docs`, если менялись маршруты или инструменты, затем `make check-fast`. Номер нового файла миграции, занятый другим PR, роняет `test_migrations.py`: после слияния с `main` возьмите следующий свободный, так же и номер новой браузерной проверки.
-- Ревью делает не автор (см. раздел 9 в `docs/REVIEW_CHECKLIST.md`). Approve и merge только у человека.
-- Job `supply-chain` и Trivy в `docker` падают и от свежей CVE в зависимости, которой нет в диффе. Сначала попробуйте обновить зависимость отдельным PR (`make lock LOCK_ARGS="--upgrade-package <имя>"`, для CodeMirror `make vendor-update`; шаг 3a в `.claude/skills/ci-triage/SKILL.md`). Если исправления нет, временно игнорируйте её: `pip-audit --ignore-vuln <ID>` в `ci.yml` или строка в `.trivyignore`, всегда с комментарием «почему, ссылка, до какой даты». Отключать job нельзя.
-- В облачной сессии зависимости ставит `.claude/hooks/session-start.sh` (в `.venv` и `node_modules`). `make check-fast` — это `make check` без JS-тестов (`npm run test:…`).
+- Общие списки разнесены по файлам, чтобы параллельные PR не правили одну строку: шаг схемы — новый файл `app/store/migrations/NNNN_имя.sql`, инструмент MCP — функция в `app/mcp_tools/tools/<область>.py` (новая область — новый файл), браузерная проверка — новый файл `tests/e2e/NN-имя.mjs`. Конфликт в `docs/reference/` не сливай руками: пересобери `make docs`. README и `SKILL.md` правь точечно, без переформатирования соседних строк.
+- Перед PR: `git merge origin/main`, затем `make check-fast`. Номер миграции или браузерной проверки, занятый другим PR, замени следующим свободным (повтор номера миграции роняет `test_migrations.py`).
+- Ревью делает не автор (`docs/REVIEW_CHECKLIST.md`, раздел 9). Approve и merge только у человека.
 
 ## Документация в том же PR
 
-- Документация описывает студию такой, какая она сейчас. Что и почему изменилось, пишут в коммите и описании PR, решение для будущей работы — в `docs/decisions/`, источник указывают путём к файлу. `tests/test_docs_current.py` ловит следы истории, несуществующие файлы и большие документы сверх бюджета.
-- Новая возможность или изменённое поведение: в том же PR поправь README (описание возможности, «Что обновляется вручную») и `.claude/skills/telegram-rich-posts/SKILL.md`, если это касается агентов. Описание маршрута — его `summary=` и docstring, инструмента — его docstring: оттуда `make docs` собирает `docs/reference/`, руками эти списки не правятся.
+- Документация описывает студию такой, какая она сейчас: что и почему изменилось — в коммите и описании PR, решение для будущей работы — в `docs/decisions/`, источник — путь к файлу. Следы истории, несуществующие файлы и документы сверх бюджета ловит `tests/test_docs_current.py`.
+- Новая возможность или изменённое поведение: README (описание возможности, «Что обновляется вручную») и `.claude/skills/telegram-rich-posts/SKILL.md`, если это касается агентов. Маршрут описывают его `summary=` и docstring, инструмент — docstring: из них `make docs` собирает `docs/reference/`.
 - Изменил слои, политику ошибок или «куда добавлять новое»: поправь `docs/ARCHITECTURE.md`.
-- Принял решение, которое не видно из кода (выбор библиотеки, отказ от подхода): запись в [docs/decisions/](docs/decisions/README.md). Перед тем как предлагать сборщик, фреймворк или другой источник спецификации, прочитай, почему от них уже отказались.
-- Изменил вид редактора: `make e2e-local` сохраняет скриншоты в `test-results/ui/` (1400 и 390 px). Посмотри их и покажи человеку вместе с PR. В CI они лежат в артефакте `editor-screenshots`, скриншоты предпросмотра — в `preview-screenshots`.
+- Принял решение, которого не видно из кода (выбор библиотеки, отказ от подхода): запись в [docs/decisions/](docs/decisions/README.md).
+- Изменил вид редактора или предпросмотра: посмотри скриншоты (`test-results/ui/`, 1400 и 390 px, от `make e2e-local`; `test-results/preview/` от `npm run test:shots`) и покажи их человеку вместе с PR. В CI это артефакты `editor-screenshots` и `preview-screenshots`.
 
 ## Не делать
 
-- Не править `app/bundled/api.json` руками: это копия спецификации с https://github.com/PaulSonOfLars/telegram-bot-api-spec. Обновляет её `make spec-update` (код выхода 10, если версия новая); после него сделай зелёным `tests/test_spec_coverage.py` и `test_the_rules_of_bot_api_10_4_are_read_from_its_descriptions` в `tests/test_chat_rules.py`: второй покажет, какие фразы о чатах Telegram переписал, убрал или добавил (сверь новую формулировку с замером в `REFUSED_IN`, прежде чем править таблицу теста).
-- Не подменять `asyncio.sleep` глобально в тестах: это останавливает подставной Telegram в соседнем потоке. Подменяй `_sleep` модуля.
+- Не править `app/bundled/api.json` руками: это копия спецификации с https://github.com/PaulSonOfLars/telegram-bot-api-spec. Обновляет её `make spec-update` (код выхода 10 значит «версия новая», а не сбой); после него сделай зелёными `tests/test_spec_coverage.py` и `test_the_rules_of_bot_api_10_4_are_read_from_its_descriptions` в `tests/test_chat_rules.py`. Второй покажет, какие фразы о чатах Telegram переписал, убрал или добавил: сверь новую формулировку с замером `REFUSED_IN` (`app/spec/validator.py`), прежде чем править `FROM_SPEC` и `MEASURED_ONLY` в тесте.
+- Не подменять `asyncio.sleep` глобально в тестах: это останавливает подставной Telegram в соседнем потоке. Подменяй `_sleep` модуля (`telegram.client`, `services.updates`, …).
 - Не менять старые файлы в `app/store/migrations/`, только добавлять новые.
-- Не править `requirements.lock` руками: после изменения `requirements.txt` `make lock` (одну транзитивную зависимость поднимает `make lock LOCK_ARGS="--upgrade-package <имя>"`), `tests/test_lock.py` сверяет их. Python-пакеты и CodeMirror Dependabot не обновляет (`docs/decisions/0020-dependabot-self-contained-prs.md`).
-- Не добавлять сборщик, фреймворк или новую рантайм-зависимость без обсуждения: редактор специально работает без сборки.
+- Не править `requirements.lock` руками: после изменения `requirements.txt` — `make lock`, `tests/test_lock.py` сверяет их.
+- Не добавлять сборщик, фреймворк, новую рантайм-зависимость или другой источник спецификации без обсуждения: редактор специально работает без сборки, а почему от остального отказались, записано в `docs/decisions/`.
+- Не отключать job CI, красный от свежей CVE в зависимости не из диффа: обновление или временное исключение со сроком — по `.claude/skills/ci-triage/SKILL.md`.
 - Не отправлять ничего в настоящий Telegram из тестов. Для всего есть `tests/mock_telegram.py`.
 
 ## Где что
@@ -69,13 +66,13 @@ make fmt                                        # автоисправление
 | новый метод Bot API для постов | `app/services/posts.py` + `app/api/posts.py` + тест |
 | новое событие из getUpdates | `app/services/updates.py` (`handle_update`, `ALLOWED_UPDATES`) |
 | новая настройка | `app/settings.py` + `.env.example` |
-| сервер: образ, Caddy, Litestream, восстановление | `deploy/` (там README), `Dockerfile`, `scripts/restore_check.sh`, `scripts/image_smoke.sh` |
+| сервер: образ, Caddy, Litestream, восстановление | `deploy/README.md`, `Dockerfile`, `scripts/restore_check.sh`, `scripts/image_smoke.sh` |
 | вендор CodeMirror (редактор исходника) | `make vendor`, `make vendor-update`, `docs/decisions/0017-codemirror-vendored-modules.md` |
 | инструмент MCP для агентов | `app/mcp_tools/tools/<область>.py` + тест в `tests/test_mcp.py` + `make docs` |
-| редактор | `app/static/js/` (см. AGENTS.md там) |
+| редактор | `app/static/js/` (свой `AGENTS.md`) |
 | предпросмотр | `app/static/render.js`, стили `tg.css`; в чате Claude: `app/static/preview-app.js` + `app/mcp_tools/preview_app.py` |
 | журнал, `/api/health`, уборка | `app/logs.py`, `app/metrics.py`, `app/services/health.py`, `housekeeping.py`; устройство в `docs/OBSERVABILITY.md` |
-| тесты | `tests/` (см. AGENTS.md там) |
+| тесты | `tests/` (свой `AGENTS.md`) |
 | skill для пользователя | `.claude/skills/telegram-rich-posts/SKILL.md` |
 | здоровье работающей студии (skill и субагент) | `.claude/skills/studio-health/SKILL.md`, `.claude/agents/studio-monitor.md` |
 | красный CI, PR Dependabot | `.claude/skills/ci-triage/SKILL.md` |

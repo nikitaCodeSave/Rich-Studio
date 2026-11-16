@@ -45,13 +45,10 @@ def validate(
         ),
     ] = None,
 ):
-    """Для проверенных каналов (окно «Каналы», `POST /api/channels`) ещё предупреждения о том, что Telegram в чате
-    такого типа не примет по описаниям спецификации: кнопка `web_app` вне лички, `switch_inline_query_current_chat`
-    и reply-клавиатура в канале, `message_effect_id` вне лички; блок `thinking` — в любом чате.
-
-    Тело — сам пост. Поле верхнего уровня, которого у поста нет (`disable_notification` вне `options`), —
-    предупреждение, а не ошибка: в Telegram оно не уходит. `chat_id`/`chat_ids` в теле — ошибка, как `chat_id` в
-    `options`: каналы этого маршрута — query-параметр `chat_ids`, а публикация с ними в посте отвечает 400."""
+    """Тело — сам пост, каналы — query-параметр `chat_ids`; `chat_id`/`chat_ids` в посте — ошибка. Для проверенных
+    каналов (`POST /api/channels`) ещё предупреждения о том, что Telegram в чате такого типа не примет (кнопка
+    `web_app` в канале…). Поле верхнего уровня, которого у поста нет (`disable_notification` вне `options`), —
+    предупреждение: в Telegram оно не уходит."""
     return publisher.check(post.model_dump(), publisher.checked_targets(chat_ids), CHATS_IN_QUERY, ui)
 
 
