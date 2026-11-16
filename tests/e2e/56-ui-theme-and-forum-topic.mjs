@@ -1,5 +1,6 @@
 // The studio's own light or dark theme from the header (#ui-theme): the system's until chosen, kept over a reload,
-// apart from the Telegram preview's ☾. The forum topic list (#topic) says «Тема форума» and opens no dialog.
+// apart from the Telegram preview's ☾. The forum topic list is in «Параметры отправки», not in the header: it says
+// «Тема форума», opens no dialog and is there only when the forum has topics to choose.
 // Pages of their own: the system theme is the context's, the forum channel is a faked GET /api/channels.
 
 /** @param {import('./harness.mjs').Ctx} ctx */
@@ -63,7 +64,8 @@ export default async function ({ browser, BASE, check }) {
     await context.close();
   }
 
-  // a forum: «Тема форума: …» items, none of them opens a dialog, a chosen one is the post's message_thread_id
+  // a forum: «Тема форума» in «Параметры отправки» with General and the known topics, none of them opens a dialog, a
+  // chosen one is the post's message_thread_id (and leaves the field of other parameters); the header has no topic list
   {
     const { context, page } = await open('light');
     const forum = { chat_id: '@forum_ui', title: 'Форум', type: 'supergroup', is_forum: true, topics: [{ id: 5, name: 'Новости' }],
@@ -72,32 +74,50 @@ export default async function ({ browser, BASE, check }) {
     await page.goto(BASE);
     await page.waitForSelector('.block');
     await page.evaluate(() => { const i = /** @type {HTMLInputElement} */ (document.querySelector('#chat')); i.value = '@forum_ui'; i.dispatchEvent(new Event('input')); });
-    await page.waitForFunction(() => !(/** @type {HTMLSelectElement} */ (document.querySelector('#topic')).hidden), null, { timeout: 8000 }).catch(() => {});
-    const items = () => page.evaluate(() => [.../** @type {HTMLSelectElement} */ (document.querySelector('#topic')).options].map((o) => o.text));
+    await page.evaluate(() => { /** @type {HTMLDetailsElement} */ (document.querySelector('#panel-opts')).open = true; });
+    await page.waitForSelector('#opts #topic', { timeout: 8000 }).catch(() => {});
+    const items = () => page.evaluate(() => [.../** @type {HTMLSelectElement} */ (document.querySelector('#opts #topic'))?.options || []].map((o) => o.text));
     const listed = await items();
+    const inHeader = await page.evaluate(() => [...document.querySelectorAll('header.top select')].map((s) => s.id));
     const dialogs = [];
-    for (const value of await page.evaluate(() => [.../** @type {HTMLSelectElement} */ (document.querySelector('#topic')).options].map((o) => o.value))) {
-      await page.selectOption('#topic', value);
+    for (const value of await page.evaluate(() => [.../** @type {HTMLSelectElement} */ (document.querySelector('#opts #topic'))?.options || []].map((o) => o.value))) {
+      await page.selectOption('#opts #topic', value);
       dialogs.push(await page.evaluate(() => !!document.querySelector('dialog[open]')));
     }
-    await page.selectOption('#topic', '5');
+    await page.selectOption('#opts #topic', '5');
+    const rest = await page.evaluate(() => /** @type {HTMLTextAreaElement} */ (document.querySelector('#opts textarea'))?.value);
     await page.click('#mode-tabs [data-mode=json]');
     const thread = await page.evaluate(() => JSON.parse(/** @type {HTMLTextAreaElement} */ (document.querySelector('#src-json')).value).options?.message_thread_id);
     // a topic the studio does not know is shown by its number
     const draft = await page.evaluate(() => fetch('/api/drafts', { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title: 'Тема №9', chat_ids: ['@forum_ui'], post: { rich_message: { blocks: [{ type: 'paragraph', text: 'В тему' }] }, options: { message_thread_id: 9 } } }) }).then((r) => r.json()));
     await page.goto(BASE + '/?draft=' + draft.id);
-    await page.waitForFunction(() => [.../** @type {HTMLSelectElement} */ (document.querySelector('#topic')).options].some((o) => o.value === '9'), null, { timeout: 8000 }).catch(() => {});
+    await page.waitForFunction(() => [.../** @type {HTMLSelectElement} */ (document.querySelector('#opts #topic'))?.options || []].some((o) => o.value === '9'), null, { timeout: 8000 }).catch(() => {});
     const unknown = await items();
-    check('The forum topic list says «Тема форума», opens no dialog and sets message_thread_id',
-      JSON.stringify(listed) === '["Тема форума: General","Тема форума: Новости"]' && dialogs.length === 2 && dialogs.every((d) => !d)
-      && thread === 5 && JSON.stringify(unknown) === '["Тема форума: General","Тема форума: Новости","Тема форума №9"]',
-      JSON.stringify({ listed, dialogs, thread, unknown }));
+    check('The forum topic list is in «Параметры отправки», not the header, opens no dialog and sets message_thread_id',
+      JSON.stringify(listed) === '["General","Новости"]' && JSON.stringify(inHeader) === '["ui-theme"]' && dialogs.length === 2 && dialogs.every((d) => !d)
+      && thread === 5 && !/message_thread_id/.test(rest ?? 'none') && JSON.stringify(unknown) === '["General","Новости","№9"]',
+      JSON.stringify({ listed, inHeader, dialogs, thread, rest, unknown }));
     await context.close();
   }
 
-  // a forum with a real-looking title, a -100… id and a long topic: the header has #ui-theme, the channel button and
-  // the topic list all at once, and from 1280 px it is one row, so they shrink instead of pushing «▾» off the screen
+  // a forum without known topics: General is all there is, so there is no list to choose from
+  {
+    const { context, page } = await open('light');
+    const forum = { chat_id: '@forum_bare', title: 'Форум без тем', type: 'supergroup', is_forum: true, topics: [],
+      checked_at: '2026-11-16T00:00:00Z', is_default: false, can_post: true, rights: { status: 'administrator', can_post_messages: true } };
+    await page.route('**/api/channels', (route) => (route.request().method() === 'GET' ? route.fulfill({ json: [forum] }) : route.continue()));
+    await page.goto(BASE);
+    await page.waitForSelector('.block');
+    await page.evaluate(() => { const i = /** @type {HTMLInputElement} */ (document.querySelector('#chat')); i.value = '@forum_bare'; i.dispatchEvent(new Event('input')); });
+    await page.waitForFunction(() => document.querySelector('#btn-check').textContent.includes('Форум без тем'), null, { timeout: 8000 }).catch(() => {});
+    const seen = await page.evaluate(() => ({ header: document.querySelector('#btn-check').textContent, topic: !!document.querySelector('#topic') }));
+    check('A forum without known topics shows no topic list', /Форум без тем/.test(seen.header) && !seen.topic, JSON.stringify(seen));
+    await context.close();
+  }
+
+  // a forum with a real-looking title and a -100… id: the header has #ui-theme and the long channel button, and from
+  // 1280 px it is one row, so the button shrinks instead of pushing «▾» off the screen
   for (const theme of /** @type {const} */ (['light', 'dark'])) {
     const { context, page } = await open(theme);
     const forum = { chat_id: '-1001234567890', title: 'Нейросети и разработка', type: 'supergroup', is_forum: true,
@@ -109,25 +129,23 @@ export default async function ({ browser, BASE, check }) {
     await page.selectOption('#ui-theme', theme);
     await page.fill('#title', 'Довольно длинное название черновика');
     await page.evaluate(() => { const i = /** @type {HTMLInputElement} */ (document.querySelector('#chat')); i.value = '-1001234567890'; i.dispatchEvent(new Event('input')); });
-    await page.waitForFunction(() => !(/** @type {HTMLSelectElement} */ (document.querySelector('#topic')).hidden), null, { timeout: 8000 }).catch(() => {});
-    await page.selectOption('#topic', '7').catch(() => {});
+    await page.waitForFunction(() => document.querySelector('#btn-check').textContent.includes('Нейросети'), null, { timeout: 8000 }).catch(() => {});
     const fits = [];
     for (const width of [1280, 1366, 1400, 1440, 390]) {
       await page.setViewportSize({ width, height: 900 });
       fits.push(await page.evaluate((w) => {
         const at = (sel) => document.querySelector(sel).getBoundingClientRect();
         const el = document.documentElement;
-        const topic = /** @type {HTMLSelectElement} */ (document.querySelector('#topic'));
         return { width: w, scroll: el.scrollWidth, client: el.clientWidth, more: Math.round(at('#btn-more').right), inner: innerWidth,
-          oneRow: Math.abs(at('#btn-publish').top - at('.brand').top) < 12, topic: topic.hidden ? null : topic.selectedOptions[0]?.text,
-          chat: Math.round(at('#btn-check').width), topicWidth: Math.round(at('#topic').width), attr: el.dataset.theme };
+          oneRow: Math.abs(at('#btn-publish').top - at('.brand').top) < 12, chat: Math.round(at('#btn-check').width),
+          named: /Нейросети/.test(document.querySelector('#btn-check').textContent), attr: el.dataset.theme };
       }, width));
       if (width === 1280 || width === 1400 || width === 390) {
         await page.locator('header.top').screenshot({ path: `test-results/ui/header-forum-${width}-${theme}.png` }).catch(() => {});
       }
     }
-    check(`The header with a forum and its topic stays on the screen at 1280–1440 and 390 px («${theme === 'dark' ? 'Тёмная' : 'Светлая'}»)`,
-      fits.every((f) => f.scroll <= f.client && f.more <= f.inner && f.topic === 'Тема форума: Анонсы и релизы' && f.attr === theme)
+    check(`The header with a forum stays on the screen at 1280–1440 and 390 px («${theme === 'dark' ? 'Тёмная' : 'Светлая'}»)`,
+      fits.every((f) => f.scroll <= f.client && f.more <= f.inner && f.named && f.attr === theme)
       && fits.filter((f) => f.width >= 1280).every((f) => f.oneRow),
       JSON.stringify(fits));
     await context.close();

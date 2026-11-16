@@ -11,7 +11,7 @@ import { readIssue, reveal } from './issues.js';
 import { renderKeyboard } from './keyboard.js';
 import { plural } from './labels.js';
 import { renderMedia } from './media.js';
-import { chats, dark, dirty, parsed, S, saveState, showParsed, target } from './state.js';
+import { channelOf, chats, dark, dirty, parsed, S, saveState, showParsed, target } from './state.js';
 
 // ---------- change tracking ----------
 export const refreshPreview = debounce(() => { renderPreview(); validate(); }, 250);
@@ -263,9 +263,12 @@ export function renderOptions() {
     flag(S.options, 'protect_content', 'Запретить пересылку и сохранение', 'protect_content'),
     flag(S.flags, 'skip_entity_detection', 'Не распознавать ссылки, @, #, телефоны автоматически', 'rich_message.skip_entity_detection'),
     flag(S.flags, 'is_rtl', 'Справа налево', 'rich_message.is_rtl'));
+  const topic = topicChoice();
+  if (topic) box.append(topic);
   const m = S.spec.methods.sendRichMessage;
   if (m) {
     const known = new Set(['chat_id', 'rich_message', 'reply_markup', 'disable_notification', 'protect_content']);
+    if (topic) known.add('message_thread_id'); // the list sets it; without the list it stays in the field below
     // what options may hold (PostOptions: chat_id, ephemeral_message_parameters… are the studio's); a stored one it
     // may not stays in the field, so the check's error about it can be fixed here
     const allowed = new Set(((S.spec.post && S.spec.post.types.PostOptions) || m).fields.map((f) => f.name));
@@ -282,6 +285,24 @@ export function renderOptions() {
     });
     box.append(h('p', { class: 'muted small' }, 'Другие параметры sendRichMessage (из спецификации): ', rest.filter((f) => allowed.has(f.name)).map((f, i) => [i ? ', ' : '', h('code', { title: f.description, text: f.name })])), ta);
   }
+}
+
+/** The forum topic of the post (message_thread_id): only for one forum channel with something to choose, its known
+ * topics or the topic the post already has; without them the post goes to General and there is nothing to pick. */
+function topicChoice() {
+  const list = chats();
+  const one = list.length === 1 ? channelOf(list[0]) : null;
+  const tid = S.options.message_thread_id;
+  const topics = (one && one.is_forum && one.topics) || [];
+  if (!one || !one.is_forum || (!topics.length && tid === undefined)) return null;
+  const sel = /** @type {HTMLSelectElement} */ (h('select', { id: 'topic', title: 'message_thread_id. Темы добавляются в окне «Каналы» (кнопка канала в шапке)', onchange: () => {
+    if (sel.value) { S.options.message_thread_id = Number(sel.value); S.topicChat = list[0]; } else delete S.options.message_thread_id;
+    changed();
+  } },
+  h('option', { value: '', text: 'General' }),
+  ...topics.map((t) => h('option', { value: String(t.id), text: t.name, selected: t.id === tid ? true : null })),
+  tid !== undefined && !topics.some((t) => t.id === tid) ? h('option', { value: String(tid), text: '№' + tid, selected: true }) : null));
+  return h('label', { class: 'row', style: 'margin:2px 0' }, 'Тема форума', sel);
 }
 
 // ---------- preview & validation ----------

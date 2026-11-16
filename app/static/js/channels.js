@@ -1,8 +1,8 @@
-// Channels: titles instead of bare ids, the forum topic of the post, the dialog that checks the bot's rights.
+// Channels: titles instead of bare ids, the dialog that checks the bot's rights and keeps a forum's topics.
 import { api } from './api.js';
 import { closeDialog, openDialog } from './dialogs.js';
 import { $, act, h, toast } from './dom.js';
-import { changed, renderPreview, validate } from './editor.js';
+import { changed, renderOptions, renderPreview, validate } from './editor.js';
 import { showInviteLinks } from './invite-links.js';
 import { renderKeyboard } from './keyboard.js';
 import { channelOf, channelTitle, chatLabel, chats, S } from './state.js';
@@ -20,37 +20,22 @@ export async function loadChannels() {
   validate();
 }
 
-// the header: where the post goes, by name, and the forum topic when there is one channel
+// the header: where the post goes, by name; the forum topic list in «Параметры отправки» follows the channel
 export function showTarget() {
   const list = chats();
   const btn = $('#btn-check');
   btn.textContent = (list.length ? list.map(chatLabel).join(', ') : 'Канал не выбран') + ' ▾';
   btn.title = (list.length ? 'Пост уйдёт в: ' + list.map(chatLabel).join(', ') + '\n' : '') + 'Выбрать каналы (id через запятую), проверить права бота, темы форума';
-  const one = list.length === 1 ? channelOf(list[0]) : null;
-  const sel = /** @type {HTMLSelectElement} */ ($('#topic'));
-  let topic = S.options.message_thread_id;
-  if (topic === undefined) S.topicChat = undefined;
+  if (S.options.message_thread_id === undefined) S.topicChat = undefined;
   else if (S.topicChat === undefined && list.length === 1) S.topicChat = list[0];
   // a topic belongs to its chat: in another chat it would send the post nowhere or to a wrong thread
   else if (list.length !== 1 || list[0] !== S.topicChat) {
-    delete S.options.message_thread_id; S.topicChat = undefined; topic = undefined; changed();
+    delete S.options.message_thread_id; S.topicChat = undefined; changed();
   }
-  if (!one || !one.is_forum) { sel.hidden = true; return; }
-  const topics = one.topics || [];
-  // «Тема форума», not «Тема»: the list is the forum's thread, not the studio's light or dark theme (#ui-theme);
-  // only topics in it, new ones are added in «Каналы» (the channel button)
-  sel.replaceChildren(h('option', { value: '', text: 'Тема форума: General' }),
-    ...topics.map((t) => h('option', { value: String(t.id), text: 'Тема форума: ' + t.name, selected: t.id === topic ? true : null })),
-    topic !== undefined && !topics.some((t) => t.id === topic) ? h('option', { value: String(topic), text: 'Тема форума №' + topic, selected: true }) : null);
-  sel.hidden = false;
+  renderOptions();
 }
 
 export function bindTarget() {
-  const sel = /** @type {HTMLSelectElement} */ ($('#topic'));
-  sel.onchange = () => {
-    if (sel.value) { S.options.message_thread_id = Number(sel.value); S.topicChat = chats()[0]; } else delete S.options.message_thread_id;
-    changed();
-  };
   $('#btn-check').onclick = showChannels;
 }
 
