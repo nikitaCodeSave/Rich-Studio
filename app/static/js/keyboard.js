@@ -24,6 +24,15 @@ function kindOf(btn) {
   return 'other';
 }
 
+/** Whether a key of callbacks may still be pressed elsewhere than on this button: on another button of the keyboard,
+ * or in the text of the post. The editor does not read the text for its buttons (the server's check does,
+ * services/callbacks.buttons): a key written anywhere in the text keeps its answer, and the check warns about an
+ * answer no button has, so nothing is lost silently. @param {string} key @param {Json} btn */
+function usedElsewhere(key, btn) {
+  if (S.keyboard.some((r) => r.some((b) => b !== btn && b.callback_data === key))) return true;
+  return JSON.stringify(buildPost().rich_message).includes(JSON.stringify(String(key)).slice(1, -1));
+}
+
 // the bot gets this when the button is pressed; the person never sees or types it
 const newCallbackKey = () => 'b' + Date.now().toString(36).slice(-4) + Math.random().toString(36).slice(2, 6);
 
@@ -32,8 +41,7 @@ function setKind(btn, kind) {
   // «Другое» keeps every field, the answer included
   if (kind === 'other') { byHand.add(btn); return; }
   // the answer belongs to the key: another button with the same callback_data keeps it
-  const shared = S.keyboard.some((r) => r.some((b) => b !== btn && b.callback_data === btn.callback_data));
-  if (btn.callback_data !== undefined && kind !== 'callback' && !shared) delete S.extra.callbacks[btn.callback_data];
+  if (btn.callback_data !== undefined && kind !== 'callback' && !usedElsewhere(btn.callback_data, btn)) delete S.extra.callbacks[btn.callback_data];
   byHand.delete(btn);
   if (kindOf(btn) === kind) return;
   ACTIONS.forEach((k) => { delete btn[k]; });
@@ -141,7 +149,8 @@ export function callbackAnswer(btn) {
   // the button form above may add, rename or remove callback_data: keep the answer attached to it
   setTimeout(() => { const card = box.parentElement; if (card) card.addEventListener('input', (e) => {
     if (box.contains(e.target) || btn.callback_data === lastKey) return;
-    if (lastKey !== undefined && S.extra.callbacks[lastKey] !== undefined && btn.callback_data !== undefined) { S.extra.callbacks[btn.callback_data] = S.extra.callbacks[lastKey]; delete S.extra.callbacks[lastKey]; }
+    // moved to the new key; the old one keeps it too while another button may still be pressed with it
+    if (lastKey !== undefined && S.extra.callbacks[lastKey] !== undefined && btn.callback_data !== undefined) { S.extra.callbacks[btn.callback_data] = S.extra.callbacks[lastKey]; if (!usedElsewhere(lastKey, btn)) delete S.extra.callbacks[lastKey]; }
     lastKey = btn.callback_data; draw();
   }); });
   return box;

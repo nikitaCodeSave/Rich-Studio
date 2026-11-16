@@ -288,15 +288,19 @@ interface EditorState {
   /** the keys of the draft's `_studio` the editor does not write (`source` and `warnings` of a forwarded post, and
    * whatever comes next): kept as they are and saved back with the draft, never sent */
   notes: Json;
-  /** the top-level fields of the post outside models.Post (GET /api/spec `post`): not in the form, sent and saved
-   * as they came, last in the post; the check warns about them (a chat among them is an error) */
+  /** the top-level fields of the post loadPost does not read (READ in editor.js), and a value of a field it reads
+   * that the form cannot (callbacks that are not an object…): not in the form, sent and saved as they came, last in
+   * the post; the check warns about them or says what is wrong (a chat among them is an error) */
   unknown: Json;
   media: Json[];
   flags: Json;
   keyboard: ButtonRow[];
   options: Json;
-  /** poll: sendPoll fields of the poll sent right after the post (post.poll_after) */
-  extra: { pin: boolean; comment: string; commentObj: Json | null; callbacks: Record<string, string | Json>; poll: Json | null };
+  /** comment: the HTML of the first comment in the form, commentBase: the comment it came in (its other fields go with
+   * the HTML), commentObj: a comment that is not HTML, kept as it came; callbacks: every answer as it came, of the
+   * buttons in the text too; poll: sendPoll fields of the poll sent right after the post (post.poll_after); markup:
+   * reply_markup besides inline_keyboard, as it came */
+  extra: { pin: boolean; comment: string; commentBase: Json; commentObj: Json | null; callbacks: Record<string, string | Json>; poll: Json | null; markup: Json };
   updates: UpdatesStatus | null;
   uploads: Upload[];
   posts: PostRow[];
