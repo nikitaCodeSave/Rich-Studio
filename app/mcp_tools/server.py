@@ -17,6 +17,7 @@ from mcp.types import ToolAnnotations
 import settings
 from mcp_tools import preview_app, skill, tools
 from mcp_tools.common import (
+    DRAFT_CHATS,
     PUBLIC,
     READ,
     DraftArg,
@@ -69,7 +70,7 @@ def build() -> MCPServer:
         p, version = post_source(post, draft_id, None, publish=False)
         # version: what to pass to publish_post/edit_post, so exactly the version shown here goes out
         # the chats it goes to: the draft's, else the default channel, as publish_post without chat_id
-        out = {"post": p, "validation": publisher.check(p, publisher.checked_targets(None, draft_id))}
+        out = {"post": p, "validation": publisher.check(p, publisher.checked_targets(None, draft_id), DRAFT_CHATS)}
         return out if version is None else {**out, "version": version, **draft_links(draft_id or "")}
 
     server = MCPServer(name="rich-studio", title="Rich Studio", instructions=INSTRUCTIONS, extensions=[apps])

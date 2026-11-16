@@ -6,7 +6,7 @@ from pydantic import Field
 
 import store
 from errors import Conflict, NotFound
-from mcp_tools.common import LOCAL, READ, TO_ME, PostArg, ToolDecorator, draft_links, parse_post
+from mcp_tools.common import CHATS_ARG, LOCAL, READ, TO_ME, PostArg, ToolDecorator, draft_links, parse_post
 from services import channels, posts, publisher
 from services.drafts import keep_notes
 
@@ -23,7 +23,7 @@ def register(tool: ToolDecorator) -> None:
         """Проверить пост по спецификации: ошибки (исправить обязательно), предупреждения, длина. Для проверенных
         каналов предупреждает о том, что Telegram в чате такого типа не примет (кнопка web_app вне лички,
         switch_inline_query в канале, message_effect_id…): правила взяты из описаний полей Bot API."""
-        return publisher.check(parse_post(post), publisher.checked_targets(chat_ids))
+        return publisher.check(parse_post(post), publisher.checked_targets(chat_ids), CHATS_ARG)
 
     @tool(LOCAL)
     async def save_draft(
@@ -76,7 +76,7 @@ def register(tool: ToolDecorator) -> None:
             "goes_to": channels.goes_to(d["chat_ids"]),
             "preview_path": f"/render/draft/{d['id']}",
             **draft_links(d["id"]),
-            "validation": publisher.check(d["payload"], publisher.checked_targets(d["chat_ids"])),
+            "validation": publisher.check(d["payload"], publisher.checked_targets(d["chat_ids"]), CHATS_ARG),
         }
 
     @tool(READ)
