@@ -21,7 +21,9 @@ def get_template(tid: str):
 @router.post("/api/templates", summary="Новый шаблон: пост с {{key}} и описание его полей")
 def create_template(req: TemplateReq):
     """Значение поля всегда текст: в HTML экранируется, в блоках остаётся строкой. 422, если {{key}} стоит там,
-    где значение стало бы разметкой: в теге, в ключе JSON, в атрибуте без кавычек, в Markdown."""
+    где значение стало бы разметкой: в теге, в ключе JSON, в атрибуте без кавычек, в Markdown. Ссылку (href/src
+    в HTML, ключ url в JSON: ссылка в блоке, кнопка) подставляет только поле type url целиком, без кусков вроде
+    https://site/{{slug}}, иначе тоже 422."""
     return templates.save(req.title, req.post.model_dump(), [f.model_dump() for f in req.fields])
 
 
