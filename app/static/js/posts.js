@@ -25,6 +25,18 @@ function commentNote(p) {
   return h('span', { class: 'unknown', title: COMMENT_UNCONFIRMED, text: 'комментарий: не подтверждён, мог уйти; не публикуйте заново, проверьте обсуждение' });
 }
 
+/** The thumbnail's src only when the browser goes to a file of the uploads with it, /media/<name>. The server gives
+ * one only for a file that is there (services/listing.py thumb); this is the second line (#213). The path is read as
+ * the browser resolves it: «/media/../api/x», «/media/%2e%2e/api/x» and «/media\..\api\x» are /api/x, while a name
+ * with «..» inside, «a..b.png», is an upload's
+ * @param {unknown} t @returns {string | null} */
+function thumbSrc(t) {
+  if (typeof t !== 'string' || !t.startsWith('/media/')) return null;
+  let u;
+  try { u = new URL(t, document.baseURI); } catch (e) { return null; }
+  return u.origin === location.origin && /^\/media\/[^/]+$/.test(u.pathname) ? t : null;
+}
+
 export async function loadPosts() {
   const only = /** @type {HTMLSelectElement} */ ($('#posts-filter')).value;
   S.posts = await api('GET', '/api/posts');
@@ -56,9 +68,10 @@ export async function loadPosts() {
     ].filter(Boolean);
     const call = async (method, path, body, ok) => { try { await api(method, path, body); toast(ok, 'ok'); } catch (e) { toast(e.message, 'err'); } loadPosts(); };
     const num = p.message_id ? '#' + p.message_id : '';
+    const thumb = thumbSrc(p.thumb);
     return h('li', { class: 'post-row' + (p.status === 'failed' ? ' failed' : '') },
       h('div', { class: 'post-head' },
-        p.thumb ? h('img', { class: 'thumb', src: p.thumb, alt: '', loading: 'lazy' }) : null,
+        thumb ? h('img', { class: 'thumb', src: thumb, alt: '', loading: 'lazy' }) : null,
         h('span', { class: 'post-title' + (p.title ? '' : ' muted'), text: p.title || 'Без текста' })),
       h('span', { class: 'meta' }, h('span', { class: 'status ' + (unknown ? 'unknown' : p.status), text: unknown ? 'исход неизвестен' : STATUS_LABELS[p.status] || p.status }), kind.badge ? h('b', { text: kind.badge }) : null, p.actor && p.actor !== 'ui' ? h('span', { class: 'actor', title: 'Кто отправил: не редактор, а API или агент', text: p.actor }) : null, h('span', { class: 'chan', title: 'Канал', text: chatLabel(p.chat_id) }),
         p.link ? h('a', { href: p.link, target: '_blank', rel: 'noopener', title: 'Открыть в Telegram', text: num }) : num),
