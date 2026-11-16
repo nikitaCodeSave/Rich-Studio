@@ -18,7 +18,9 @@ export default async function ({ page, check, BASE }) {
 
   // the stand's data folder, from scripts/e2e_local.sh: without it the old records would be left out unnoticed
   const dbFile = process.env.DATA_DIR + '/studio.db';
-  const haveDb = !!process.env.DATA_DIR && existsSync(dbFile);
+  // and it is this stand's: the file just uploaded through BASE lies in its media folder, so a DATA_DIR of another
+  // studio never gets the fake «sent» records below
+  const haveDb = !!process.env.DATA_DIR && existsSync(dbFile) && existsSync(process.env.DATA_DIR + '/media/' + up.name);
   check('The stand\'s database is there for old records', haveDb, `DATA_DIR=${process.env.DATA_DIR || ''} (scripts/e2e_local.sh gives it)`);
   if (haveDb) {
     const { DatabaseSync } = await import('node:sqlite');

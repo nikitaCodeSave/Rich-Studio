@@ -555,8 +555,8 @@ def test_deleting_a_symlink_in_the_uploads_removes_the_link_never_the_file_it_po
         r = client.delete("/api/media/" + name)
         assert r.status_code == 200 and not os.path.lexists(folder / name), (name, r.text)
     assert sorted(os.listdir(folder)) == ["real.png"] and outside.read_bytes() == b"\x89PNG"
-    for name in ("..", ".hidden", "a\\b"):  # still only a name of the folder
-        assert client.delete("/api/media/" + name).status_code in (400, 404), name
+    for name in ("%2e%2e", ".hidden", "a\\b"):  # still only a name of the folder; ".." itself httpx turns into DELETE /api
+        assert client.delete("/api/media/" + name).status_code == 400, name
 
 
 def test_a_file_with_a_name_that_is_not_utf8_is_listed_opens_and_is_deleted_by_its_url(client):
