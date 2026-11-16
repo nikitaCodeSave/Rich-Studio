@@ -643,11 +643,16 @@ TG_ENTITY_RE = re.compile(rf"&(?:({'|'.join(TG_ENTITIES)})|#([0-9]+)|#x([0-9a-fA
 # an attribute right after the quote of the one before it counts too (<a title="x"href="…">), as in html.parser
 ATTR_RE = re.compile(r"""(?<=[\s"'/])([^\s"'=/>]+)(?:\s*=\s*("[^"]*"|'[^']*'|[^\s>]*))?""")
 # A tag, to tell the text of html from its tags: a piece of text between two tags is what Telegram erases for an
-# entity it makes no character of (TG_ENTITIES). No «<» inside, so a «<» without its «>» costs a look up to the next
-# «<», not to the end of the post. Mirrored in render.js (TAG).
-HTML_TAG_RE = re.compile(r"""</?[A-Za-z][^\s/<>]*(?:[^<>"']|"[^"<]*"|'[^'<]*')*>""")
+# entity it makes no character of (TG_ENTITIES). Linear in the source: no «<» inside, so a «<» without its «>» costs
+# a look up to the next «<»; the name is taken whole ((?=(…))\1 is an atomic group, as JavaScript has none), so the
+# name and the attributes after it cannot share its letters in every way when the «>» is missing (that was 15 s for
+# 35 KB). The same source in render.js (TAG), tests/test_rich_limits.py compares them.
+HTML_TAG_RE = re.compile(r"""</?[A-Za-z](?=([^\s/<>]*))\1(?:[^<>"']|"[^"<]*"|'[^'<]*')*>""")
 MD_FENCE_RE = re.compile(r"[ \t]{0,3}(`{3,}|~{3,})")
-MD_CODE_RE = re.compile(r"(`+)(?!`).*?(?<!`)\1(?!`)", re.S)
+MD_INDENT_RE = re.compile(r" {4}| {0,3}\t")
+# `code`: a run of backticks and the next run of as many, as CommonMark reads it; only a whole run opens one, so a
+# long run without its closing run is looked through once, not from each of its backticks
+MD_CODE_RE = re.compile(r"(?<!`)(`+)(?!`).*?(?<!`)\1(?!`)", re.S)
 
 
 def _code(m: re.Match) -> int:
@@ -694,19 +699,27 @@ def html_pieces(src: str) -> Iterator[tuple[str, bool]]:
 
 
 def md_paragraphs(src: str) -> list[str]:
-    """The paragraphs of markdown as written, without its code fences: where Telegram decodes entities."""
+    """The paragraphs of markdown as written, without its code: fences and indented blocks (4 spaces or a tab in front
+    of a line where no paragraph goes on, and the lines after it so indented), where Telegram decodes no entity. In a
+    list such a line may be a paragraph of the item: it is left out all the same, an error missed rather than a false
+    one."""
     paras: list[str] = []
     lines: list[str] = []
     fence = ""
+    indented = False
     for line in src.split("\n"):
-        f = MD_FENCE_RE.match(line)
+        blank = not line.strip()
         if fence:
+            f = MD_FENCE_RE.match(line)
             if f and f[1][0] == fence[0] and len(f[1]) >= len(fence) and not line[f.end() :].strip():
                 fence = ""
             continue
-        if f:
-            fence = f[1]
-        if f or not line.strip():
+        if indented and (blank or MD_INDENT_RE.match(line)):
+            continue
+        f = MD_FENCE_RE.match(line)
+        indented = not (f or blank or lines) and bool(MD_INDENT_RE.match(line))
+        if f or blank or indented:
+            fence = f[1] if f else ""
             if lines:
                 paras.append("\n".join(lines))
                 lines = []
@@ -717,33 +730,56 @@ def md_paragraphs(src: str) -> list[str]:
     return paras
 
 
-def erased_texts(src: str, markdown: bool) -> list[tuple[str, str]]:
-    """(the text, the entity) that Telegram erases for a numeric entity it makes no character of: in html the piece of
-    text between two tags (measured); in markdown the paragraph, out of code fences (measured: there entities stay as
-    typed) and out of `code` (not measured; markdown-it in the preview leaves them as typed there). Where in a
-    paragraph of markdown its text ends was not measured, so the whole paragraph is named and left out of the count."""
+def erased_texts(src: str, markdown: bool) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
+    """(the text, the entity) that Telegram erases for a numeric entity it makes no character of, for sure and maybe.
+    In html the piece of text between two tags (measured). In markdown the paragraph: out of its code (measured for a
+    fence: there entities stay as typed) and out of link addresses (measured: no entity is decoded there). Where in a
+    paragraph its text ends was not measured, so the whole paragraph is named and left out of the count. Maybe: the
+    entity stands only in `code`, where it was not measured (markdown-it in the preview leaves it as typed)."""
     if vanishing(src) is None:  # the usual post: no piece to look at
-        return []
-    if markdown:
-        texts = [(p, vanishing(MD_CODE_RE.sub("", p))) for p in md_paragraphs(src)]
-    else:
-        texts = [(p, vanishing(p)) for p, tag in html_pieces(src) if not tag]
-    return [(text, entity) for text, entity in texts if entity]
+        return [], []
+    if not markdown:
+        return [(p, e) for p, tag in html_pieces(src) if not tag and (e := vanishing(p))], []
+    sure: list[tuple[str, str]] = []
+    maybe: list[tuple[str, str]] = []
+    for p in md_paragraphs(src):
+        text = MD_TARGET_RE.sub("]", p)
+        if e := vanishing(MD_CODE_RE.sub("", text)):
+            sure.append((p, e))
+        elif e := vanishing(text):
+            maybe.append((p, e))
+    return sure, maybe
 
 
-def _erased(text: str, entity: str, markdown: bool) -> str:
+def _erased(found: list[tuple[str, str]], markdown: bool, maybe: bool = False) -> str:
+    """One message for every text Telegram erases: the first one with its entity, the next two, how many in all."""
+    text, entity = found[0]
     m = TG_ENTITY_RE.fullmatch(entity)
     what = (
         "половина суррогатной пары (U+D800…U+DFFF), а не символ: символ пишут одной сущностью (&#x1F600;) или как есть"
         if m and _code(m) <= 0xDFFF
         else "больше U+10FFFF, такого символа нет"
     )
-    where = "абзац" if markdown else "текст"
-    until = "текст вокруг неё до ближайшей разметки" if markdown else "весь этот текст до ближайшего тега"
+
+    def shown(t: str) -> str:
+        return f"«{_short(' '.join(t.split()), 40)}»"
+
+    more = ""
+    if len(found) > 1:
+        more = (
+            f" (и ещё {len(found) - 1}: {', '.join(shown(t) for t, _ in found[1:3])}{', …' if len(found) > 3 else ''})"
+        )
+    head = f"{'абзац' if markdown else 'текст'} {shown(text)}{more}: в нём {_short(entity, 20)} — {what}"
+    if maybe:
+        return f"{head}; внутри `кода` не замерено: если Telegram читает сущность и тут, он сотрёт абзац"
+    until = (
+        "текст вокруг неё до ближайшей разметки (где кончается стёртый текст в Markdown, не замерено)"
+        if markdown
+        else "весь этот текст до ближайшего тега"
+    )
     return (
-        f"{where} «{_short(' '.join(text.split()), 40)}»: в нём {_short(entity, 20)} — {what}; с такой сущностью "
-        f"Telegram стирает {until}, а пост, где заголовок или цитата остались без текста, отклоняет "
-        "(RICH_MESSAGE_CONTENT_REQUIRED)"
+        f"{head}; с такой сущностью Telegram стирает {until}, а пост, где заголовок или цитата остались без текста, "
+        "отклоняет (RICH_MESSAGE_CONTENT_REQUIRED)"
     )
 
 
@@ -940,12 +976,21 @@ def source_chars(src: str, markdown: bool) -> tuple[int, int]:
     """Text characters of html or markdown as far as the source tells without Telegram's parser: about how many
     (without tags and link addresses), and at least how many (also without spaces and, in Markdown, markup and table
     lines). tests/test_rich_limits.py keeps the second one under Telegram's own count for every captured parse. The
-    text Telegram erases for a numeric entity (erased_texts) is not counted."""
-    if markdown:
-        for erased, _ in erased_texts(src, markdown):
-            src = src.replace(erased, "", 1)
-    elif vanishing(src) is not None:
-        src = "".join(p for p, tag in html_pieces(src) if tag or not vanishing(p))
+    text Telegram erases for a numeric entity (erased_texts, in markdown both kinds: at least stays at least) is not
+    counted."""
+    if not markdown:
+        if vanishing(src) is not None:
+            src = "".join(p for p, tag in html_pieces(src) if tag or not vanishing(p))
+        return _chars(src, markdown)
+    about, at_least = _chars(src, markdown)
+    sure, maybe = erased_texts(src, markdown)
+    for erased, _ in sure + maybe:
+        less, less_at_least = _chars(erased, markdown)
+        about, at_least = about - less, at_least - less_at_least
+    return about, at_least
+
+
+def _chars(src: str, markdown: bool) -> tuple[int, int]:
     text = TAG_RE.sub("", src)
     # entities as Telegram decodes them; in markdown the link addresses (not decoded at all) are gone already
     text = tg_unescape(MD_TARGET_RE.sub("]", text) if markdown else text)
@@ -971,8 +1016,11 @@ def _source_limits(v: Validator, rm: dict) -> dict:
     for mid in sorted(x for x in media_ids - {mid for _, mid in refs} if x):
         v.warnings.append(f"media id={mid!r} нигде не используется в тексте")
     is_html = bool(rm.get("html"))
-    for text, entity in erased_texts(src, markdown=not is_html):
-        v.errors.append(_erased(text, entity, markdown=not is_html))
+    sure, maybe = erased_texts(src, markdown=not is_html)
+    if sure:
+        v.errors.append(_erased(sure, markdown=not is_html))
+    if maybe:
+        v.warnings.append(_erased(maybe, markdown=True, maybe=True))
     chars, at_least = source_chars(src, markdown=not is_html)
     size = utf8_size(src)
     if at_least > MAX_CHARS:

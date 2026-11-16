@@ -1,7 +1,9 @@
 """Test fixtures: the studio app wired to the in-process fake Bot API from mock_telegram.py.
 
 Every test gets an empty data folder (database, uploads, spec cache), so tests do not
-depend on each other or on their order.
+depend on each other or on their order. A test marked no_db that does not take `client` (a pure
+check, tests/test_rich_limits.py) gets none: its data folder lies under a file, so a write to it by
+mistake fails at once instead of landing in another test's data.
 """
 
 import os
@@ -74,12 +76,14 @@ def client():
 def fresh_data(request, monkeypatch):
     """An empty database and uploads folder for every test. A test marked no_db that does not take `client` gets
     none: a check that touches neither the studio nor its data saves the database with migrations and fsync that
-    every test would spend most of its time on (issue #174)."""
-    if request.node.get_closest_marker("no_db") and "client" not in request.fixturenames:
-        return None
+    every test would spend most of its time on (issue #174). Its data folder lies under this file: nothing can be
+    written there, a write by mistake fails at once."""
     import settings
     import store
 
+    if request.node.get_closest_marker("no_db") and "client" not in request.fixturenames:
+        monkeypatch.setattr(settings.get(), "data_dir", Path(__file__) / "no_db")
+        return None
     tmp_path = request.getfixturevalue("tmp_path")
     monkeypatch.setattr(settings.get(), "data_dir", tmp_path)
     store.init()

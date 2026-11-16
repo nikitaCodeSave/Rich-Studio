@@ -477,9 +477,15 @@
         // Telegram drops a link whose address has a ", a space… in it (LINK_DROPS) and keeps only its text
         node.replaceWith(...kids()); return;
       } else if (tag === 'a' && attr('href')) {
-        node.setAttribute('href', tgAddress(attr('href')));
-        // #name links are resolved after the walk, when all anchors and references are known
-        if (!attr('href').startsWith('#')) { node.setAttribute('target', '_blank'); node.setAttribute('rel', 'noopener'); }
+        // U+2028 out, as Telegram takes it out, then the sanitizer's check again: «/&#x2028;/x» was a path, «//x» is a
+        // link to another site
+        const href = safeUrl(tgAddress(attr('href')));
+        if (href === null) node.removeAttribute('href');
+        else {
+          node.setAttribute('href', href);
+          // #name links are resolved after the walk, when all anchors and references are known
+          if (!href.startsWith('#')) { node.setAttribute('target', '_blank'); node.setAttribute('rel', 'noopener'); }
+        }
       } else if (tag === 'pre') {
         const lang = node.querySelector('code[class*="language-"]');
         const m = lang && /language-([\w+#-]+)/.exec(lang.className);
@@ -557,9 +563,9 @@
     return String.fromCodePoint(n);
   }
   const vanishes = (s) => [...s.matchAll(ENTITY_OR_AMP)].some((m) => (m[2] ?? m[3]) !== undefined && tgChar(codeOf(m[2], m[3]), false) === null);
-  // A tag, to tell the text of html from its tags (the same as HTML_TAG_RE in app/spec/validator.py): a piece of text
-  // between two tags is what Telegram erases for an entity it makes no character of
-  const TAG = /<\/?[A-Za-z][^\s/<>]*(?:[^<>"']|"[^"<]*"|'[^'<]*')*>/g;
+  // A tag, to tell the text of html from its tags (the same source as HTML_TAG_RE in app/spec/validator.py, which says
+  // why it is linear): a piece of text between two tags is what Telegram erases for an entity it makes no character of
+  const TAG = /<\/?[A-Za-z](?=([^\s/<>]*))\1(?:[^<>"']|"[^"<]*"|'[^'<]*')*>/g;
   // html as the browser must get it to read the entities as Telegram does: a numeric one is the character Telegram
   // makes (an entity again where it would be markup), in a tag too, but one that erases text stays as typed there (not
   // measured in attributes); 128…159 go as the characters themselves, as entities the browser would read them by

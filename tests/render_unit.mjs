@@ -175,6 +175,17 @@ for (const [name, url] of Object.entries(URLS)) {
   check('a link with a character Telegram drops it over is its text only; U+2028 is taken out of the address', wrong.length === 0, wrong.join('; '));
   const texts = await page.evaluate(() => RichRender.outline({ rich_message: { html: '<p>до <a href="https://example.com/? x">ссылка</a> после</p>' } }));
   check('the text of a dropped link stays', texts === '<p>до ссылка после</p>', texts);
+  // U+2028 comes out of the address after the sanitizer looked at it: «/ /evil» is a path, «//evil» is another site
+  const evil = await page.evaluate(() => ['<p><a href="/&#x2028;/evil.example/x">a</a></p>', '<p><a href="/\u2028/evil.example/x">b</a></p>']
+    .flatMap((html) => [...RichRender.render({ rich_message: { html } }, {}).querySelectorAll('.tg-body a')].map((a) => a.getAttribute('href'))));
+  check('taking U+2028 out of an address does not make a path a link to another site', evil.every((h) => h === null || !h.startsWith('//')), JSON.stringify(evil));
+  // the preview cuts html into tags and text for the entities: a «<a» without its «>» costs one look, not the rest
+  const took = await page.evaluate(() => {
+    const t = performance.now();
+    RichRender.render({ rich_message: { html: '<p>x</p><p><a' + 'b'.repeat(100000) } }, {});
+    return performance.now() - t;
+  });
+  check('a tag without its > is read in linear time', took < 500, took.toFixed(0) + ' ms');
   const sendable = await page.evaluate(() => RichRender.percentAddress('https://example.com/?q="a b"<\u00a0>\u2028\u200b\u0085'));
   check('percentAddress writes them %-encoded and takes U+2028 out', sendable === 'https://example.com/?q=%22a%20b%22%3C%C2%A0%3E%E2%80%8B%C2%85', sendable);
 }

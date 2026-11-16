@@ -17,6 +17,7 @@ import pytest
 
 import spec
 from spec.validator import (
+    HTML_TAG_RE,
     LINK_DROPS,
     MAX_BYTES,
     TG_ENTITIES,
@@ -446,6 +447,26 @@ def test_deep_html_is_checked_in_linear_time(current):
     assert time.perf_counter() - started < 2
 
 
+@pytest.mark.parametrize(
+    "rm",
+    [{"html": "<p>x&#xD800;</p><p><a" + "b" * 34900}, {"markdown": "x&#xD800; " + "`" * 17000 + "b" * 17900}],
+    ids=["html: <a without its >", "markdown: a run of backticks without its closing run"],
+)
+def test_a_post_with_text_telegram_erases_is_checked_in_linear_time(current, rm):
+    """One entity Telegram erases text for takes the check to the pieces of text: under the source limit a hostile
+    source took 15 s (html) and 6 s (markdown) there, with the event loop of the studio standing still."""
+    started = time.perf_counter()
+    assert not check(current, **rm)["ok"]
+    assert time.perf_counter() - started < 2
+
+
+def test_the_preview_tells_tags_from_text_the_same_way():
+    """render.js keeps its own copy of HTML_TAG_RE (TAG): the text Telegram erases is the same piece in both."""
+    found = re.search(r"const TAG = /(.+)/g;", RENDER_JS)
+    assert found, "TAG not found in render.js"
+    assert found[1].replace("\\/", "/") == HTML_TAG_RE.pattern
+
+
 def test_markdown_nesting_is_left_to_telegram(current):
     """No measurement for markdown: its nesting is not checked."""
     r = check(current, markdown="> " * 20 + "**_глубоко_**")
@@ -604,7 +625,9 @@ def test_a_surrogate_or_a_number_past_unicode_erases_its_text_an_error(current, 
     (err,) = r["errors"]
     assert f"«a {entity} b»" in err and "RICH_MESSAGE_CONTENT_REQUIRED" in err, err
     r = check(current, markdown=f"до\n\na {entity} b")
-    assert not r["ok"] and has(r["errors"], f"a {entity} b"), r
+    assert not r["ok"], r
+    (err,) = r["errors"]
+    assert f"a {entity} b" in err and "где кончается стёртый текст в Markdown, не замерено" in err, err
 
 
 def test_only_the_text_up_to_the_nearest_tag_is_erased(current):
@@ -615,12 +638,37 @@ def test_only_the_text_up_to_the_nearest_tag_is_erased(current):
     assert r["stats"]["chars"] == len("a  c"), r["stats"]
 
 
+def test_many_texts_telegram_erases_are_one_error(current):
+    r = check(current, html="".join(f"<p>абзац {i}&#xD800;</p>" for i in range(5)))
+    (err,) = r["errors"]
+    assert "«абзац 0&#xD800;»" in err and "и ещё 4" in err and "«абзац 1&#xD800;»" in err, err
+    assert "абзац 4" not in err, err
+
+
 def test_in_markdown_code_entities_stay_as_typed(current):
-    """Measured: in a code fence Telegram decodes no entity. In `code` it was not measured: as in the preview,
-    where markdown-it leaves them as typed there too."""
-    for src in ("```\na&#xD800;b\n```", "~~~~\n```\na&#xD800;b\n~~~~", "до `a&#xD800;b` после", "до ``a`&#xD800;`` x"):
-        assert check(current, markdown=src)["ok"], src
+    """Measured: in a code fence Telegram decodes no entity. An indented code block is a pre for Telegram too
+    (captured md-code), and markdown-it in the preview leaves the entities there as typed."""
+    fences = ["```\na&#xD800;b\n```", "~~~~\n```\na&#xD800;b\n~~~~", "    a&#xD800;b", "до\n\n    a&#xD800;b\n\n    c"]
+    for src in fences:
+        r = check(current, markdown=src)
+        assert r["ok"] and not r["warnings"], (src, r)
     assert not check(current, markdown="```\nкод\n```\n\na&#xD800;b")["ok"]
+    assert not check(current, markdown="    код\n\na&#xD800;b")["ok"]
+
+
+def test_in_markdown_inline_code_an_entity_telegram_erases_for_is_a_warning(current):
+    """In `code` it was not measured: the preview leaves the entity as typed (markdown-it), the check warns."""
+    for src in ("до `a&#xD800;b` после", "до ``a`&#xD800;`` x"):
+        r = check(current, markdown=src)
+        assert r["ok"], (src, r)
+        (warning,) = r["warnings"]
+        assert "не замерено" in warning and "сотрёт абзац" in warning, warning
+
+
+def test_a_markdown_link_address_keeps_an_entity_telegram_erases_for(current):
+    """Measured: in [x](…) Telegram decodes no entity, so nothing is erased there; in the text of the link it is."""
+    assert check(current, markdown="до [ссылка](https://example.com/&#xD800;) после")["ok"]
+    assert not check(current, markdown="до [ссылка&#xD800;](https://example.com/) после")["ok"]
 
 
 def test_an_entity_telegram_cannot_make_a_character_in_an_address_is_left_to_it(current):
@@ -787,6 +835,14 @@ def test_no_link_field_is_a_file_field(current):
 
     assert not {"url", "href", "src"} & FILE_KEYS
     assert check(current, [photo()])["ok"]
+
+
+def test_a_check_without_a_database_has_no_data_folder_to_write_to():
+    """conftest.fresh_data under no_db: the data folder lies under a file, so a write by mistake fails at once."""
+    import settings
+
+    with pytest.raises(OSError):
+        settings.get().media_dir.mkdir(parents=True, exist_ok=True)
 
 
 def test_a_markdown_link_address_keeps_its_entities(current):
