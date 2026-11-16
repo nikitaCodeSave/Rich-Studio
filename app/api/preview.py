@@ -17,7 +17,7 @@ from services import publisher
 router = APIRouter()
 TEMPLATE = Path(__file__).resolve().parent.parent / "static" / "render.html"
 # the body of /api/validate is the post itself: chat_ids put there is the post's field, not where it goes
-CHATS_IN_QUERY = "у /api/validate каналы — query-параметр: /api/validate?chat_ids=@канал (можно несколько раз)"
+CHATS_IN_QUERY = "у /api/validate — query-параметр: /api/validate?chat_ids=@канал, можно несколько раз"
 
 
 def render_page(post: dict, theme: str = "auto", title: str = "Предпросмотр") -> str:

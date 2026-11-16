@@ -178,24 +178,27 @@ def options_error(post: dict) -> str | None:
 POST_FIELDS = frozenset({"rich_message", "reply_markup", "options", "pin", "comment", "callbacks", "poll_after"})
 # where the post goes, put in the post itself
 TARGET_FIELDS = ("chat_id", "chat_ids")
-# where the chats go instead: next to the post in the request body (/api/send, /api/edit, /api/drafts) or the tool's
-# argument; /api/validate, whose body is the post, says its own (a query parameter)
-CHATS_NEXT_TO_POST = "каналы задаются рядом с post (chat_id, chat_ids), а не в нём"
+# where the chats go instead, said by the request that has them (target_errors): this one is a publish, a schedule or
+# a draft (/api/send, /api/schedule, /api/drafts, their MCP tools); a preview, an edit and /api/validate say their own
+CHATS_NEXT_TO_POST = "chat_id или chat_ids рядом с post"
 
 
 def target_errors(post: dict, chats_hint: str = CHATS_NEXT_TO_POST) -> list[str]:
     """A chat inside the post. Not an unknown field but a wrong address: the post would go to the draft's channels or
-    the default one. Where a message goes is the studio's to decide, so it is an error like chat_id in options
-    (RESERVED_PARAMS): in the check, and a 400 before any send (options())."""
+    the default one. Where a message goes is the request's to say, so it is an error like chat_id in options
+    (RESERVED_PARAMS): in the check, and a 400 before any send (options()). `chats_hint`: where that request takes
+    the chats."""
     return [
-        f"поле «{k}» на верхнем уровне поста не задаёт, куда он уйдёт: {chats_hint}" for k in TARGET_FIELDS if k in post
+        f"поле «{k}» на верхнем уровне поста — ошибка: куда уходит пост, задаёт запрос, а не пост ({chats_hint})"
+        for k in TARGET_FIELDS
+        if k in post
     ]
 
 
-def options(post: dict) -> dict:
+def options(post: dict, chats_hint: str = CHATS_NEXT_TO_POST) -> dict:
     """The options a send takes; refused (StudioError, 400) before anything goes out if they or the post itself say
     where it goes."""
-    if bad := [e for e in (options_error(post), *target_errors(post)) if e]:
+    if bad := [e for e in (options_error(post), *target_errors(post, chats_hint)) if e]:
         raise StudioError("; ".join(bad))
     return post.get("options") or {}
 
@@ -274,12 +277,12 @@ def check(post: dict, chats: Iterable = (), chats_hint: str = CHATS_NEXT_TO_POST
     return r
 
 
-def validate(post: dict, chats: Iterable = ()) -> dict:
+def validate(post: dict, chats: Iterable = (), chats_hint: str = CHATS_NEXT_TO_POST) -> dict:
     """Validation report; raises Invalid if the post, its first comment or a reply to its buttons has errors. What
-    Telegram refuses in `chats`, the ones it goes to, is a warning."""
-    options(post)
+    Telegram refuses in `chats`, the ones it goes to, is a warning. `chats_hint`: as in check()."""
+    options(post, chats_hint)
     where = places(chats)
-    r = _check_post(post, where)
+    r = _check_post(post, where, chats_hint)
     if not r["ok"]:
         raise Invalid({"message": "пост не прошёл проверку", **r})
     if c := _check_comment(post):

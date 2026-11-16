@@ -213,18 +213,28 @@ def test_a_chat_inside_the_post_is_refused_before_anything_goes_out(client, tg, 
     import store
 
     post = {**BLOCKS_POST, field: "@other" if field == "chat_id" else ["@other"]}
-    for path, body in (
-        ("/api/send", {"post": post}),
-        ("/api/send", {"post": post, "dry_run": True}),
-        ("/api/schedule", {"post": post, "at": int(time.time()) + 3600}),
-        ("/api/preview-send", {"post": post}),
-        ("/api/edit", {"post": post, "message_id": 1}),
+    # the hint names where this request takes the chats, never a parameter it does not have
+    for path, body, hint in (
+        ("/api/send", {"post": post}, "chat_id или chat_ids рядом с post"),
+        ("/api/send", {"post": post, "dry_run": True}, "chat_id или chat_ids рядом с post"),
+        ("/api/schedule", {"post": post, "at": int(time.time()) + 3600}, "chat_id или chat_ids рядом с post"),
+        ("/api/preview-send", {"post": post}, "предпросмотр уходит в TG_PREVIEW_CHAT"),
+        ("/api/edit", {"post": post, "message_id": 1}, "у /api/edit — chat_id рядом с post"),
     ):
         r = client.post(path, json=body)
         assert r.status_code == 400, (path, r.text)
-        assert f"«{field}»" in r.json()["detail"] and "рядом с post" in r.json()["detail"]
+        assert f"«{field}»" in r.json()["detail"] and hint in r.json()["detail"], (path, r.text)
     assert not [c for c in tg.calls if c["method"] in ("sendRichMessage", "editMessageText")]
     assert store.list_posts() == []
+
+
+def test_an_edit_of_a_sent_post_with_a_chat_inside_says_the_channel_is_the_posts(client, tg):
+    sent = client.post("/api/send", json={"post": BLOCKS_POST}).json()["post"]
+    r = client.post(f"/api/posts/{sent['id']}/edit", json={**BLOCKS_POST, "chat_ids": ["@other"]})
+    assert r.status_code == 400
+    assert "«chat_ids»" in r.json()["detail"] and "канал опубликованного поста" in r.json()["detail"]
+    assert "рядом с post" not in r.json()["detail"]  # this route has no chat_id or chat_ids to pass
+    assert not [c for c in tg.calls if c["method"] == "editMessageText"]
 
 
 def test_mcp_a_chat_inside_the_post_is_an_error_and_the_draft_is_still_saved(client, tg):
@@ -241,8 +251,10 @@ def test_mcp_a_chat_inside_the_post_is_an_error_and_the_draft_is_still_saved(cli
     for tool, extra in (("publish_post", {}), ("schedule_post", {"at": "2099-01-01T09:00:00+03:00"})):
         res, _, text = call(client, tool, draft_id=d["id"], version=d["version"], **extra)
         assert res["isError"] and "«chat_ids»" in text, (tool, text)
+    _, shown, _ = call(client, "preview_post", draft_id=d["id"])  # takes no chats: it says where they are set
+    assert "chat_ids в save_draft" in _chat_errors(shown["validation"]["errors"], "chat_ids")[0]
     res, _, text = call(client, "send_preview_to_me", post={**BLOCKS_POST, "chat_id": "@x"})
-    assert res["isError"] and "«chat_id»" in text
+    assert res["isError"] and "«chat_id»" in text and "TG_PREVIEW_CHAT" in text and "рядом с post" not in text
     assert not [c for c in tg.calls if c["method"] == "sendRichMessage"]
     assert store.list_posts() == []
 
@@ -256,6 +268,21 @@ def test_a_scheduled_post_with_a_chat_inside_fails_with_the_reason(client, tg):
     p = store.get_post(rec["id"])
     assert p["status"] == "failed" and "«chat_ids»" in p["error"]
     assert not [c for c in tg.calls if c["method"] == "sendRichMessage"]
+
+
+def test_an_edit_of_a_sent_post_keeps_the_unknown_fields_of_the_new_version(client, tg):
+    kb = {"inline_keyboard": [[{"text": "Да", "callback_data": "yes"}]]}
+    first = {**BLOCKS_POST, "reply_markup": kb, "callbacks": {"yes": "Спасибо"}, "pin": True, "foo_bar": 1}
+    sent = client.post("/api/send", json={"post": first}).json()["post"]
+    new_text = {"blocks": [{"type": "paragraph", "text": "Новый текст"}]}
+    r = client.post(f"/api/posts/{sent['id']}/edit", json={"rich_message": new_text, "reply_markup": kb, "baz": 2})
+    assert r.status_code == 200, r.text
+    payload = client.get("/api/posts/" + sent["id"]).json()["payload"]
+    # the new version's own fields as it came, like a replaced scheduled post; the old version's are gone
+    assert payload["baz"] == 2 and "foo_bar" not in payload
+    # what the studio reads stays as after_edit always kept it: done at publish time, or not brought by the edit
+    assert payload["rich_message"] == new_text and payload["callbacks"] == {"yes": "Спасибо"} and payload["pin"]
+    assert "baz" not in tg.last("editMessageText")["body"]
 
 
 def test_the_notes_of_a_draft_are_not_an_unknown_field_and_stay_in_the_draft(client, tg):

@@ -17,6 +17,10 @@ from .callbacks import check as check_answers
 from .updates import poll_results, remember_preview
 
 log = logging.getLogger("rich-studio.posts")
+# where a chat put inside the post goes instead (publisher.target_errors), for the requests that take no chat_ids
+PREVIEW_CHAT = "предпросмотр уходит в TG_PREVIEW_CHAT"
+EDIT_CHAT = "у правки — канал опубликованного поста"
+EDIT_MESSAGE_CHAT = "у /api/edit — chat_id рядом с post"
 
 
 def _get(pid: str) -> dict:
@@ -128,7 +132,7 @@ def dry_run_report(chats: list, post: dict, warnings: list[str]) -> dict:
 
 
 async def preview(post: dict, chat_id=None) -> dict:
-    publisher.validate(post)
+    publisher.validate(post, chats_hint=PREVIEW_CHAT)
     target = chat_id or settings.get().preview_chat
     if not target:  # never fall back to the default channel: a preview must not go public
         raise StudioError("не задан TG_PREVIEW_CHAT (ваш user id) — некуда отправить предпросмотр")
@@ -164,9 +168,12 @@ def after_edit(old: dict, post: dict) -> dict:
 
     Pin and first comment were done at publish time, and answers to buttons stay unless the new
     post brings its own (an agent usually sends only rich_message). A comment still waiting for the
-    forward can be replaced.
+    forward can be replaced. Fields the studio does not read (publisher.unused_fields) are the new
+    post's as it came, like a replaced scheduled post: the old version's go with it.
     """
-    new = {**old, "rich_message": post["rich_message"]}
+    new = {k: v for k, v in old.items() if k in publisher.POST_FIELDS}
+    new.update({k: v for k, v in post.items() if k not in publisher.POST_FIELDS})
+    new["rich_message"] = post["rich_message"]
     if post.get("reply_markup"):
         new["reply_markup"] = post["reply_markup"]
     else:  # no reply_markup removes the buttons
@@ -186,7 +193,7 @@ async def edit_message(
     If the studio published it (`rec`, or found by chat and message id), the record follows the
     channel and the content before the edit is kept as a version. `claimed`: the caller already took
     the post's next version (`edit`)."""
-    publisher.validate(post)
+    publisher.validate(post, chats_hint=EDIT_MESSAGE_CHAT)
     params = {
         "chat_id": publisher.resolve_chat(chat_id),
         "message_id": message_id,
@@ -248,7 +255,7 @@ async def edit(pid: str, post: dict, actor: str = "api", post_version: int | Non
         raise StudioError(k.edit_refusal)
     if p["status"] == "sent" and not p["message_id"]:
         raise StudioError(f"пост в статусе {p['status']}, редактировать нечего")
-    publisher.validate(post)
+    publisher.validate(post, chats_hint=EDIT_CHAT)
     taken = store.claim_version(pid, post_version)
     if taken is None:
         now = (store.get_post(pid) or {}).get("version")
