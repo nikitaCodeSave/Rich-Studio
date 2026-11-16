@@ -3,10 +3,13 @@
 // that slips through the sanitizer really runs and flips window.__xss.
 // Run: node tests/render_unit.mjs (CHROMIUM=/path/to/chromium to use a preinstalled browser)
 /* global RichRender -- defined by render.js inside the page */
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 
 const stat = (f) => fileURLToPath(new URL('../app/static/' + f, import.meta.url));
+// what the real Telegram made of numeric entities (issue #174); tests/test_rich_limits.py checks the validator with it
+const NUMERIC = JSON.parse(readFileSync(fileURLToPath(new URL('telegram_parse/numeric_entities.json', import.meta.url)), 'utf8'));
 const results = [];
 const check = (name, ok, info = '') => { results.push(ok); console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${ok || !info ? '' : '  ' + info}`); };
 
@@ -93,7 +96,7 @@ for (const [name, url] of Object.entries(URLS)) {
 {
   // all 2125 names of HTML5 sent to Telegram (PR #173): it decodes exactly 16 of them, in html and markdown alike
   const src = '1&nbsp;2 3&mdash;4 5&laquo;6 7&#X22;8 &amp;&apos;&copy;&gt;&hellip;&ldquo;&lsquo;&lt;&ndash;&quot;&rdquo;&reg;&rsquo;&trade; &euro; &shy; &NBSP; &nbsp &#160;&#x2014;';
-  const want = '1 2 3—4 5&laquo;6 7&#X22;8 &\'©>…“‘<–"”®’™ &euro; &shy; &NBSP; &nbsp  —';
+  const want = '1\u00a02 3—4 5&laquo;6 7&#X22;8 &\'©>…“‘<–"”®’™ &euro; &shy; &NBSP; &nbsp \u00a0—';
   const textOf = async (rm) => { await render(rm); return page.evaluate(() => document.querySelector('#out .tg-body p')?.textContent); };
   const html = await textOf({ html: '<p>' + src + '</p>' });
   check('html: the 16 named entities Telegram decodes and numeric ones are decoded, the rest stay as typed', html === want, JSON.stringify(html));
@@ -102,6 +105,89 @@ for (const [name, url] of Object.entries(URLS)) {
   await render({ markdown: '[ссылка](https://example.com/?q=&quot;x&quot;&amp;y=&#34;)' });
   const href = await page.evaluate(() => document.querySelector('#out .tg-body a')?.getAttribute('href'));
   check('markdown: no entity is decoded in a link address, the link stays', href === 'https://example.com/?q=&quot;x&quot;&amp;y=&#34;', String(href));
+}
+{
+  // numeric entities as Telegram makes them, not as the browser would (measured, issue #174): digits without a limit,
+  // 0…31 a space (&#10; in <pre> a line break), 128…159 the same code point, not windows-1252
+  const texts = (rm, sel) => page.evaluate(async ([rm, sel]) => {
+    const out = document.getElementById('out');
+    out.replaceChildren(RichRender.render({ rich_message: rm }, {}));
+    return [...out.querySelectorAll('.tg-body ' + sel)].map((n) => n.textContent);
+  }, [rm, sel]);
+  const wrong = [];
+  for (const [entity, made] of NUMERIC.text) {
+    const [html] = await texts({ html: `<p>x${entity}y</p>` }, 'p');
+    const [md] = await texts({ markdown: `x${entity}y` }, 'p');
+    if (html !== `x${made}y` || md !== `x${made}y`) wrong.push(`${entity}: html ${JSON.stringify(html)}, markdown ${JSON.stringify(md)}`);
+  }
+  for (const [entity, made] of NUMERIC.pre) {
+    const [pre] = await texts({ html: `<pre>x${entity}y</pre>` }, 'pre');
+    const [code] = await texts({ html: `<pre><code>x${entity}y</code></pre>` }, 'pre');
+    if (pre !== `x${made}y` || code !== `x${made}y`) wrong.push(`<pre>${entity}: ${JSON.stringify([pre, code])}`);
+  }
+  for (const [entity, made] of NUMERIC.inline_code) {
+    const [code] = await texts({ html: `<p><code>x${entity}y</code></p>` }, 'code');
+    if (code !== `x${made}y`) wrong.push(`<code>${entity}: ${JSON.stringify(code)}`);
+  }
+  check('numeric entities in html and markdown text, <pre> and <code> are what Telegram made of them', wrong.length === 0, wrong.join('; '));
+  const fence = await texts({ markdown: '```\nx&#10;&#128;y\n```\n\nа `x&#128;y`' }, 'pre, code');
+  check('markdown: in code entities stay as typed', JSON.stringify(fence) === JSON.stringify(['x&#10;&#128;y\n', 'x&#10;&#128;y\n', 'x&#128;y']), JSON.stringify(fence));
+  const attr = await page.evaluate(() => {
+    const a = RichRender.render({ rich_message: { html: '<p><a href="https://example.com/?a=&#128;&#0000000065;&#xD800;">ссылка</a></p>' } }, {}).querySelector('.tg-body a');
+    return a && a.getAttribute('href');
+  });
+  check('an address decodes numbers the same way, one that erases text stays as typed there (not measured)', attr === 'https://example.com/?a=\u0080A&#xD800;', JSON.stringify(attr));
+}
+{
+  // a surrogate or a number past U+10FFFF: Telegram erases the whole text it stands in, up to the nearest tag
+  const wrong = [];
+  for (const entity of NUMERIC.vanish) {
+    for (const rm of [{ html: `<p>до</p><p>a ${entity} b</p>` }, { markdown: `до\n\na ${entity} b` }]) {
+      const ps = await page.evaluate((rm) => [...RichRender.render({ rich_message: rm }, {}).querySelectorAll('.tg-body p')].map((p) => p.textContent), rm);
+      if (JSON.stringify(ps) !== '["до",""]') wrong.push(`${JSON.stringify(rm)}: ${JSON.stringify(ps)}`);
+    }
+  }
+  check('the text with a surrogate or a number past U+10FFFF is drawn empty, as Telegram makes it', wrong.length === 0, wrong.join('; '));
+  const [html, md] = await page.evaluate(() => [RichRender.outline({ rich_message: { html: '<p>a <b>b&#1114112;</b> c</p>' } }), RichRender.outline({ rich_message: { markdown: 'a **b&#1114112;** c' } })]);
+  check('only the text up to the nearest tag is erased', html === '<p>a <b></b> c</p>' && md === html, html + ' | ' + md);
+}
+{
+  // a link address (measured, issue #174): over a " < > space, control character, U+0085, U+00A0, U+2003, U+3000 or
+  // U+200B Telegram drops the link and keeps its text, in html and in blocks alike; U+2028 it takes out of the address
+  const drops = ['"', '<', '>', ' ', '\t', '\n', '\u0000', '\u0001', '\u001f', '\u0085', '\u00a0', '\u2003', '\u3000', '\u200b'];
+  const kept = ['\u007f', '\u0080', '\u00ad', '\ufeff', "'", '\\', '{|}'];
+  const hrefs = (rm) => page.evaluate((rm) => [...RichRender.render({ rich_message: rm }, {}).querySelectorAll('.tg-body a')].map((a) => a.getAttribute('href')), rm);
+  // in html as entities, the way it was measured: a NUL the browser itself would make U+FFFD
+  // eslint-disable-next-line no-control-regex -- the control characters are the point
+  const escape = (s) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/[\u0000-\u001f]/g, (c) => `&#${c.charCodeAt(0)};`);
+  const wrong = [];
+  for (const c of [...drops, ...kept]) {
+    const url = `https://example.com/?q=${c}x`;
+    for (const rm of [{ html: `<p>до <a href="${escape(url)}">ссылка</a></p>` }, { blocks: [{ type: 'paragraph', text: ['до ', { type: 'url', text: 'ссылка', url }] }] }]) {
+      const got = await hrefs(rm);
+      if (JSON.stringify(got) !== JSON.stringify(drops.includes(c) ? [] : [url])) wrong.push(`${JSON.stringify(c)} in ${Object.keys(rm)[0]}: ${JSON.stringify(got)}`);
+    }
+  }
+  for (const rm of [{ html: '<p><a href="https://example.com/?q=a&#x2028;b">ссылка</a></p>' }, { blocks: [{ type: 'paragraph', text: { type: 'url', text: 'ссылка', url: 'https://example.com/?q=a\u2028b' } }] }]) {
+    const got = await hrefs(rm);
+    if (JSON.stringify(got) !== '["https://example.com/?q=ab"]') wrong.push(`U+2028 in ${Object.keys(rm)[0]}: ${JSON.stringify(got)}`);
+  }
+  check('a link with a character Telegram drops it over is its text only; U+2028 is taken out of the address', wrong.length === 0, wrong.join('; '));
+  const texts = await page.evaluate(() => RichRender.outline({ rich_message: { html: '<p>до <a href="https://example.com/? x">ссылка</a> после</p>' } }));
+  check('the text of a dropped link stays', texts === '<p>до ссылка после</p>', texts);
+  // U+2028 comes out of the address after the sanitizer looked at it: «/ /evil» is a path, «//evil» is another site
+  const evil = await page.evaluate(() => ['<p><a href="/&#x2028;/evil.example/x">a</a></p>', '<p><a href="/\u2028/evil.example/x">b</a></p>']
+    .flatMap((html) => [...RichRender.render({ rich_message: { html } }, {}).querySelectorAll('.tg-body a')].map((a) => a.getAttribute('href'))));
+  check('taking U+2028 out of an address does not make a path a link to another site', evil.every((h) => h === null || !h.startsWith('//')), JSON.stringify(evil));
+  // the preview cuts html into tags and text for the entities: a «<a» without its «>» costs one look, not the rest
+  const took = await page.evaluate(() => {
+    const t = performance.now();
+    RichRender.render({ rich_message: { html: '<p>x</p><p><a' + 'b'.repeat(100000) } }, {});
+    return performance.now() - t;
+  });
+  check('a tag without its > is read in linear time', took < 500, took.toFixed(0) + ' ms');
+  const sendable = await page.evaluate(() => RichRender.percentAddress('https://example.com/?q="a b"<\u00a0>\u2028\u200b\u0085'));
+  check('percentAddress writes them %-encoded and takes U+2028 out', sendable === 'https://example.com/?q=%22a%20b%22%3C%C2%A0%3E%E2%80%8B%C2%85', sendable);
 }
 {
   const r = await render({ blocks: [{ type: 'paragraph', text: { type: 'url', text: 'клик', url: 'javascript:window.__xss=1' } }] });

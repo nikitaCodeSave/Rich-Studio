@@ -1,0 +1,38 @@
+{
+ "about": "What the real Telegram made of numeric HTML entities: Bot API 10.4, 2026-11-16, issue #174 (sendRichMessage to a test group through /api/raw, each message deleted right away). In html text and attributes; in markdown text the same, in a code fence entities stay as typed. tests/test_rich_limits.py checks spec/validator.py against it, tests/render_unit.mjs the preview (render.js). To be measured again with a new Bot API.",
+ "text": [
+  ["&#65;", "A"],
+  ["&#0000000000000065;", "A"],
+  ["&#x0000000000041;", "A"],
+  ["&#0;", " "],
+  ["&#1;", " "],
+  ["&#9;", " "],
+  ["&#10;", " "],
+  ["&#13;", " "],
+  ["&#31;", " "],
+  ["&#127;", "\u007f"],
+  ["&#128;", "\u0080"],
+  ["&#150;", "\u0096"],
+  ["&#159;", "\u009f"],
+  ["&#160;", "\u00a0"],
+  ["&#xFFFE;", "\ufffe"],
+  ["&#1114111;", "\udbff\udfff"],
+  ["&#x10FFFF;", "\udbff\udfff"],
+  ["&#X41;", "&#X41;"],
+  ["&#65", "&#65"],
+  ["&amp", "&amp"],
+  ["&#;", "&#;"],
+  ["&#x;", "&#x;"],
+  ["&foo;", "&foo;"],
+  ["&laquo;", "&laquo;"]
+ ],
+ "pre": [
+  ["&#10;", "\n"],
+  ["&#9;", " "],
+  ["&#0;", " "]
+ ],
+ "inline_code": [
+  ["&#10;", " "]
+ ],
+ "vanish": ["&#xD800;", "&#55296;", "&#xDFFF;", "&#1114112;", "&#x110000;", "&#99999999;", "&#4294967361;"]
+}

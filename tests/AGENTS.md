@@ -1,6 +1,7 @@
 # Тесты
 
 - `pytest`: API на подставном Telegram (`mock_telegram.py`), у каждого теста своя пустая папка данных, фоновые циклы выключены (`STUDIO_BACKGROUND=off`). Нужен цикл — вызывай `scheduler.run_due_posts()` или `updates.handle_update()` сам.
+- Тесту чистой проверки (только `spec`, без студии и её данных) база не нужна: метка `no_db` (на весь файл — `pytestmark = pytest.mark.no_db`, как в `test_rich_limits.py`) убирает её создание, а это почти всё время такого теста. Тест того же файла с фикстурой `client` базу получает всё равно.
 - Подменять Telegram: `monkeypatch.setattr(telegram, "call", fake)`. Настройки: `monkeypatch.setattr(settings.get(), "preview_chat", "")`.
 - Ожидание подменяй через `_sleep` модуля (`telegram.client`, `services.updates`), никогда не `asyncio.sleep` глобально.
 - Найденный баг — сначала падающий тест (`test_regressions.py`), потом исправление.
