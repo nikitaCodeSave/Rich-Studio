@@ -76,7 +76,7 @@ dev:
 
 # Браузерные проверки: сначала `make mock` и `make dev` в соседних терминалах.
 e2e:
-	npm run --silent test:e2e
+	DATA_DIR=/tmp/rs-data npm run --silent test:e2e   # the folder of make dev: e2e/57 writes old records there
 
 # Браузерные проверки на своём стенде (свои порты, пустой DATA_DIR): рабочая студия на 7424 не мешает и не трогается.
 # Одна проверка: make e2e-local ONLY=poll
