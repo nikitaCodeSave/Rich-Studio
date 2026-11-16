@@ -96,6 +96,17 @@
     }
     return false;
   }
+  // Groups the source count misses (a % comment, \verb|}|, \def) make no boxes but a group in a group all the same:
+  // the security review of #230 measured 28 s of layout for 1000 levels of \vbox{%}. KaTeX's MathML copy has an
+  // element for each such level: 64 levels of x^{…}, \frac or \left are about 68 elements deep in it, an array about 4
+  // a level. Plain { } it flattens there; 1000 levels of them laid out in 50 ms here
+  const MAX_MATHML_DEPTH = 5 * MAX_FORMULA_DEPTH;
+  /** whether the elements in e go deeper than `left` levels more @param {Element} e @param {number} left */
+  function deeperThan(e, left) {
+    if (left < 0) return true;
+    for (let c = e.firstElementChild; c; c = c.nextElementSibling) if (deeperThan(c, left - 1)) return true;
+    return false;
+  }
   /** a formula too deep, as KaTeX writes its own errors (errorColor) @param {HTMLElement} span @param {string} expr */
   function tooDeep(span, expr) {
     const error = el('span', { class: 'katex-error', title: `Формула глубже ${MAX_FORMULA_DEPTH} уровней вложенности: предпросмотр её не рисует`, text: expr });
@@ -108,7 +119,11 @@
     if (global.katex) {
       if (formulaDepth(expr) > MAX_FORMULA_DEPTH) return tooDeep(span, expr);
       // the span is not in the document yet: what KaTeX made too deep is never laid out
-      try { global.katex.render(expr, span, { displayMode: !!display, throwOnError: false }); return boxedDeeper(span, 0) ? tooDeep(span, expr) : span; } catch (e) { /* fall through */ }
+      try {
+        global.katex.render(expr, span, { displayMode: !!display, throwOnError: false });
+        const mathml = span.querySelector('.katex-mathml');
+        return boxedDeeper(span, 0) || (mathml && deeperThan(mathml, MAX_MATHML_DEPTH)) ? tooDeep(span, expr) : span;
+      } catch (e) { /* fall through */ }
     }
     span.textContent = expr;
     return span;
@@ -317,16 +332,31 @@
       for (; e && e !== root; e = e.parentElement) if (getComputedStyle(e).position !== 'static') return e;
       return null;
     };
+    // A cover is seen only inside the boxes around it that cut off what they hold, where they are scrolled to now: raised
+    // out of a folded quote, a table or a slide it hides nothing, and lowered in a formula block it does not reach the
+    // code below from what the block scrolls to (security review of #230). The boxes around the code cut it and the
+    // code alike: not looked at. Each box once
+    /** @type {Map<Element, Box>} */
+    const clips = new Map();
+    /** @param {Element | null} a @returns {Box} */
+    const clipOf = (a) => {
+      if (!a || a.contains(pre)) return ALL;
+      let b = clips.get(a);
+      if (!b) clips.set(a, b = seenIn(clipOf(a.parentElement), /** @type {HTMLElement} */ (a), getComputedStyle(a), false));
+      return b;
+    };
     // no least size: thin rules one on another hide text as well as one thick
     const covers = [...root.querySelectorAll(COVERS)].flatMap((e) => {
       const css = getComputedStyle(e);
       const color = rgba(e.matches('.colorbox, .fcolorbox') ? css.backgroundColor : e.matches('.rule') ? css.borderTopColor : css.borderBottomColor);
-      const r = e.getBoundingClientRect();
-      return css.visibility === 'visible' && color && color[3] && r.width > 0 && r.height > 0 ? [{ e, r, color, pane: paneOf(e) }] : [];
+      const box = e.getBoundingClientRect(), seen = clipOf(e.parentElement);
+      /** @type {Box} */
+      const r = { left: Math.max(box.left, seen.left), right: Math.min(box.right, seen.right), top: Math.max(box.top, seen.top), bottom: Math.min(box.bottom, seen.bottom) };
+      return css.visibility === 'visible' && color && color[3] && r.right > r.left && r.bottom > r.top ? [{ e, r, color, pane: paneOf(e) }] : [];
     }).sort((a, b) => a.r.top - b.r.top);
     // by their top edge: a text looks only at the covers that start at most the tallest one above it, not at all of
     // them (1600 lines with a fraction each: 0.6 s)
-    const tallest = covers.reduce((h, c) => Math.max(h, c.r.height), 0);
+    const tallest = covers.reduce((h, c) => Math.max(h, c.r.bottom - c.r.top), 0);
     /** the first cover whose top is at y or below @param {number} y */
     const firstFrom = (y) => {
       let lo = 0, hi = covers.length;
@@ -352,7 +382,7 @@
     // thousands of lines across the edge of a slide do not hang the page (issue #198). Under covers (`over`) a character
     // is not seen when its middle is under those that leave it in all but the colour of what is behind it there
     let looks = 2000;
-    /** @param {Text} t @param {Box} box @param {{ r: DOMRect, color: number[] }[]} over @param {string} color @param {number[]} behind */
+    /** @param {Text} t @param {Box} box @param {{ r: Box, color: number[] }[]} over @param {string} color @param {number[]} behind */
     const seenText = (t, box, over, color, behind) => {
       /** @param {{ color: number[] }[]} cs */
       const hides = (cs) => cs.length > 0
@@ -436,9 +466,10 @@
   // What of the page is seen inside an element, from what is seen around it (box). A box that cuts off what it holds
   // shows it in its padding box only; one the reader scrolls shows besides all it scrolls to there. Never what is before
   // the start of its scrolling: left of a box written left to right, right of one written right to left, above any. A
-  // slideshow turns its slides: the one in view is seen, not all it scrolls to
-  /** @param {Box} box @param {HTMLElement} e @param {CSSStyleDeclaration} css @returns {Box} */
-  function seenIn(box, e, css) {
+  // slideshow turns its slides: the one in view is seen, not all it scrolls to. Without `scrolled`, only what is in view
+  // now
+  /** @param {Box} box @param {HTMLElement} e @param {CSSStyleDeclaration} css @param {boolean} [scrolled] @returns {Box} */
+  function seenIn(box, e, css, scrolled = true) {
     if (css.overflowX === 'visible' && css.overflowY === 'visible') return box;
     const r = e.getBoundingClientRect();
     const x = r.left + e.clientLeft, y = r.top + e.clientTop;
@@ -448,7 +479,7 @@
     // nothing of it is seen, an edge of no width too (the next slide starts right on the slideshow's edge): nothing
     // to scroll into view either
     if (b.right - b.left < 1 || b.bottom - b.top < 1) return NONE;
-    const scrolls = (v) => /^(auto|scroll)$/.test(v) && !e.classList.contains('tg-slides');
+    const scrolls = (v) => scrolled && /^(auto|scroll)$/.test(v) && !e.classList.contains('tg-slides');
     if (scrolls(css.overflowX)) {
       const more = e.scrollWidth - e.clientWidth;
       if (css.direction === 'rtl') { b.left -= more + e.scrollLeft; b.right -= e.scrollLeft; } else { b.left -= e.scrollLeft; b.right += more - e.scrollLeft; }

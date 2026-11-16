@@ -779,6 +779,22 @@ for (const [name, rm] of Object.entries(SLIDESHOWS)) {
     if (got?.copied !== want) over.push(`${html}: ${JSON.stringify(got?.copied)}`);
   }
   check('the copy icon copies text on a box or next to it', over.length === 0, over.join('; '));
+  // a box is seen only inside the boxes around it that cut off what they hold: raised out of a folded quote, a table,
+  // a formula block or a slide it covers nothing (security review of #230), a scroll box covers only from where it is
+  // scrolled to
+  const cut = [];
+  const raised = (em) => `<tg-math>\\kern4em\\smash{\\raisebox{${em}em}{\\colorbox{red}{\\phantom{\\text{xxxxxxxxxxxxxxxxxxxxxx}}}}}</tg-math>`;
+  for (const after of [
+    `<blockquote expandable>${raised(3)}</blockquote>`,
+    ...[2.5, 3, 3.5, 4, 4.5].map((em) => `<table><tr><td>${raised(em)}</td></tr></table>`),
+    `<tg-math-block>\\kern4em\\smash{\\raisebox{3em}{\\colorbox{red}{\\phantom{\\text{xxxxxxxxxxxxxxxxxxxxxx}}}}}</tg-math-block>`,
+    `<tg-slideshow><b>один</b><p>${raised(3)}</p></tg-slideshow>`,
+    `<pre>${raised(3)}</pre>`,
+  ]) {
+    const [got] = await copies({ html: '<pre>rm -rf ./build</pre>' + after });
+    if (got?.copied !== 'rm -rf ./build') cut.push(`${after.slice(0, 40)}: ${JSON.stringify(got?.copied)}`);
+  }
+  check('a box a formula raises out of a quote, a table, a formula block, a slide or code covers no code', cut.length === 0, cut.join('; '));
 }
 
 // ---------- a formula too deep to draw (issue #228) ----------
@@ -849,6 +865,15 @@ for (const [name, rm] of Object.entries(SLIDESHOWS)) {
   check('64 levels draw, 65 are too deep; \\{ \\} and \\leftarrow are no levels', JSON.stringify(edge.map((e) => e[0])) === JSON.stringify(['formula,formula', 'error:true,error:true', 'formula,formula', 'formula,formula']), JSON.stringify(edge));
   const macros = await draw([doubled(8), chained(140), doubled(5)]);
   check('levels a formula makes with \\def draw as an error too and do not crash the page', JSON.stringify(macros.map((e) => e[0])) === JSON.stringify(['error:true,error:true', 'error:true,error:true', 'formula,formula']), JSON.stringify(macros).slice(0, 300));
+  // groups a % comment hides from the count make no boxes; the security review of #230 measured 28 s of layout for
+  // 1000 levels of \vbox{%}. Each is an element in KaTeX's MathML copy, and deeper than it may be there is an error
+  const started = Date.now();
+  const hidden = await draw(['\\vbox{%}\n'.repeat(1000) + '}'.repeat(1000)]);
+  const took = Date.now() - started;
+  check(`groups a comment hides from the count draw as an error, quickly: ${took} ms`, JSON.stringify(hidden) === JSON.stringify([Array(3).fill('error:true,error:true')]) && took < 5000, JSON.stringify(hidden).slice(0, 300));
+  // what is as deep as a formula may be still draws: arrays in arrays, and a long flat one
+  const allowed = await draw([kinds['\\begin{matrix}'](63), r('\\begin{array}{c}', 30) + 'y' + r('\\end{array}', 30), r('\\begin{cases}', 30) + 'y' + r('\\end{cases}', 30), r('x^{', 64) + 'y' + r('}', 64), 'a+b'.repeat(10000)]);
+  check('arrays in arrays, 64 levels and a long formula still draw', allowed.every((e) => JSON.stringify(e) === JSON.stringify(Array(3).fill('formula,formula'))), JSON.stringify(allowed).slice(0, 300));
 }
 {
   // a class name made of a string of the post is one word, else there is none (review of #202): «x tg-cell-empty» put
