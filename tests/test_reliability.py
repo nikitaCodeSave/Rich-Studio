@@ -162,7 +162,7 @@ def test_error_code_500_in_json_is_also_uncertain(client, tg):
 
 def test_gateway_error_on_other_calls_is_a_clear_502(client, tg):
     tg.queue["getMe"] = [PlainTextResponse("bad gateway", status_code=502)]
-    r = client.get("/api/check")
+    r = client.post("/api/check")
     assert r.status_code == 502 and "проверьте" in r.json()["detail"]
 
 

@@ -70,11 +70,11 @@ DRAFT_CHATS = "каналы черновика — chat_ids в save_draft, пу�
 
 READ = ToolAnnotations(read_only_hint=True, open_world_hint=False)
 LOCAL = ToolAnnotations(read_only_hint=False, destructive_hint=False, open_world_hint=False)
-# reaches Telegram but changes nothing in the channel
-TELEGRAM_READ = ToolAnnotations(read_only_hint=True, open_world_hint=True)
 TO_ME = ToolAnnotations(read_only_hint=False, destructive_hint=False, open_world_hint=True)
 # downloads the Bot API spec from GitHub and updates the studio's cached copy
 FETCH = TO_ME
+# asks Telegram about a chat and remembers the answer
+TELEGRAM_CHECK = TO_ME
 PUBLIC = ToolAnnotations(read_only_hint=False, destructive_hint=True, open_world_hint=True)
 
 
