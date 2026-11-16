@@ -20,6 +20,7 @@ from models import (
 from services import channels, idempotency, listing, posts, publisher
 
 from .deps import actor, idempotency_key, need
+from .deps import ui as from_ui
 
 router = APIRouter(tags=["telegram"])
 # what goes into a channel or changes it; preview-send to the user's own chat needs only draft
@@ -34,20 +35,22 @@ async def check(chat_id: str | None = None):
 
 
 @router.post("/api/send", dependencies=PUBLISH, summary="Опубликовать пост (sendRichMessage)")
-async def send(req: PublishReq, who: str = Depends(actor), key: str | None = Depends(idempotency_key)):
+async def send(
+    req: PublishReq, who: str = Depends(actor), key: str | None = Depends(idempotency_key), ui: bool = Depends(from_ui)
+):
     post = req.post.model_dump()
     if req.dry_run:  # nothing is sent, so there is nothing to deduplicate
-        return await posts.send(post, req.chat_id, req.chat_ids, req.draft_id, dry_run=True, as_new=req.as_new)
+        return await posts.send(post, req.chat_id, req.chat_ids, req.draft_id, dry_run=True, as_new=req.as_new, ui=ui)
     return await idempotency.run(
         key,
         "send",
         req.model_dump(),
-        lambda: posts.send(post, req.chat_id, req.chat_ids, req.draft_id, actor=who, as_new=req.as_new),
+        lambda: posts.send(post, req.chat_id, req.chat_ids, req.draft_id, actor=who, as_new=req.as_new, ui=ui),
     )
 
 
 @router.post("/api/preview-send", summary="Отправить пост себе в личку (TG_PREVIEW_CHAT)")
-async def preview_send(req: SendReq):
+async def preview_send(req: SendReq, ui: bool = Depends(from_ui)):
     """В ответе `parsed`: блоки, на которые Telegram разобрал пост, и они же для повторной отправки (`input_blocks`).
     `chat_id`, отличный от `TG_PREVIEW_CHAT`, требует права `publish`: это уже отправка в чужой чат."""
     preview_chat = settings.get().preview_chat
@@ -55,24 +58,33 @@ async def preview_send(req: SendReq):
         not preview_chat or publisher.resolve_chat(req.chat_id) != publisher.resolve_chat(preview_chat)
     ):
         need("publish")()
-    return await posts.preview(req.post.model_dump(), req.chat_id)
+    return await posts.preview(req.post.model_dump(), req.chat_id, ui)
 
 
 @router.post("/api/edit", dependencies=PUBLISH, summary="Заменить опубликованный пост (editMessageText + rich_message)")
-async def edit(req: EditReq, who: str = Depends(actor)):
-    return await posts.edit_message(req.post.model_dump(), req.chat_id, req.message_id, who)
+async def edit(req: EditReq, who: str = Depends(actor), ui: bool = Depends(from_ui)):
+    return await posts.edit_message(req.post.model_dump(), req.chat_id, req.message_id, who, ui=ui)
 
 
 @router.post("/api/schedule", dependencies=PUBLISH, summary="Отложить публикацию")
-async def schedule(req: ScheduleReq, who: str = Depends(actor), key: str | None = Depends(idempotency_key)):
+async def schedule(
+    req: ScheduleReq, who: str = Depends(actor), key: str | None = Depends(idempotency_key), ui: bool = Depends(from_ui)
+):
     if req.dry_run:
         return posts.schedule(
-            req.post.model_dump(), req.at, req.chat_id, req.chat_ids, req.draft_id, dry_run=True, as_new=req.as_new
+            req.post.model_dump(),
+            req.at,
+            req.chat_id,
+            req.chat_ids,
+            req.draft_id,
+            dry_run=True,
+            as_new=req.as_new,
+            ui=ui,
         )
 
     async def action():
         return posts.schedule(
-            req.post.model_dump(), req.at, req.chat_id, req.chat_ids, req.draft_id, actor=who, as_new=req.as_new
+            req.post.model_dump(), req.at, req.chat_id, req.chat_ids, req.draft_id, actor=who, as_new=req.as_new, ui=ui
         )
 
     return await idempotency.run(key, "schedule", req.model_dump(), action)
@@ -161,6 +173,7 @@ async def edit_post(
     pid: str,
     new: Post,
     who: str = Depends(actor),
+    ui: bool = Depends(from_ui),
     post_version: int | None = Query(
         None,
         description="Поле version поста, который вы прочитали. Если пост с тех пор заменили, ответ 409, а не "
@@ -168,7 +181,7 @@ async def edit_post(
     ),
 ):
     """`?post_version=` — поле `version` поста из `GET /api/posts/{id}`: если пост с тех пор заменили, 409."""
-    return await posts.edit(pid, new.model_dump(), who, post_version)
+    return await posts.edit(pid, new.model_dump(), who, post_version, ui)
 
 
 @router.get("/api/posts/{pid}/versions", summary="Как выглядел пост до каждой замены, новые сверху")

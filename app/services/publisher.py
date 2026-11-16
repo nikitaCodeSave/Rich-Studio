@@ -182,13 +182,18 @@ TARGET_FIELDS = ("chat_id", "chat_ids")
 # where the chats go instead, said by the request that has them (target_errors): this one is a publish, a schedule or
 # a draft (/api/send, /api/schedule, /api/drafts, their MCP tools); a preview, an edit and /api/validate say their own
 CHATS_NEXT_TO_POST = "chat_id или chat_ids рядом с post"
+# the same for a person in the editor (`ui`, the X-Studio-Client header the api layer reads): where to take the field out,
+# and where the channels are chosen
+UI_CHATS = "уберите поле во вкладке JSON; каналы — в окне «Каналы»"
+UI_FIELD = "уберите поле во вкладке JSON или перенесите его в options"
 
 
-def target_errors(post: dict, chats_hint: str = CHATS_NEXT_TO_POST) -> list[str]:
+def target_errors(post: dict, chats_hint: str = CHATS_NEXT_TO_POST, ui: bool = False) -> list[str]:
     """A chat inside the post. Not an unknown field but a wrong address: the post would go to the draft's channels or
     the default one. Where a message goes is the request's to say, so it is an error like chat_id in options
     (RESERVED_PARAMS): in the check, and a 400 before any send (options()). `chats_hint`: where that request takes
-    the chats."""
+    the chats; `ui`: the person in the editor, who is told where to take the field out instead."""
+    chats_hint = UI_CHATS if ui else chats_hint
     return [
         f"поле «{k}» на верхнем уровне поста — ошибка: куда уходит пост, задаёт запрос, а не пост ({chats_hint})"
         for k in TARGET_FIELDS
@@ -196,21 +201,21 @@ def target_errors(post: dict, chats_hint: str = CHATS_NEXT_TO_POST) -> list[str]
     ]
 
 
-def options(post: dict, chats_hint: str = CHATS_NEXT_TO_POST) -> dict:
+def options(post: dict, chats_hint: str = CHATS_NEXT_TO_POST, ui: bool = False) -> dict:
     """The options a send takes; refused (StudioError, 400) before anything goes out if they or the post itself say
     where it goes."""
-    if bad := [e for e in (options_error(post), *target_errors(post, chats_hint)) if e]:
+    if bad := [e for e in (options_error(post), *target_errors(post, chats_hint, ui)) if e]:
         raise StudioError("; ".join(bad))
     return post.get("options") or {}
 
 
-def unused_fields(post: dict) -> list[str]:
+def unused_fields(post: dict, ui: bool = False) -> list[str]:
     """A warning for each top-level field the studio does not read. It stays in the post as it came (AGENTS.md rule
     1), never reaches Bot API (request() takes only what it knows) and is not an error: an agent that put a parameter
     in the wrong place learns it did nothing. `_studio`, a draft's notes, is not a field of the post; a chat inside
     the post is an error (target_errors)."""
     return [
-        f"поле «{k}» на верхнем уровне поста не используется и в Telegram не уходит; параметры Bot API кладите в options"
+        f"поле «{k}» на верхнем уровне поста не используется и в Telegram не уходит; {UI_FIELD if ui else 'параметры Bot API кладите в options'}"
         for k in post
         if k not in POST_FIELDS and k not in TARGET_FIELDS and k != "_studio"
     ]
@@ -258,17 +263,19 @@ def places(chats: Iterable) -> list[tuple[str, str]]:
     return list(dict.fromkeys(out))
 
 
-def _check_post(post: dict, where: list[tuple[str, str]], chats_hint: str = CHATS_NEXT_TO_POST) -> dict:
+def _check_post(
+    post: dict, where: list[tuple[str, str]], chats_hint: str = CHATS_NEXT_TO_POST, ui: bool = False
+) -> dict:
     """Validation report of the text, of the buttons under it, of the options and of a chat inside the post
     (`chats_hint`: where the caller takes the chats), with what Telegram refuses in the chats it goes to (`where`,
     from places()) and the top-level fields that do nothing (unused_fields)."""
     r = spec.validate_rich_message(spec.current, post["rich_message"])
     bad = spec.keyboard_errors(post.get("reply_markup")) + ([e] if (e := options_error(post)) else [])
-    bad += target_errors(post, chats_hint)
+    bad += target_errors(post, chats_hint, ui)
     if bad:
         r = {**r, "ok": False, "errors": r["errors"] + bad}
     refused = spec.chats.warnings(spec.current, post, where)
-    return {**r, "warnings": unused_fields(post) + r["warnings"] + refused}
+    return {**r, "warnings": unused_fields(post, ui) + r["warnings"] + refused}
 
 
 def _check_comment(post: dict) -> dict | None:
@@ -284,12 +291,12 @@ def _check_comment(post: dict) -> dict | None:
     }
 
 
-def check(post: dict, chats: Iterable = (), chats_hint: str = CHATS_NEXT_TO_POST) -> dict:
+def check(post: dict, chats: Iterable = (), chats_hint: str = CHATS_NEXT_TO_POST, ui: bool = False) -> dict:
     """Validation report of the post, its first comment and the rich replies to its buttons (a draft is saved with
     it, the editor shows it), with warnings for what Telegram refuses in `chats`, the ones it goes to; raises nothing.
     The stats are the post's own. `chats_hint`: where the caller takes the chats, for chat_ids put in the post."""
     where = places(chats)
-    r = _check_post(post, where, chats_hint)
+    r = _check_post(post, where, chats_hint, ui)
     for part in (_check_comment(post), callbacks.check(post, where)):
         if part:
             r = {
@@ -306,13 +313,14 @@ def validate(
     chats: Iterable = (),
     chats_hint: str = CHATS_NEXT_TO_POST,
     uploads_in: Collection[str] | None = None,
+    ui: bool = False,
 ) -> dict:
     """Validation report; raises Invalid if the post, its first comment or a reply to its buttons has errors, and
     StudioError if a file it names is not in the uploads (check_uploads; `uploads_in`: only these fields go out). What
-    Telegram refuses in `chats`, the ones it goes to, is a warning. `chats_hint`: as in check()."""
-    options(post, chats_hint)
+    Telegram refuses in `chats`, the ones it goes to, is a warning. `chats_hint`, `ui`: as in check()."""
+    options(post, chats_hint, ui)
     where = places(chats)
-    r = _check_post(post, where, chats_hint)
+    r = _check_post(post, where, chats_hint, ui)
     if not r["ok"]:
         raise Invalid({"message": "пост не прошёл проверку", **r})
     if c := _check_comment(post):
