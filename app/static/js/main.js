@@ -26,7 +26,7 @@ import { renderKeyboard } from './keyboard.js';
 import { watchHealth } from './health.js';
 import { canRedo, canUndo, redo, undo } from './history.js';
 import { STATUS_LABELS } from './labels.js';
-import { addMediaEntry, loadUploads, upload } from './media.js';
+import { addMediaEntry, downloadBackup, loadUploads, upload } from './media.js';
 import { showMediaPost } from './media-post.js';
 import { showPoll } from './poll.js';
 import { loadPosts, replacePost } from './posts.js';
@@ -190,6 +190,7 @@ function bindActions() {
   bindHtmlExport();
   $('#media-add').onclick = () => { addMediaEntry('photo', ''); changed(); };
   $('#upload').onchange = (e) => upload([...e.target.files]);
+  $('#export').onclick = downloadBackup;
   const side = $('.side');
   side.addEventListener('dragover', (e) => e.preventDefault());
   side.addEventListener('drop', (e) => { e.preventDefault(); if (e.dataTransfer.files.length) upload([...e.dataTransfer.files]); });

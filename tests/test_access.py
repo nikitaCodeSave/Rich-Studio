@@ -7,6 +7,9 @@ import store
 from test_api import BLOCKS_POST
 from test_mcp import rpc
 
+# the editor sends it with every request: a read by the session cookie alone is refused (#215)
+UI = {"X-Studio-Client": "ui"}
+
 
 def token(name: str, level: str) -> dict:
     secret = f"rs_test_{name}"
@@ -89,9 +92,9 @@ def test_editor_session_is_an_httponly_cookie(client, monkeypatch):
     cookie = r.headers["set-cookie"]
     assert r.status_code == 200 and "rs_session=" in cookie and "secret" not in cookie
     assert "HttpOnly" in cookie and "SameSite=strict" in cookie and "Secure" not in cookie  # plain http locally
-    assert client.get("/api/session").json()["level"] == "admin"
+    assert client.get("/api/session", headers=UI).json()["level"] == "admin"
     assert client.delete("/api/session").status_code == 200
-    assert client.get("/api/drafts").status_code == 401
+    assert client.get("/api/drafts", headers=UI).status_code == 401
     https = client.post("/api/session", json={"key": "secret"}, headers={"X-Forwarded-Proto": "https"})
     assert "Secure" in https.headers["set-cookie"]
 
@@ -99,9 +102,9 @@ def test_editor_session_is_an_httponly_cookie(client, monkeypatch):
 def test_key_session_ends_when_the_key_changes(client, monkeypatch):
     monkeypatch.setattr(settings.get(), "api_key", "old")
     assert client.post("/api/session", json={"key": "old"}).status_code == 200
-    assert client.get("/api/drafts").status_code == 200
+    assert client.get("/api/drafts", headers=UI).status_code == 200
     monkeypatch.setattr(settings.get(), "api_key", "new")
-    assert client.get("/api/drafts").status_code == 401
+    assert client.get("/api/drafts", headers=UI).status_code == 401
     token("t", "read")
     monkeypatch.setattr(settings.get(), "api_key", "")  # key removed, tokens keep the studio closed
     assert client.get("/api/drafts").status_code == 401
