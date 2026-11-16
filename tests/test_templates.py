@@ -270,6 +270,60 @@ def test_every_attribute_that_holds_a_link_takes_only_a_whole_link_field(client,
     assert fill(client, t, x="https://example.com/a.png").status_code == 200
 
 
+def text_link(url: str, text: str = "здесь") -> dict:
+    """A blocks post with a link in its text (RichTextUrl)."""
+    return {
+        "rich_message": {
+            "blocks": [{"type": "paragraph", "text": ["Читать ", {"type": "url", "text": text, "url": url}]}]
+        }
+    }
+
+
+def button_link(url: str, web_app: bool = False) -> dict:
+    button = {"text": "Читать", **({"web_app": {"url": url}} if web_app else {"url": url})}
+    return {
+        "rich_message": {"blocks": [{"type": "paragraph", "text": "x"}]},
+        "reply_markup": {"inline_keyboard": [[button]]},
+    }
+
+
+@pytest.mark.parametrize(
+    "post, fields",
+    [
+        (text_link("https://site/{{slug}}"), [{"key": "slug"}]),
+        (text_link("https://site/{{slug}}"), [{"key": "slug", "type": "url"}]),
+        (text_link("{{slug}}"), [{"key": "slug"}]),
+        (text_link("{{slug}}"), [{"key": "slug", "type": "multiline"}]),
+        (button_link("https://site/{{slug}}"), [{"key": "slug"}]),
+        (button_link("{{link}}"), [{"key": "link"}]),
+        (button_link("{{a}}{{b}}"), [{"key": "a", "type": "url"}, {"key": "b", "type": "url"}]),
+        (button_link("https://{{host}}/app", web_app=True), [{"key": "host"}]),
+    ],
+)
+def test_a_json_link_takes_only_a_whole_link_field(client, post, fields):
+    """As href in HTML (ADR 0016): a link glued from pieces or a text field there would skip the scheme check."""
+    r = client.post("/api/templates", json={"title": "t", "post": post, "fields": fields})
+    assert r.status_code == 422, r.text
+    assert "url" in r.json()["detail"] and "целиком" in r.json()["detail"], r.json()
+    assert client.get("/api/templates").json() == []
+
+
+def test_a_whole_link_field_in_a_json_link_is_checked_when_filled(client):
+    t = make(
+        client,
+        {
+            "title": "t",
+            "post": text_link("{{link}}", "{{label}}"),
+            "fields": [{"key": "link", "type": "url"}, {"key": "label"}],
+        },
+    )
+    assert fill(client, t, link="javascript:alert(1)", label="x").status_code == 422
+    r = fill(client, t, link="https://site/a", label='"Читать"')
+    assert r.status_code == 200, r.text
+    text = store.get_draft(r.json()["id"])["payload"]["rich_message"]["blocks"][0]["text"]
+    assert text[1] == {"type": "url", "text": '"Читать"', "url": "https://site/a"}
+
+
 def test_a_link_field_takes_an_anchor_or_a_path_and_a_file_only_where_it_is_sent(client):
     """As the preview's safeUrl: #anchor and /path are links too. upload:name works only in the post's JSON (media):
     in an HTML attribute it would stay upload:name, the HTML way to a file is tg://photo?id= and rich_message.media."""
