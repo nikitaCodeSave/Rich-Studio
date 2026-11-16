@@ -18,7 +18,7 @@ export const showParsed = signal(false);
 export const S = {
   // boot() in main.js loads the spec before anything renders, so modules may treat it as present
   spec: /** @type {SpecSummary} */ (/** @type {unknown} */ (null)), config: {}, draftId: null, draftVersion: null, conflict: false, format: 'blocks', mode: 'blocks',
-  buf: { blocks: [], html: '', markdown: '' }, json: null, notes: {}, media: [], flags: {}, keyboard: [], options: {},
+  buf: { blocks: [], html: '', markdown: '' }, json: null, notes: {}, unknown: {}, media: [], flags: {}, keyboard: [], options: {},
   extra: { pin: false, comment: '', commentObj: null, callbacks: {}, poll: null }, updates: null,
   uploads: [], posts: [], drafts: [], channels: [], topicChat: undefined,
 };

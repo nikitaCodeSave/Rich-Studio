@@ -440,24 +440,72 @@ def test_tags_without_a_measurement_only_warn(current):
         assert r["ok"] and has(r["warnings"], "около 17 уровней вложенности, лимит 16"), (html, r)
 
 
+def grows_linearly(run, n: int) -> None:
+    """The check of run(n) takes about four times as long as of run(n // 4) when linear and about sixteen when
+    quadratic, on any machine: a fixed limit failed on a slow CI runner under coverage (2.0 s against 0.3 s here for
+    50 000 levels, 0.57 s against 0.24 s for «<» without its «>»). The best of two runs of each size."""
+
+    def seconds(k: int) -> float:
+        started = time.perf_counter()
+        run(k)
+        return time.perf_counter() - started
+
+    small = min(seconds(n // 4) for _ in range(2))
+    big = min(seconds(n) for _ in range(2))
+    assert big < 8 * small + 0.2, (small, big)
+
+
 def test_deep_html_is_checked_in_linear_time(current):
-    started = time.perf_counter()
-    r = check(current, html="<b>" * 50000 + "a" + "</i>" * 50000 + "<p>x" * 50000)
-    assert not r["ok"] and r["stats"]["depth"] == 50001
-    assert time.perf_counter() - started < 2
+    def run(n: int) -> None:
+        r = check(current, html="<b>" * n + "a" + "</i>" * n + "<p>x" * n)
+        assert not r["ok"] and r["stats"]["depth"] == n + 1
+
+    grows_linearly(run, 50000)
+
+
+ERASED = {
+    "html: <a without its >": lambda n: {"html": "<p>x&#xD800;</p><p><a" + "b" * n},
+    "markdown: a run of backticks without its closing run": lambda n: {"markdown": "x&#xD800; " + "`" * n + "b" * n},
+}
 
 
 @pytest.mark.parametrize(
-    "rm",
-    [{"html": "<p>x&#xD800;</p><p><a" + "b" * 34900}, {"markdown": "x&#xD800; " + "`" * 17000 + "b" * 17900}],
-    ids=["html: <a without its >", "markdown: a run of backticks without its closing run"],
+    ("make", "n"),
+    [
+        (ERASED["html: <a without its >"], 34900),
+        (ERASED["markdown: a run of backticks without its closing run"], 17000),
+    ],
+    ids=ERASED.keys(),
 )
-def test_a_post_with_text_telegram_erases_is_checked_in_linear_time(current, rm):
+def test_a_post_with_text_telegram_erases_is_checked_in_linear_time(current, make, n):
     """One entity Telegram erases text for takes the check to the pieces of text: under the source limit a hostile
     source took 15 s (html) and 6 s (markdown) there, with the event loop of the studio standing still."""
-    started = time.perf_counter()
-    assert not check(current, **rm)["ok"]
-    assert time.perf_counter() - started < 2
+    assert not check(current, **make(n))["ok"]
+    grows_linearly(lambda k: check(current, **make(k)), n)
+
+
+# up to 100 000 bytes: there is no limit on the body of a request, and the check runs in the event loop of the studio
+HOSTILE = {
+    "markdown: ]( without its )": (lambda n: {"markdown": "](" * n}, 50000),
+    "markdown: ]( and an entity Telegram erases": (lambda n: {"markdown": "x&#xD800; " + "](" * n}, 50000),
+    "markdown: < without its >": (lambda n: {"markdown": "<" * n}, 100000),
+    "markdown: < and an entity Telegram erases": (lambda n: {"markdown": "x&#xD800; " + "<" * n}, 100000),
+    "html: < without its >": (lambda n: {"html": "<" * n}, 100000),
+    "markdown: [^ without its ]": (lambda n: {"markdown": "[^" * n}, 50000),
+    "markdown: ![ without its ]": (lambda n: {"markdown": "![" * n}, 50000),
+    "html: <img without its >": (lambda n: {"html": "<img" * n}, 25000),
+    "markdown: a line of quote marks that is no heading": (lambda n: {"markdown": "x&#xD800;\n" + "> " * n}, 50000),
+    "markdown: [ at the start of every line": (lambda n: {"markdown": "[\n" * n}, 50000),
+    "markdown: [^ at the start of every line, one ] at the end": (lambda n: {"markdown": "[^\n" * n + "]"}, 33333),
+}
+
+
+@pytest.mark.parametrize(("make", "n"), HOSTILE.values(), ids=HOSTILE.keys())
+def test_a_run_of_openings_without_their_end_is_checked_in_linear_time(current, make, n):
+    """Issue #192: from each «](» the link address was looked for up to the end of the source, so 100 000 bytes of
+    them took 1 s, and 4 s with an entity Telegram erases; «<img» took 9 s."""
+    assert not check(current, **make(n))["ok"]
+    grows_linearly(lambda k: check(current, **make(k)), n)
 
 
 def test_the_preview_tells_tags_from_text_the_same_way():
@@ -654,6 +702,68 @@ def test_in_markdown_code_entities_stay_as_typed(current):
         assert r["ok"] and not r["warnings"], (src, r)
     assert not check(current, markdown="```\nкод\n```\n\na&#xD800;b")["ok"]
     assert not check(current, markdown="    код\n\na&#xD800;b")["ok"]
+
+
+AFTER_A_HEADING = [
+    "# h\n    a&#xD800;b",
+    "до\n## h ##\n\ta&#xD800;b",
+    "h\n===\n    a&#xD800;b",
+    "h\n---\n    a&#xD800;b",
+    "***\n    a&#xD800;b",
+    "до\n- - -\n    a&#xD800;b",
+    "> # h\n    a&#xD800;b",
+    "> h\n> ===\n    a&#xD800;b",
+]
+
+
+@pytest.mark.parametrize("src", AFTER_A_HEADING)
+def test_in_markdown_a_line_indented_right_after_a_heading_is_code(current, src):
+    """Issue #192: a heading or a thematic break is a block of its own, so an indented line right after it starts a
+    code block, not the next line of a paragraph (CommonMark; markdown-it in the preview reads it so). Not measured on
+    Telegram."""
+    r = check(current, markdown=src)
+    assert r["ok"] and not r["warnings"], r
+
+
+@pytest.mark.parametrize(
+    "src",
+    [
+        "#h\n    a&#xD800;b",
+        "- # h\n    a&#xD800;b",
+        "    # h\n\na&#xD800;b",
+        "# h&#xD800;\n    a",
+        # an underline in another quote than the text: markdown-it starts a quote with it or reads it on with the text
+        "a\n> ===\n    x&#xD800;",
+        "> a\n===\n    x&#xD800;",
+    ],
+)
+def test_in_markdown_what_is_no_heading_or_the_heading_itself_is_still_erased(current, src):
+    r = check(current, markdown=src)
+    assert not r["ok"] and has(r["errors"], "стирает"), r
+
+
+@pytest.mark.parametrize(
+    "src, counts",
+    [("[a](x](y))", (4, 1)), ('[a](u "](t")', (3, 1)), ('<a href="x<y">t</a>', (1, 1))],
+)
+def test_link_addresses_and_tags_end_where_they_did(src, counts):
+    """The linear reading of #192 is the same as before it: a link address ends at the first «)», a tag at the first
+    «>», whatever is in between. markdown-it reads [a](x](y)) and [a](u "](t") as a link «a»."""
+    assert source_chars(src, markdown=True) == counts
+
+
+def test_an_entity_in_a_link_address_with_a_bracket_is_not_erased(current):
+    r = check(current, markdown="[a](&#xD800;](b))")
+    assert not has(r["errors"], "стирает"), r
+
+
+def test_text_telegram_erases_in_markdown_is_taken_out_of_the_count_once(current):
+    """Issue #192: «<x…d>» over three paragraphs is one tag for the count, and the erased paragraph in the middle was
+    taken out of the count a second time: chars -6, at least -5."""
+    src = "a <x\n\nb&#xD800;c\n\nd> e"
+    assert source_chars(src, markdown=True) == (len("a  e"), 2)
+    r = check(current, markdown=src)
+    assert not r["ok"] and r["stats"]["chars"] == len("a  e"), r
 
 
 def test_in_markdown_inline_code_an_entity_telegram_erases_for_is_a_warning(current):

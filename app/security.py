@@ -2,6 +2,7 @@
 
 - Host check against DNS rebinding;
 - CSRF: browsers mark cross-site requests, curl and scripts send neither header; Origin must match Host with the port;
+  /api/* refuses a browser's request from another site whatever the method, reads included;
 - strict Content-Type for writes;
 - who is asking: a named token (Authorization: Bearer or X-API-Key), STUDIO_API_KEY, or the editor's session
   cookie; with neither a key nor tokens set up the studio is open, as a local tool on 127.0.0.1;
@@ -28,6 +29,8 @@ CSP = (
 # reachable without the API key
 PUBLIC_PATHS = {"/", "/favicon.ico", "/healthz", "/readyz"}
 SAFE_METHODS = ("GET", "HEAD", "OPTIONS")
+# Sec-Fetch-Site of a request a page on another site made; same-site is another port of localhost or a sibling subdomain
+OTHER_SITE = ("cross-site", "same-site")
 SESSION_COOKIE = "rs_session"
 LEVELS = ("read", "draft", "publish", "admin")
 
@@ -101,7 +104,7 @@ def _same_origin(origin: str, host: str) -> bool:
 def _cross_site(request: Request) -> bool:
     origin = request.headers.get("origin")
     site = request.headers.get("sec-fetch-site")
-    if site in ("cross-site", "same-site") or origin == "null":
+    if site in OTHER_SITE or origin == "null":
         return True
     return origin is not None and origin != "" and not _same_origin(origin, request.headers.get("host", ""))
 
@@ -110,9 +113,14 @@ async def guard(request: Request, call_next):
     path = request.url.path
     if not host_ok(request.headers.get("host", "")):
         return JSONResponse({"detail": "неизвестный Host; добавьте его в ALLOWED_HOSTS"}, status_code=400)
+    # any method: a page cannot read the answer to a GET from another site, but the work is done. An open studio asks for
+    # no cookie, SameSite=Strict sends it from another port of localhost, and <img src=/api/export> builds a zip.
+    # No Sec-Fetch-Site (curl, MCP clients, any browser on plain http under a name other than localhost or 127.0.0.1)
+    # passes. Pages, /static/, /media/ stay open: the HTML export loads /media/
+    from_other_site = path.startswith("/api/") and request.headers.get("sec-fetch-site") in OTHER_SITE
+    if from_other_site or (request.method not in SAFE_METHODS and _cross_site(request)):
+        return JSONResponse({"detail": "запрос с другого сайта отклонён"}, status_code=403)
     if request.method not in SAFE_METHODS:
-        if _cross_site(request):
-            return JSONResponse({"detail": "запрос с другого сайта отклонён"}, status_code=403)
         ctype = request.headers.get("content-type", "").split(";")[0].strip().lower()
         allowed = "multipart/form-data" if path == "/api/media" else "application/json"
         if path.startswith("/api/") and ctype and ctype != allowed:

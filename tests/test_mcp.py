@@ -391,6 +391,21 @@ def test_tools_that_reach_telegram_say_so(client):
     assert tools["send_preview_to_me"]["destructiveHint"] is False
 
 
+def test_check_channel_remembers_the_channel_so_a_read_token_may_not(client, tg):
+    """check_channel saves the channel in «Каналы»: no read-only tool, as POST /api/check needs draft (issue #201)."""
+    from test_access import call_as, token
+
+    tools = {t["name"]: t["annotations"] for t in rpc(client, "tools/list")["result"]["tools"]}
+    assert tools["check_channel"]["readOnlyHint"] is False and tools["check_channel"]["destructiveHint"] is False
+    read, draft = token("reader", "read"), token("agent", "draft")
+    res, text = call_as(client, read, "check_channel", chat_id="@by_reader")
+    assert res["isError"] and "нет права draft" in text and not tg.calls
+    res, _ = call_as(client, draft, "check_channel", chat_id="@by_agent")
+    assert not res.get("isError")
+    known = {c["chat_id"] for c in client.get("/api/channels", headers=draft).json()}
+    assert "@by_agent" in known and "@by_reader" not in known
+
+
 def test_preview_app(client, tg):
     """preview_post is bound to a self-contained ui:// page that renders the post with render.js."""
     tools = {t["name"]: t for t in rpc(client, "tools/list")["result"]["tools"]}

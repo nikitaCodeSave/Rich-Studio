@@ -29,8 +29,9 @@
     if (!media) return null;
     const m = typeof media === 'string' ? media : media.media;
     if (typeof m !== 'string') return null;
-    if (m.startsWith('upload:')) return (ctx.mediaBase || '') + '/media/' + encodeURIComponent(m.slice(7));
-    if (/^https?:\/\//i.test(m) && safeUrl(m)) return m;
+    // one file in the media folder: «upload:..» was /media/.., the page itself
+    if (m.startsWith('upload:')) return /^\.{0,2}$|[/\\]/.test(m.slice(7)) ? null : (ctx.mediaBase || '') + '/media/' + encodeURIComponent(m.slice(7));
+    if (/^https?:\/\//i.test(m) && fileUrl(m)) return m;
     return null; // file_id or attach:// cannot be previewed
   }
 
@@ -98,14 +99,20 @@
   }
 
   // ---------- buttons ----------
+  // a class name made of a string of the post: one word or nothing, else «x tg-cell-empty» puts any class of tg.css on
+  // the element (one that hides it, too)
+  const word = (v) => (typeof v === 'string' && /^[a-z_]+$/.test(v) ? v : '');
+
   function buttonEl(b, ctx) {
     if (!b || typeof b !== 'object') return null;
     const action = ['url', 'callback_data', 'web_app', 'login_url', 'switch_inline_query', 'switch_inline_query_current_chat', 'switch_inline_query_chosen_chat', 'copy_text', 'disabled', 'pay', 'callback_game'].find((k) => b[k] !== undefined);
     const icon = { url: '↗', copy_text: '⧉', switch_inline_query: '↪', switch_inline_query_chosen_chat: '↪', login_url: '🔑', web_app: '▣' }[action] || '';
     const title = action === 'url' ? b.url : action === 'copy_text' ? 'Копирует: ' + (b.copy_text && b.copy_text.text) : action === 'callback_data' ? 'callback: ' + b.callback_data : action || 'без действия';
-    const btn = el('span', { class: 'tg-btn' + (b.style ? ' tg-btn-' + b.style : '') + (action === 'disabled' ? ' tg-btn-disabled' : ''), title },
+    const btn = el('span', { class: 'tg-btn' + (word(b.style) ? ' tg-btn-' + b.style : '') + (action === 'disabled' ? ' tg-btn-disabled' : ''), title },
       renderRT(b.text, ctx), icon ? el('span', { class: 'tg-btn-ico', text: icon }) : null);
-    if (action === 'url' && b.url && /^https?:\/\//i.test(b.url) && safeUrl(b.url)) btn.addEventListener('click', () => window.open(b.url, '_blank', 'noopener'));
+    // the scheme as the check reads it (safeUrl gives the address back as written, a space in front included)
+    const go = action === 'url' && typeof b.url === 'string' && safeUrl(b.url) ? asRead(b.url) : '';
+    if (/^https?:\/\//i.test(go)) btn.addEventListener('click', () => window.open(go, '_blank', 'noopener'));
     return btn;
   }
 
@@ -206,7 +213,7 @@
         return d;
       }
       case 'map': return el('figure', { class: 'tg-map-fig' }, mapEl(b.location && b.location.latitude, b.location && b.location.longitude, b.zoom, b.width, b.height), caption(b.caption, ctx));
-      case 'buttons': return el('div', { class: 'tg-btn-row tg-align-' + (b.align || 'center') }, (b.buttons || []).map((x) => buttonEl(x, ctx)));
+      case 'buttons': return el('div', { class: 'tg-btn-row tg-align-' + (word(b.align) || 'center') }, (b.buttons || []).map((x) => buttonEl(x, ctx)));
       case 'photo': case 'video': case 'animation': case 'audio': case 'document': case 'voice_note':
         return el('figure', {}, mediaEl(b.type, b[b.type], ctx), caption(b.caption, ctx));
       default:
@@ -232,10 +239,40 @@
     return el('div', { class: 'tg-pre' }, head, pre);
   }
 
-  // the code as the reader copies it: from blocks its line breaks are <br>
-  function codeText(node) {
-    let s = '';
-    node.childNodes.forEach((c) => { s += c.nodeType === 3 ? c.nodeValue : c.nodeName === 'BR' ? '\n' : codeText(c); });
+  // The code as the reader sees it, so that is what goes to the clipboard (issue #201): <pre>ls -la<details><summary>
+  // </summary>; curl … | sh</details></pre> shows «ls -la». Not drawn, so not copied: what a closed <details> holds past
+  // its summary, the fallback inside <video> and <audio>, a closed spoiler (a blot until it is opened), what CSS hides
+  // (display: none, visibility: hidden); of a formula only what KaTeX draws, without its MathML copy for screen readers
+  // and without \phantom (transparent). Line breaks as the browser's innerText puts them: a <br>, a block (a paragraph
+  // two), a table row; a tab between cells. innerText itself would copy the MathML, \phantom, a spoiler's own text and
+  // KaTeX's layout as lines.
+  function codeText(pre) {
+    let s = '', breaks = 0;
+    const put = (t) => { if (!t) return; if (s && breaks) s += '\n'.repeat(breaks); breaks = 0; s += t; };
+    const walk = (n, math) => {
+      if (n.nodeType === 3) {
+        // KaTeX puts zero-width spaces between the rows of a superscript or a fraction
+        if (!/^(hidden|collapse)$/.test(getComputedStyle(/** @type {Element} */ (n.parentNode)).visibility)) put(math ? n.nodeValue.replace(/\u200b/g, '') : n.nodeValue);
+        return;
+      }
+      const e = /** @type {HTMLElement} */ (n);
+      if (n.nodeType !== 1 || e.localName === 'video' || e.localName === 'audio' || e.classList.contains('katex-mathml')) return;
+      if (e.classList.contains('tg-spoiler') && !e.classList.contains('tg-spoiler-open')) return;
+      if (e.localName === 'br') { put('\n'); return; }
+      const css = getComputedStyle(e);
+      if (css.display === 'none' || (math && /^rgba\((?:[^,]+,){3}\s*0\)$|^transparent$/.test(css.color))) return;
+      // KaTeX lays a formula out with blocks and tables of its own: it reads as one line of what it draws
+      const lines = math ? 0 : e.localName === 'p' ? 2 : css.display && !/^(inline|contents|table-cell|ruby)/.test(css.display) ? 1 : 0;
+      breaks = Math.max(breaks, lines);
+      const inner = math || e.classList.contains('katex-html');
+      if (e.localName === 'details' && !(/** @type {HTMLDetailsElement} */ (e)).open) {
+        const summary = [...e.children].find((c) => c.localName === 'summary');
+        if (summary) walk(summary, inner);
+      } else e.childNodes.forEach((c) => walk(c, inner));
+      breaks = Math.max(breaks, lines);
+      if (!math && css.display === 'table-cell' && e.nextElementSibling) put('\t');
+    };
+    pre.childNodes.forEach((c) => walk(c, false));
     return s;
   }
 
@@ -326,7 +363,14 @@
       const tr = el('tr');
       (row || []).forEach((c) => {
         c = c || {};
-        const cell = el(c.is_header ? 'th' : 'td', { colspan: c.colspan > 1 ? c.colspan : null, rowspan: c.rowspan > 1 ? c.rowspan : null, style: `text-align:${c.align || 'left'};vertical-align:${c.valign || 'top'}`, class: c.text === undefined ? 'tg-cell-empty' : null }, renderRT(c.text, ctx));
+        const cell = el(c.is_header ? 'th' : 'td', { colspan: c.colspan > 1 ? c.colspan : null, rowspan: c.rowspan > 1 ? c.rowspan : null, class: c.text === undefined ? 'tg-cell-empty' : null }, renderRT(c.text, ctx));
+        // through CSSOM, a value of one property: written into the style attribute, «left;position:fixed;…» was CSS
+        // of its own and covered the studio page over the shadow root (issue #201). A value CSS does not take is the
+        // default, as the check warns about it
+        cell.style.textAlign = c.align || 'left';
+        cell.style.textAlign ||= 'left';
+        cell.style.verticalAlign = c.valign || 'top';
+        cell.style.verticalAlign ||= 'top';
         tr.append(cell);
       });
       body.append(tr);
@@ -372,16 +416,38 @@
   const URL_ATTRS = new Set(['href', 'src', 'url', 'poster']);
   const SAFE_PROTOCOLS = new Set(['http:', 'https:', 'tg:', 'mailto:', 'tel:']);
 
+  // The address is checked as the browser reads it: it takes tabs and line breaks out anywhere (URL standard) and in an
+  // http(s) address reads «\» as «/». The check also trims every space, so nothing in front hides a scheme or a «//».
+  // What goes into href is the address as written: Telegram keeps U+FEFF in it, at the end too (measured, issue #174),
+  // and off the ends the browser itself takes only C0 controls and spaces. A #name is no address: the preview finds
+  // its reference or anchor itself (transformHtml), by the name trimmed, as before #192.
+  const asRead = (v) => v.replace(/[\t\n\r]/g, '').trim();
   function safeUrl(v) {
     if (typeof v !== 'string') return null;
-    const s = v.trim();
+    const s = asRead(v);
     if (!s) return null;
     if (s.startsWith('#')) return s;
-    if (s.startsWith('/') && !s.startsWith('//')) return s; // same-origin (uploaded media)
+    // «/\evil.example» and «\/evil.example» are «//evil.example», another site (issue #192)
+    if (/^[/\\]{2}/.test(s)) return null;
+    if (s.startsWith('/')) return v; // same-origin (uploaded media)
     try {
       const u = new URL(s);
-      return SAFE_PROTOCOLS.has(u.protocol) ? s : null;
+      return SAFE_PROTOCOLS.has(u.protocol) ? v : null;
     } catch (e) { return null; }
+  }
+
+  // A src or poster the preview loads by itself, with the cookies of the page it is drawn on: on the studio that is a
+  // request on the person's behalf (<img src="/api/check?chat_id=@x">, issue #201). So of the studio's own addresses
+  // only its files go, /media/ (app/api/media.py), as the browser resolves the path: «/media/../api/x» and
+  // «/media\..\api\x» are /api/x. Another site's address goes as before.
+  function fileUrl(v) {
+    const s = safeUrl(v);
+    if (s === null) return null;
+    const here = /^https?:$/.test(location.protocol) ? location.href : 'https://studio.invalid/';
+    let u;
+    try { u = new URL(s, here); } catch (e) { return null; }
+    if (!/^https?:$/.test(u.protocol)) return s; // tg://, mailto: and tel: load nothing
+    return u.origin !== new URL(here).origin || u.pathname.startsWith('/media/') ? s : null;
   }
 
   function sanitize(root) {
@@ -394,10 +460,12 @@
       if (!isTg && !ALLOWED_TAGS.has(tag)) { n.replaceWith(...n.childNodes); return; }
       [...n.attributes].forEach((a) => {
         const name = a.name.toLowerCase();
+        // a name is an anchor, <a name>; on <img> it is a property of document: <img name="documentElement"> replaced
+        // document.documentElement on /render and in the MCP app (issue #201)
         const keep = name !== 'style' && !name.startsWith('on') && !name.includes(':') &&
-          (isTg ? true : ALLOWED_ATTRS.has(name) || (name === 'class' && tag === 'code' && /^language-[\w+#-]+$/.test(a.value)));
+          (isTg ? true : (ALLOWED_ATTRS.has(name) && (name !== 'name' || tag === 'a')) || (name === 'class' && tag === 'code' && /^language-[\w+#-]+$/.test(a.value)));
         if (!keep) { n.removeAttribute(a.name); return; }
-        if (URL_ATTRS.has(name) && !(name === 'src' && /^tg:/.test(a.value)) && safeUrl(a.value) === null) n.removeAttribute(a.name);
+        if (URL_ATTRS.has(name) && !(name === 'src' && /^tg:/.test(a.value)) && (name === 'src' || name === 'poster' ? fileUrl(a.value) : safeUrl(a.value)) === null) n.removeAttribute(a.name);
       });
       if (tag === 'input' && (n.getAttribute('type') || '').toLowerCase() !== 'checkbox') n.remove();
     });
@@ -417,18 +485,20 @@
 
   function transformHtml(root, ctx) {
     sanitize(root);
-    const walk = (node) => {
-      [...node.childNodes].forEach((c) => { if (c.nodeType === 1) walk(c); });
-      if (node === root || node.nodeType !== 1) return;
-      const tag = node.tagName.toLowerCase();
+    const walk = (node, inPre) => {
+      const tag = node === root ? '' : node.tagName.toLowerCase();
+      // a formula is its text, taken before anything in it is drawn, and a tag in it is not drawn by itself: drawn
+      // first, a formula in a formula gave the outer one the text of the inner one as KaTeX drew it, three times longer
+      // on every level (12 levels: 52 s, issue #198)
+      if (tag === 'tg-math' || tag === 'tg-math-block') { node.replaceWith(math(node.textContent, tag === 'tg-math-block')); return; }
+      [...node.childNodes].forEach((c) => { if (c.nodeType === 1) walk(c, inPre || tag === 'pre'); });
+      if (node === root) return;
       /** @type {HTMLElement | null} */
       let rep = null;
       const attr = (n) => node.getAttribute(n);
       const kids = () => [...node.childNodes];
       if (tag === 'tg-spoiler') rep = spoilerEl(kids());
       else if (tag === 'tg-emoji') rep = el('span', { class: 'tg-emoji', title: 'custom emoji ' + attr('emoji-id') }, kids());
-      else if (tag === 'tg-math') rep = math(node.textContent, false);
-      else if (tag === 'tg-math-block') rep = math(node.textContent, true);
       else if (tag === 'tg-time') {
         // Telegram drops a <tg-time> without text, so the reader sees nothing there
         const u = parseInt(attr('unix'), 10);
@@ -444,7 +514,7 @@
       else if (tag === 'tg-map') rep = mapEl(attr('lat') ?? attr('latitude'), attr('long') ?? attr('lon') ?? attr('longitude'), attr('zoom'), attr('width'), attr('height'));
       else if (tag === 'tg-thinking') rep = el('div', { class: 'tg-thinking' }, kids());
       else if (tag === 'tg-reference') rep = el('span', { class: 'tg-ref', id: 'ref-' + attr('name') }, kids());
-      else if (tag === 'tg-button-row') rep = el('div', { class: 'tg-btn-row tg-align-' + (attr('align') || 'center') }, kids().filter((k) => k.nodeType !== 3));
+      else if (tag === 'tg-button-row') rep = el('div', { class: 'tg-btn-row tg-align-' + (word(attr('align')) || 'center') }, kids().filter((k) => k.nodeType !== 3));
       else if (tag === 'tg-button') {
         const b = { text: node.textContent, style: attr('style') || undefined };
         const type = attr('type') || (attr('url') ? 'url' : 'callback_data');
@@ -487,6 +557,9 @@
           if (!href.startsWith('#')) { node.setAttribute('target', '_blank'); node.setAttribute('rel', 'noopener'); }
         }
       } else if (tag === 'pre') {
+        // a <pre> in a code block is part of its code, not a box of its own: each moved all that was under it into its
+        // box, and 6000 of them took a second (issue #198)
+        if (inPre) return;
         const lang = node.querySelector('code[class*="language-"]');
         const m = lang && /language-([\w+#-]+)/.exec(lang.className);
         if (m) node.dataset.lang = m[1];
@@ -498,7 +571,7 @@
       }
       if (rep) node.replaceWith(rep);
     };
-    walk(root);
+    walk(root, false);
     // <a href="#x"> is a footnote link when a <tg-reference name="x"> exists, an anchor link when
     // an <a name="x"> exists, and an ordinary link otherwise
     const refs = new Set([...root.querySelectorAll('.tg-ref')].map((n) => n.id.slice(4)));
@@ -639,8 +712,12 @@
     root.normalize();
     /** @type {Text[]} */
     const texts = [];
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-    for (let n = walker.nextNode(); n; n = walker.nextNode()) if (!n.parentElement?.closest(NO_DETECTION)) texts.push(/** @type {Text} */ (n));
+    // what is under such an element is skipped whole: closest() from every piece of text went up through all the tags
+    // above it (issue #198)
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+      acceptNode: (n) => (n.nodeType === 3 ? NodeFilter.FILTER_ACCEPT : /** @type {Element} */ (n).matches(NO_DETECTION) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_SKIP),
+    });
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) texts.push(/** @type {Text} */ (n));
     texts.forEach((n) => {
       const s = n.data;
       /** @type {(string | Node)[]} */
@@ -706,10 +783,14 @@
       return true;
     }
     if (/\s/.test(s[start + 1] || ' ')) return false;
+    // whether a $ closes depends on it alone, not on the opening one: when none closes an earlier $ up to the end, none
+    // closes this one either. Without it every $ looked to the end again: 34 KB of «$1» took 2.7 s (issue #198)
+    const open = state.tgMathUnclosedInline;
+    if (open && open[0] <= start && state.posMax <= open[1]) return false;
     let end = start + 1;
     for (;;) {
       end = s.indexOf('$', end + 1);
-      if (end < 0 || end >= state.posMax) return false;
+      if (end < 0 || end >= state.posMax) { state.tgMathUnclosedInline = [start, state.posMax]; return false; }
       if (!/\s/.test(s[end - 1]) && !/\d/.test(s[end + 1] || '')) break;
     }
     if (!silent) state.push('html_inline', '', 0).content = '<tg-math>' + esc(s.slice(start + 1, end)) + '</tg-math>';
@@ -725,13 +806,17 @@
     let body = first.slice(2), last = startLine;
     if (body.trimEnd().endsWith('$$') && body.trim().length > 2) body = body.trimEnd().slice(0, -2);
     else {
+      // no line up to endLine closes an earlier $$, so none closes this one either: without it every $$ line looked
+      // to the end again (issue #192)
+      const open = state.tgMathUnclosed;
+      if (open && open[0] < startLine && endLine <= open[1]) return false;
       const parts = [body];
       for (last = startLine + 1; last < endLine; last++) {
         const l = line(last);
         if (l.trimEnd().endsWith('$$')) { parts.push(l.trimEnd().slice(0, -2)); break; }
         parts.push(l);
       }
-      if (last >= endLine) return false;
+      if (last >= endLine) { state.tgMathUnclosed = [startLine, endLine]; return false; }
       body = parts.join('\n');
     }
     if (silent) return true;
@@ -745,7 +830,7 @@
   // [^label]: text definitions are collected and printed as a footer, [^label] becomes a numbered link
   function footnoteDef(state, startLine, endLine, silent) {
     const s = state.src.slice(state.bMarks[startLine] + state.tShift[startLine], state.eMarks[startLine]);
-    const m = /^\[\^([^\]\s]+)\]:\s*(.*)$/.exec(s);
+    const m = /^\[\^([^[\]\s]+)\]:\s*(.*)$/.exec(s);
     if (!m) return false;
     if (silent) return true;
     const parts = [m[2]];
@@ -757,8 +842,9 @@
     state.line = n;
     return true;
   }
+  // a label has no «[» (as a link label), so a run of «[^» is looked through once, not from each one (issue #192)
   function footnoteRef(state, silent) {
-    const m = /^\[\^([^\]\s]+)\]/.exec(state.src.slice(state.pos, state.posMax));
+    const m = /^\[\^([^[\]\s]+)\]/.exec(state.src.slice(state.pos, state.posMax));
     const notes = state.env.footnotes;
     if (!m || !notes || !Object.hasOwn(notes, m[1])) return false;
     if (!silent) {
@@ -851,7 +937,9 @@
       const f = /^\s*(`{3,}|~{3,})/.exec(lines[i]);
       if (f) { if (!fence) fence = f[1][0]; else if (f[1][0] === fence) fence = null; continue; }
       if (fence || !/^\s*\|/.test(lines[i]) || !DELIM_ROW.test(lines[i + 1] || '')) continue;
-      for (let j = i; j < lines.length && /^\s*\|/.test(lines[j]); j++) if (j !== i + 1) lines[j] = lines[j].replace(/(?<!\\)\|(?:\|)+/g, '|');
+      let j = i;
+      for (; j < lines.length && /^\s*\|/.test(lines[j]); j++) if (j !== i + 1) lines[j] = lines[j].replace(/(?<!\\)\|(?:\|)+/g, '|');
+      i = j - 1; // the rows of this table are done: from each of them it was read again to its end (issue #192)
     }
     return lines.join('\n');
   }
@@ -904,6 +992,9 @@
     const INLINE = { B: 'b', STRONG: 'b', I: 'i', EM: 'i', U: 'u', INS: 'u', S: 's', DEL: 's', STRIKE: 's', MARK: 'mark', SUB: 'sub', SUP: 'sup', CODE: 'code', CITE: 'cite', CAPTION: 'caption', SUMMARY: 'summary', FOOTER: 'footer', HR: 'hr', BR: 'br' };
     const BLOCK = { P: 'p', H1: 'h1', H2: 'h2', H3: 'h3', H4: 'h4', H5: 'h5', H6: 'h6', UL: 'ul', OL: 'ol', TR: 'tr' };
     const out = [];
+    // the place of each item in its list, counted once for the list: indexOf for every item was quadratic (issue #198)
+    /** @type {Map<Element, number>} */
+    const place = new Map();
     const text = (s) => { s = s.replace(/\s+/g, ' '); if (s) out.push(s); };
     const walk = (n) => {
       if (n.nodeType === 3) { text(n.textContent); return; }
@@ -936,7 +1027,8 @@
       else if (n.tagName === 'LI') {
         const box = n.querySelector(':scope > input[type=checkbox]');
         const list = n.parentElement;
-        const num = list.tagName === 'OL' ? ' ' + (n.getAttribute('value') || (parseInt(list.getAttribute('start') || '1', 10) + [...list.children].indexOf(n))) : '';
+        if (list.tagName === 'OL' && !place.has(n)) [...list.children].forEach((c, i) => place.set(c, i));
+        const num = list.tagName === 'OL' ? ' ' + (n.getAttribute('value') || (parseInt(list.getAttribute('start') || '1', 10) + (place.get(n) ?? 0))) : '';
         tag = 'li' + (box ? (box.checked ? ' [x]' : ' [ ]') : '') + num;
       } else if (n.tagName === 'INPUT') return;
       else if (n.tagName === 'P' && n.parentElement.tagName === 'LI') tag = null; // same look with or without the paragraph

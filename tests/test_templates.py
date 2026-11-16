@@ -411,6 +411,78 @@ def test_a_button_without_an_answer_and_a_button_inside_an_answer_take_a_field(c
         make(client, {"title": "t", "post": post, "fields": [{"key": "d", "default": default}]})
 
 
+def test_the_buttons_of_the_first_comment_and_of_the_poll_after_the_post_take_a_field(client):
+    """A press is looked up by the channel message of the post (updates.handle_update): the first comment and the poll
+    after the post are other messages, so the studio answers no press on their buttons and there is no answer to lose,
+    whatever the key of callbacks."""
+    vote = [{"text": "Да", "callback_data": "{{d}}"}]
+    for extra in (
+        {"comment": {"blocks": [{"type": "buttons", "buttons": vote}]}},
+        {
+            "comment": {
+                "html": '<tg-button-row><tg-button type="callback_data" data="{{d}}">Да</tg-button></tg-button-row>'
+            }
+        },
+        {"poll_after": {"question": "Как вам?", "options": ["Да", "Нет"], "reply_markup": {"inline_keyboard": [vote]}}},
+    ):
+        post = {**answered({"text": "Голос", "callback_data": "vote"}), **extra}
+        make(client, {"title": "t", "post": post, "fields": [{"key": "d", "default": "vote"}]})
+
+
+BUTTON = "<tg-button-row><tg-button {}>Да</tg-button></tg-button-row>"
+
+
+@pytest.mark.parametrize(
+    "attrs", ['type="callback_data" data="{{x}}"', 'data="{{x}}"', "data='{{x}}' style=\"primary\""]
+)
+def test_the_data_of_a_tg_button_is_its_callback_data_not_a_link(client, attrs):
+    """In rich HTML data="…" of a <tg-button> is the button's callback_data (html-export.js writes it, render.js reads
+    it), a plain string: a text field goes there and stays inside the attribute. data is a link only elsewhere."""
+    t = make(client, html_post(BUTTON.format(attrs), {"key": "x", "default": "like"}))
+    for hostile in ('"><b>x</b>', "' onclick='x", "javascript:alert(1)", "a&b"):
+        r = fill(client, t, x=hostile)
+        assert r.status_code == 200, r.text
+        seen = Parsed(store.get_draft(r.json()["id"])["payload"]["rich_message"]["html"])
+        assert seen.tags == ["tg-button-row", "tg-button"] and seen.attrs["tg-button"]["data"] == hostile, hostile
+    r = client.post("/api/templates", json=html_post('<object data="{{x}}"></object>', {"key": "x"}))
+    assert r.status_code == 422 and "data" in r.json()["detail"], r.text
+
+
+@pytest.mark.parametrize(
+    "attrs, default, answers",
+    [
+        ('type="callback_data" data="{{d}}"', "vote", {"vote": "Спасибо"}),
+        ('data="{{d}}"', "vote", {"vote": "Спасибо"}),
+        ('type="callback_data" data="vo{{d}}"', "te", {"vote": "Спасибо"}),
+        # Telegram decodes the entities of an attribute, and the value goes in escaped
+        ('data="a&amp;{{d}}"', "<b>", {"a&<b>": "Спасибо"}),
+    ],
+)
+def test_a_tg_button_with_an_answer_keeps_its_data(client, attrs, default, answers):
+    """The rule of a JSON callback_data (#188) holds for <tg-button data> of the post: its value with the defaults put
+    in is a key of callbacks, so the button would lose its answer once filled."""
+    post = {"rich_message": {"html": BUTTON.format(attrs)}, "callbacks": answers}
+    r = client.post("/api/templates", json={"title": "t", "post": post, "fields": [{"key": "d", "default": default}]})
+    assert r.status_code == 422, r.text
+    assert "callback_data" in r.json()["detail"] and "callbacks" in r.json()["detail"], r.json()
+    assert client.get("/api/templates").json() == []
+
+
+def test_a_tg_button_without_an_answer_takes_a_field_in_data(client):
+    """No answer to lose: data with another value, data of a button whose action is not callback_data (a link, a text
+    to copy), and a button in the rich reply to a press."""
+    reply = {"text": "Спасибо", "reply": {"rich_message": {"html": BUTTON.format('data="{{d}}"')}}}
+    for attrs, default, answers in (
+        ('type="callback_data" data="{{d}}"', "other", {"vote": "Спасибо"}),
+        ('type="url" url="https://e.example/" data="{{d}}"', "vote", {"vote": "Спасибо"}),
+        ('url="https://e.example/" data="{{d}}"', "vote", {"vote": "Спасибо"}),
+        ('type="copy_text" text="x" data="{{d}}"', "vote", {"vote": "Спасибо"}),
+        ('data="vote"', "vote", {"vote": reply}),
+    ):
+        post = {"rich_message": {"html": BUTTON.format(attrs)}, "callbacks": answers}
+        make(client, {"title": "t", "post": post, "fields": [{"key": "d", "default": default}]})
+
+
 def test_a_link_field_takes_an_anchor_or_a_path_and_a_file_only_where_it_is_sent(client):
     """As the preview's safeUrl: #anchor and /path are links too. upload:name works only in the post's JSON (media):
     in an HTML attribute it would stay upload:name, the HTML way to a file is tg://photo?id= and rich_message.media."""

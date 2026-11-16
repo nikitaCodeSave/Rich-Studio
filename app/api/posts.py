@@ -26,8 +26,10 @@ router = APIRouter(tags=["telegram"])
 PUBLISH = [Depends(need("publish"))]
 
 
-@router.get("/api/check", summary="Бот админ канала? Есть права на публикацию? Канал запоминается с названием")
+@router.post("/api/check", summary="Бот админ канала? Есть права на публикацию? Канал запоминается с названием")
 async def check(chat_id: str | None = None):
+    """`?chat_id=@канал`, без него канал по умолчанию. POST, а не GET: проверка запоминает канал в списке «Каналы», а
+    GET запросил бы и `<img src="/api/check?…">` в чужом посте."""
     return await channels.check(publisher.resolve_chat(chat_id))
 
 

