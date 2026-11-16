@@ -188,9 +188,12 @@ async def edit_message(
     If the studio published it (`rec`, or found by chat and message id), the record follows the
     channel and the content before the edit is kept as a version. `claimed`: the caller already took
     the post's next version (`edit`)."""
-    publisher.validate(post, chats_hint=EDIT_MESSAGE_CHAT)
+    chat = publisher.resolve_chat(chat_id)
+    # files only of what still goes out: the poll after the post went at publish time, the comment may have too
+    sends = publisher.edit_uploads(rec or store.find_sent(chat, message_id))
+    publisher.validate(post, chats_hint=EDIT_MESSAGE_CHAT, uploads_in=sends)
     params = {
-        "chat_id": publisher.resolve_chat(chat_id),
+        "chat_id": chat,
         "message_id": message_id,
         "rich_message": post["rich_message"],
     }
@@ -250,7 +253,9 @@ async def edit(pid: str, post: dict, actor: str = "api", post_version: int | Non
         raise StudioError(k.edit_refusal)
     if p["status"] == "sent" and not p["message_id"]:
         raise StudioError(f"пост в статусе {p['status']}, редактировать нечего")
-    publisher.validate(post, chats_hint=EDIT_CHAT)
+    # a waiting post goes out whole with the new content; of a sent one only its text, buttons and what waits
+    sends = None if p["status"] in WAITING else publisher.edit_uploads(p)
+    publisher.validate(post, chats_hint=EDIT_CHAT, uploads_in=sends)
     taken = store.claim_version(pid, post_version)
     if taken is None:
         now = (store.get_post(pid) or {}).get("version")

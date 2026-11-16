@@ -477,6 +477,57 @@ def test_a_file_put_in_the_uploads_by_hand_under_a_name_no_post_can_use_is_still
     assert not list(media.media_dir().iterdir())
 
 
+def test_a_file_with_a_name_that_is_not_utf8_does_not_break_health_or_the_cleanup(client):
+    """After an unzip or by hand: Python keeps such a name with surrogates, and its URL is the bytes as they are."""
+    import os
+
+    from services import health, media
+
+    name = os.fsdecode(b"\xff-bad.png")
+    (media.media_dir() / name).write_bytes(b"\x89PNG")
+    assert media.describe(name)["url"] == "/media/%FF-bad.png"
+    assert next(c for c in health.report()["checks"] if c["name"] == "storage")["status"] == "ok"
+    assert media.delete_unused(older_than=time.time() - 3600) == []  # as the hourly one: too fresh yet
+    r = client.post("/api/media/cleanup")
+    assert r.status_code == 200 and r.json()["deleted"] == ["�-bad.png"], r.text
+    assert not list(media.media_dir().iterdir())
+
+
+def test_a_text_edit_of_a_sent_post_is_not_refused_for_a_file_of_what_already_went(client, tg):
+    """The editor sends poll_after and comment with every edit; the poll went at publish time and editMessageText
+    takes only the text and the buttons, so a file of the poll deleted since then is no reason to refuse."""
+    client.post("/api/media", files={"file": ("pollpic.png", b"\x89PNG", "image/png")})
+    poll = {"question": "?", "options": ["a", "b"], "media": {"type": "photo", "media": "upload:pollpic.png"}}
+    comment = _photo("upload:pollpic.png")["rich_message"]
+    sent = client.post("/api/send", json={"post": {**BLOCKS_POST, "poll_after": poll, "comment": comment}}).json()
+    pid = sent["post"]["id"]
+    assert client.delete("/api/media/pollpic.png").status_code == 200  # used_by counts only what still waits
+    new_text = {"blocks": [{"type": "paragraph", "text": "Новый текст"}]}
+    r = client.post(f"/api/posts/{pid}/edit", json={"rich_message": new_text, "poll_after": poll, "comment": comment})
+    assert r.status_code == 200, r.text  # TG_UPDATES is off in tests: the comment was skipped, it never goes
+    r = client.post(
+        "/api/edit",
+        json={"post": {"rich_message": new_text, "poll_after": poll}, "message_id": sent["post"]["message_id"]},
+    )
+    assert r.status_code == 200, r.text
+    # what goes out now is checked as before
+    r = client.post(f"/api/posts/{pid}/edit", json=_photo("upload:gone.png"))
+    assert r.status_code == 400 and "gone.png" in r.json()["detail"], r.text
+    r = client.post("/api/edit", json={"post": _photo("upload:gone.png"), "message_id": sent["post"]["message_id"]})
+    assert r.status_code == 400 and "gone.png" in r.json()["detail"], r.text
+
+
+def test_an_edit_checks_the_file_of_a_first_comment_that_still_waits_for_its_forward(client, tg):
+    import store
+
+    sent = client.post("/api/send", json={"post": BLOCKS_POST}).json()["post"]
+    store.update_post(sent["id"], comment_status="waiting")
+    edit = {**BLOCKS_POST, "comment": _photo("upload:gone.png")["rich_message"]}
+    r = client.post(f"/api/posts/{sent['id']}/edit", json=edit)
+    assert r.status_code == 400 and "gone.png" in r.json()["detail"], r.text
+    assert not [c for c in tg.calls if c["method"] == "editMessageText"]
+
+
 def test_a_draft_or_a_template_may_name_a_file_not_uploaded_yet_but_never_a_path(client, tg):
     from test_mcp import call
 

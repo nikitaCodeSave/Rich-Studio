@@ -83,7 +83,8 @@ def delete_unused(older_than: float | None = None) -> list[str]:
     ]
     for name in gone:  # names from the folder itself: also one put there by hand that no post can use (path_of)
         (media_dir() / name).unlink(missing_ok=True)
-    return gone
+    # the answer and the log are JSON: a name that is not UTF-8 is shown with � in place of its bytes
+    return [name.encode("utf-8", "surrogateescape").decode("utf-8", "replace") for name in gone]
 
 
 def usage() -> dict:
@@ -144,7 +145,8 @@ def url_of(name: str) -> str | None:
 
 
 def _url(name: str) -> str:
-    return "/media/" + quote(name, safe="")
+    # a name that is not UTF-8 (after an unzip, by hand) is kept with surrogates: its URL is its bytes as they are
+    return "/media/" + quote(name, safe="", errors="surrogateescape")
 
 
 def check_refs(post: dict, must_exist: bool = True) -> None:

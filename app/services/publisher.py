@@ -14,7 +14,7 @@ import logging
 import re
 import time
 from collections import Counter
-from collections.abc import Iterable, Iterator
+from collections.abc import Collection, Iterable, Iterator
 from datetime import datetime
 from typing import Any
 
@@ -215,13 +215,27 @@ def unused_fields(post: dict) -> list[str]:
     ]
 
 
-def check_uploads(post: dict, must_exist: bool = True) -> None:
+def check_uploads(post: dict, must_exist: bool = True, fields: Collection[str] | None = None) -> None:
     """upload:<name> in whatever of the post goes to Telegram, now or later (the post or a kind's own parameters, its
     first comment, the poll after it, the rich replies to its buttons) names a file of the uploads; StudioError (400)
     as a send gives, before anything is written. A field the studio does not read never goes out, so is not looked
-    at. must_exist=False, a draft or a template: only a name that is a path is refused (media.check_refs)."""
-    kind_keys = {k.key for k in kinds.KINDS.values() if k.key}
-    media.check_refs({k: v for k, v in post.items() if k in POST_FIELDS or k in kind_keys}, must_exist)
+    at. must_exist=False, a draft or a template: only a name that is a path is refused (media.check_refs).
+    `fields`: only these go out (an edit of a sent post, edit_uploads)."""
+    if fields is None:
+        fields = POST_FIELDS | {k.key for k in kinds.KINDS.values() if k.key}
+    media.check_refs({k: v for k, v in post.items() if k in fields}, must_exist)
+
+
+# what an edit of a sent post sends: the text and the buttons now (editMessageText), the replies to them at a press
+EDIT_SENDS = frozenset({"rich_message", "reply_markup", "callbacks"})
+
+
+def edit_uploads(rec: dict | None) -> frozenset[str]:
+    """The fields of an edit of the sent post `rec` that still go to Telegram, whose files are checked: EDIT_SENDS,
+    and the first comment while it waits for its forward. The poll after the post and the pin were done at publish
+    time (the editor sends poll_after with every edit all the same): a file of theirs deleted since is no reason to
+    refuse."""
+    return EDIT_SENDS | ({"comment"} if rec and rec.get("comment_status") == "waiting" else set())
 
 
 # the first comment goes to the discussion group of the channel, a supergroup
@@ -286,10 +300,15 @@ def check(post: dict, chats: Iterable = (), chats_hint: str = CHATS_NEXT_TO_POST
     return r
 
 
-def validate(post: dict, chats: Iterable = (), chats_hint: str = CHATS_NEXT_TO_POST) -> dict:
+def validate(
+    post: dict,
+    chats: Iterable = (),
+    chats_hint: str = CHATS_NEXT_TO_POST,
+    uploads_in: Collection[str] | None = None,
+) -> dict:
     """Validation report; raises Invalid if the post, its first comment or a reply to its buttons has errors, and
-    StudioError if a file it names is not in the uploads (check_uploads). What Telegram refuses in `chats`, the ones
-    it goes to, is a warning. `chats_hint`: as in check()."""
+    StudioError if a file it names is not in the uploads (check_uploads; `uploads_in`: only these fields go out). What
+    Telegram refuses in `chats`, the ones it goes to, is a warning. `chats_hint`: as in check()."""
     options(post, chats_hint)
     where = places(chats)
     r = _check_post(post, where, chats_hint)
@@ -305,7 +324,7 @@ def validate(post: dict, chats: Iterable = (), chats_hint: str = CHATS_NEXT_TO_P
         raise Invalid({"message": "ответ на кнопку не прошёл проверку", **r, "ok": False, "errors": cb["errors"]})
     if post.get("poll_after") is not None and (bad := kinds.poll_error(post["poll_after"])):
         raise Invalid({"message": "опрос после поста не прошёл проверку", **r, "ok": False, "errors": [bad]})
-    check_uploads(post)
+    check_uploads(post, fields=uploads_in)
     return r
 
 
