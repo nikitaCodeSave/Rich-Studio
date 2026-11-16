@@ -5,7 +5,7 @@ import re
 import spec
 import store
 
-from . import channels, kinds, loops, media, publisher
+from . import callbacks, channels, kinds, loops, media, publisher
 
 TITLE_LEN = 120
 # a closing block tag or a line break ends a line of the post
@@ -97,6 +97,8 @@ def thumb(payload: dict) -> str | None:
 
 def button_texts(payload: dict, kind: str | None = kinds.RICH) -> dict[str, str]:
     """callback_data → the text on its button, so clicks read «🔔 Приду 7» instead of a generated key."""
+    if isinstance(payload, dict) and not kinds.get(kind).key:
+        return callbacks.buttons(payload)  # a rich post: the keyboard and the buttons in its text, as answered
     rm = kinds.get(kind).buttons_holder(payload).get("reply_markup") if isinstance(payload, dict) else None
     rows = rm.get("inline_keyboard") if isinstance(rm, dict) else None
     out: dict[str, str] = {}
