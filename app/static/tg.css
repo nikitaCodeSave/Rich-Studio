@@ -80,12 +80,14 @@
 .tg-table.striped tr:nth-child(even) { background: var(--tg-stripe); }
 .tg-cell-empty { visibility: hidden; }
 .tg-spoiler { background: var(--tg-spoiler); color: transparent; border-radius: 4px; cursor: pointer; transition: .2s; }
-.tg-spoiler * { visibility: hidden; }
+/* what a closed spoiler holds is hidden (a link, an emoji have colours of their own), a spoiler open in it too: hidden
+   is inherited, and nothing under it makes it visible again. «.tg-spoiler-open * { visibility: visible }» showed the
+   link in a closed spoiler in an open one (review of #211) */
+.tg-spoiler:not(.tg-spoiler-open) > * { visibility: hidden; }
 .tg-spoiler.tg-spoiler-open { background: rgba(0,0,0,.06); color: inherit; }
-.tg-spoiler.tg-spoiler-open * { visibility: visible; }
 /* a background or an outline makes the browser lay out an inline element on every line it spans: 512 of them one in
    another over 7000 lines took 2 s (issue #198). A spoiler in a closed spoiler is hidden and under the outer one's blot,
-   so it needs no blot of its own; an unknown tag in an unknown tag is inside the outer one's frame (.tg-unknown below) */
+   so it needs no blot of its own; an unknown tag has a frame on two levels only (.tg-unknown below) */
 .tg-spoiler:not(.tg-spoiler-open) .tg-spoiler { background: none; }
 .tg-time { border-bottom: 1px dashed var(--tg-link); cursor: help; }
 .tg-emoji { display: inline-block; }
@@ -142,7 +144,9 @@
 .tg-kb .tg-btn { background: var(--tg-btn-bg); color: var(--tg-btn-text); border-radius: 8px; backdrop-filter: blur(6px); flex: 1 1 0; }
 .tg-kb .tg-btn-primary { background: #3390ec; } .tg-kb .tg-btn-success { background: #31b545; } .tg-kb .tg-btn-danger { background: #e53935; }
 .tg-unknown { outline: 1.5px dashed #e8a33d; outline-offset: 1px; border-radius: 3px; }
-.tg-unknown .tg-unknown { outline: none; } /* the frame of the outer one only: see .tg-spoiler above (issue #198) */
+/* an unknown tag in an unknown tag has a frame of its own, so the two read apart; from the third level on none, so the
+   time stays linear: see .tg-spoiler above (issue #198) */
+.tg-unknown .tg-unknown .tg-unknown { outline: none; }
 .tg-unknown-block { padding: 6px 8px; margin: 0 0 8px; font-size: 13px; }
 .tg-unknown-block pre { font-size: 11px; max-height: 140px; overflow: auto; margin: 4px 0 0; border: 0; }
 .tg-empty { color: var(--tg-muted); font-style: italic; }
