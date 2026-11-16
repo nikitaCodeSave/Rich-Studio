@@ -185,6 +185,11 @@
   "source": "A: &#65; &#0000000000000065; и x&#128;x&#150;x\n\nвторой a&#xD800;b\n\nтретий **жирный&#1114112;** конец\n\n```\nкод &#65; &#xD800;\n```"
  },
  {
+  "name": "md-heading-indent",
+  "format": "markdown",
+  "source": "# h\n    a&#xD800;b\n\n***\n    a&#xD800;b\n\nh\n===\n    a&#xD800;b"
+ },
+ {
   "name": "md-table-pipes",
   "format": "markdown",
   "source": "| a | b | c |\n|---|---|---|\n| 1 || 3 |\n| x | ||s|| | y |\n| p | q |"

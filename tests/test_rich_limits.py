@@ -17,14 +17,17 @@ import pytest
 
 import spec
 from spec.validator import (
+    ATTR_RE,
     HTML_TAG_RE,
     LINK_DROPS,
     MAX_BYTES,
+    TAKEN_OUT,
     TG_ENTITIES,
     TG_ENTITY_RE,
     keyboard_errors,
     source_chars,
     table_columns,
+    tg_href,
     tg_unescape,
 )
 
@@ -823,11 +826,54 @@ def test_a_character_telegram_keeps_in_a_link_address_is_fine(current, char):
 
 
 def test_u2028_is_taken_out_of_a_link_address_a_warning(current):
-    """Measured: Telegram takes U+2028 out of the address and keeps the link."""
-    for r in (check(current, html=link_html("&#x2028;")), check(current, link_blocks("\u2028"))):
+    """Measured: Telegram takes U+2028 typed as it is out of the address and keeps the link."""
+    for r in (check(current, html=link_html("\u2028")), check(current, link_blocks("\u2028"))):
         assert r["ok"], r
         (warning,) = r["warnings"]
         assert "U+2028" in warning and "уберёт" in warning, warning
+
+
+# <a href> (measured, issue #195): a U+2028 typed as it is Telegram takes out, over one an entity makes it drops the
+# link (tg_href). The same table is HREF_U2028 in tests/render_unit.mjs, for the preview (hrefTyped); None: dropped
+HREF_U2028 = [
+    ('"https://example.com/?q=a\u2028b"', "https://example.com/?q=ab"),
+    ("'https://example.com/?q=a\u2028b'", "https://example.com/?q=ab"),
+    ("https://example.com/?q=a\u2028b", "https://example.com/?q=ab"),
+    ('"https://example.com/?q=a&#x2028;b"', None),
+    ('"https://example.com/?q=a&#8232;b"', None),
+    ('"https://example.com/?q=a&#x0002028;b"', None),
+    ('"https://example.com/?q=a\u2028&#x2028;b"', None),
+    ('"https://example.com/?q=a&#X2028;b"', "https://example.com/?q=a&#X2028;b"),
+]
+
+
+@pytest.mark.parametrize(("href", "kept"), HREF_U2028, ids=repr)
+def test_u2028_from_an_entity_in_a_link_address_drops_the_link(current, href, kept):
+    address = tg_href(href.strip("\"'"))
+    assert address == kept if kept else TAKEN_OUT in address, address
+    r = check(current, html=f'<p>до <a title="x\u2028y" href={href}>ссылка</a> после</p>')
+    if kept is None:
+        assert not r["ok"], r
+        (err,) = r["errors"]
+        assert "ссылка «ссылка»: в адресе" in err and "записан сущностью" in err and "выбрасывает ссылку" in err, err
+        assert "%E2%80%A8" in err, err
+    else:
+        assert r["ok"], r
+    assert ("\u2028" in href) == has(r["warnings"], "уберёт разделитель строк U+2028"), r["warnings"]
+
+
+def test_u2028_from_an_entity_in_a_button_address_was_not_measured(current):
+    """Only <a href> was measured (#195): in <tg-button url> an entity counts as U+2028 typed, a warning as before."""
+    row = '<p>x</p><tg-button-row><tg-button url="https://example.com/?q=a&#x2028;b">К</tg-button></tg-button-row>'
+    r = check(current, html=row)
+    assert r["ok"] and has(r["warnings"], "уберёт разделитель строк U+2028"), r
+
+
+def test_the_preview_reads_attributes_the_same_way():
+    """render.js keeps its own copy of ATTR_RE: where a typed U+2028 in href ends is the same in both."""
+    found = re.search(r"const ATTR_RE = /(.+)/g;", RENDER_JS)
+    assert found, "ATTR_RE not found in render.js"
+    assert found[1] == ATTR_RE.pattern
 
 
 @pytest.mark.parametrize("char", ["\u2002", "\u2009", "\u202f", "\u1680"], ids=repr)
@@ -974,7 +1020,7 @@ def test_a_quote_in_a_button_address_in_blocks_is_an_error(current):
 
 
 def test_captured_parses_agree_with_the_link_check(current):
-    for name in ("html-href-quot", "html-href-apos", "html-href-pct22"):
+    for name in ("html-href-quot", "html-href-apos", "html-href-pct22", "html-href-space", "html-href-u2028"):
         case = CAPTURED[name]
         has_link = "url" in json.dumps(case["blocks"])
         assert check(current, html=case["source"])["ok"] == has_link, name
