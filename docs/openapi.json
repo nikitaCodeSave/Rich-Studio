@@ -2807,7 +2807,7 @@
   },
   "/api/raw/{method}": {
    "post": {
-    "description": "Только для уровня admin; `RAW_API=off` выключает маршрут. Метод, который не только читает и отправляет\nсообщения, и `getUpdates` требуют заголовок `X-Confirm: yes`.",
+    "description": "Только для уровня admin; `RAW_API=off` выключает маршрут. Без заголовка `X-Confirm: yes` проходят `get*`,\n`send*`, `edit*`, `answer*`, `copy*`, `forward*`, `stopPoll`, `pinChatMessage`, `unpinChatMessage` и\n`setMessageReaction`; всем остальным методам и `getUpdates` он нужен.",
     "operationId": "raw_api_raw__method__post",
     "parameters": [
      {
@@ -3530,7 +3530,7 @@
     ]
    },
    "post": {
-    "description": "Значение поля всегда текст: в HTML экранируется, в блоках остаётся строкой. 422, если {{key}} стоит там,\nгде значение стало бы разметкой (в теге, в ключе JSON, в атрибуте без кавычек, в Markdown), рядом с\n`parse_mode` или `entities` (подпись медиа) или в `callback_data` кнопки с ответом в `callbacks`. Ссылку\n(href/src в HTML, ключ url в JSON) подставляет только поле type url целиком, не https://site/{{slug}}.",
+    "description": "Значение поля всегда текст: в HTML экранируется, в блоках остаётся строкой. 422, если {{key}} стоит там,\nгде значение стало бы разметкой (в теге, в ключе JSON, в атрибуте без кавычек, в Markdown), рядом с\n`parse_mode` или `entities` (подпись медиа) или в `callback_data` кнопки с ответом в `callbacks`. Ссылку\n(href/src в HTML, ключ url в JSON) подставляет только поле type url целиком, не https://site/{{slug}}, иначе\nтоже 422.",
     "operationId": "create_template_api_templates_post",
     "requestBody": {
      "content": {

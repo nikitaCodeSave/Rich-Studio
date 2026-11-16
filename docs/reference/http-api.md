@@ -46,7 +46,7 @@
 | `POST /api/posts/{pid}/reschedule` | Перенести отложенный пост или вернуть пропущенный в очередь на новое время |
 | `POST /api/posts/{pid}/stop-poll` | Закрыть опрос и сохранить итоги |
 | `POST /api/preview-send` | Отправить пост себе в личку (TG_PREVIEW_CHAT). `parsed` в ответе: блоки, на которые Telegram разобрал пост, и они же для отправки (`input_blocks`). `chat_id`, отличный от `TG_PREVIEW_CHAT`, требует права `publish`. |
-| `POST /api/raw/{method}` | Любой метод Bot API как есть (для функций, которых ещё нет в студии). Только для уровня admin; `RAW_API=off` выключает маршрут. Метод, который не только читает и отправляет сообщения, и `getUpdates` требуют заголовок `X-Confirm: yes`. |
+| `POST /api/raw/{method}` | Любой метод Bot API как есть (для функций, которых ещё нет в студии). Только для уровня admin; `RAW_API=off` выключает маршрут. Без заголовка `X-Confirm: yes` проходят `get*`, `send*`, `edit*`, `answer*`, `copy*`, `forward*`, `stopPoll`, `pinChatMessage`, `unpinChatMessage` и `setMessageReaction`; всем остальным методам и `getUpdates` он нужен. |
 | `POST /api/schedule` | Отложить публикацию |
 | `POST /api/send` | Опубликовать пост (sendRichMessage) |
 
@@ -117,5 +117,5 @@
 | `GET /api/templates/{tid}` | Шаблон целиком: пост с {{key}}, поля, version |
 | `GET /api/templates` | Шаблоны постов (без самого поста), последние сверху |
 | `POST /api/templates/{tid}/draft` | Заполнить шаблон: новый черновик без каналов; со старой version — 409, больше 1 МБ — 413. Поле без значения берёт default; пустое обязательное поле и ссылка не той схемы — 422. Ничего не публикует. |
-| `POST /api/templates` | Новый шаблон: пост с {{key}} и описание его полей. Значение поля всегда текст: в HTML экранируется, в блоках остаётся строкой. 422, если {{key}} стоит там, где значение стало бы разметкой (в теге, в ключе JSON, в атрибуте без кавычек, в Markdown), рядом с `parse_mode` или `entities` (подпись медиа) или в `callback_data` кнопки с ответом в `callbacks`. Ссылку (href/src в HTML, ключ url в JSON) подставляет только поле type url целиком, не https://site/{{slug}}. |
+| `POST /api/templates` | Новый шаблон: пост с {{key}} и описание его полей. Значение поля всегда текст: в HTML экранируется, в блоках остаётся строкой. 422, если {{key}} стоит там, где значение стало бы разметкой (в теге, в ключе JSON, в атрибуте без кавычек, в Markdown), рядом с `parse_mode` или `entities` (подпись медиа) или в `callback_data` кнопки с ответом в `callbacks`. Ссылку (href/src в HTML, ключ url в JSON) подставляет только поле type url целиком, не https://site/{{slug}}, иначе тоже 422. |
 | `PUT /api/templates/{tid}` | Сохранить шаблон; со старой version — 409 |

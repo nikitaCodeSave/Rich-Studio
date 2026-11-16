@@ -23,7 +23,8 @@ def create_template(req: TemplateReq):
     """Значение поля всегда текст: в HTML экранируется, в блоках остаётся строкой. 422, если {{key}} стоит там,
     где значение стало бы разметкой (в теге, в ключе JSON, в атрибуте без кавычек, в Markdown), рядом с
     `parse_mode` или `entities` (подпись медиа) или в `callback_data` кнопки с ответом в `callbacks`. Ссылку
-    (href/src в HTML, ключ url в JSON) подставляет только поле type url целиком, не https://site/{{slug}}."""
+    (href/src в HTML, ключ url в JSON) подставляет только поле type url целиком, не https://site/{{slug}}, иначе
+    тоже 422."""
     return templates.save(req.title, req.post.model_dump(), [f.model_dump() for f in req.fields])
 
 
