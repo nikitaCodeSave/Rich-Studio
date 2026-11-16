@@ -254,43 +254,44 @@
     let s = '', breaks = 0;
     const put = (t) => { if (!t) return; if (s && breaks) s += '\n'.repeat(breaks); breaks = 0; s += t; };
     const range = document.createRange();
-    /** @param {DOMRect} r @param {Box[]} boxes */
-    const inside = (r, boxes) => boxes.every((b) => r.left >= b.left - 1 && r.right <= b.right + 1 && r.top >= b.top - 1 && r.bottom <= b.bottom + 1);
-    /** @param {DOMRect} r @param {Box[]} boxes */
-    const outside = (r, boxes) => boxes.some((b) => r.right < b.left || r.left > b.right || r.bottom < b.top || r.top > b.bottom);
-    /** @param {DOMRect} r @param {Box[]} boxes */
-    const centred = (r, boxes) => {
+    /** @param {DOMRect} r @param {Box} b */
+    const inside = (r, b) => r.left >= b.left - 1 && r.right <= b.right + 1 && r.top >= b.top - 1 && r.bottom <= b.bottom + 1;
+    /** @param {DOMRect} r @param {Box} b */
+    const outside = (r, b) => r.right < b.left || r.left > b.right || r.bottom < b.top || r.top > b.bottom;
+    /** @param {DOMRect} r @param {Box} b */
+    const centred = (r, b) => {
       const x = (r.left + r.right) / 2, y = (r.top + r.bottom) / 2;
-      return boxes.every((b) => x >= b.left && x <= b.right && y >= b.top && y <= b.bottom);
+      return x >= b.left && x <= b.right && y >= b.top && y <= b.bottom;
     };
     // what of a text is in view: all of it or none at once, else by halves down to a character, which is in view by its
     // middle; a text the browser lays out nowhere is not drawn. Each look costs as much as the whole text: a code box
     // that cuts a few lines (a folded quote) takes tens of looks, past `looks` what is left undecided is not copied, so
     // thousands of lines across the edge of a slide do not hang the page (issue #198)
     let looks = 2000;
-    /** @param {Text} t @param {Box[]} boxes */
-    const seenText = (t, boxes) => {
+    /** @param {Text} t @param {Box} box */
+    const seenText = (t, box) => {
       const part = (i, j) => {
         if (j - i < t.data.length && --looks < 0) return '';
         range.setStart(t, i);
         range.setEnd(t, j);
         const rects = [...range.getClientRects()];
         if (!rects.length) return '';
-        if (rects.every((r) => inside(r, boxes))) return t.data.slice(i, j);
-        if (j - i === 1) return rects.some((r) => centred(r, boxes)) ? t.data.slice(i, j) : '';
-        if (rects.every((r) => outside(r, boxes))) return '';
+        if (rects.every((r) => inside(r, box))) return t.data.slice(i, j);
+        if (j - i === 1) return rects.some((r) => centred(r, box)) ? t.data.slice(i, j) : '';
+        if (rects.every((r) => outside(r, box))) return '';
         let m = (i + j) >> 1;
         if (/[\udc00-\udfff]/.test(t.data[m]) && m + 1 < j) m++; // not between the halves of one character
         return part(i, m) + part(m, j);
       };
       return part(0, t.data.length);
     };
-    /** @param {Node} n @param {boolean} math @param {Box[]} boxes @param {number[] | null} behind */
-    const walk = (n, math, boxes, behind) => {
+    /** @param {Node} n @param {boolean} math @param {Box} box what of the page is seen there @param {number[]} behind the background there */
+    const walk = (n, math, box, behind) => {
       if (n.nodeType === 3) {
         const css = getComputedStyle(/** @type {Element} */ (n.parentNode));
-        if (/^(hidden|collapse)$/.test(css.visibility) || (behind && faint(css.color, behind))) return;
-        const t = seenText(/** @type {Text} */ (n), boxes);
+        // in a formula the post sets the colours (\color, \colorbox)
+        if (/^(hidden|collapse)$/.test(css.visibility) || (math && faint(css.color, behind))) return;
+        const t = seenText(/** @type {Text} */ (n), box);
         // KaTeX puts zero-width spaces between the rows of a superscript or a fraction
         put(math ? t.replace(/\u200b/g, '') : t);
         return;
@@ -301,7 +302,7 @@
       // the <br>'s own rects: a range round it is found by its place among its parent's children, from the first one
       // each time (6000 lines of code in blocks are 6000 <br>)
       if (e.localName === 'br') {
-        if ([...e.getClientRects()].some((r) => centred(r, boxes))) put('\n');
+        if ([...e.getClientRects()].some((r) => centred(r, box))) put('\n');
         return;
       }
       const css = getComputedStyle(e);
@@ -310,13 +311,12 @@
       const lines = math ? 0 : e.localName === 'p' ? 2 : css.display && !/^(inline|contents|table-cell|ruby)/.test(css.display) ? 1 : 0;
       breaks = Math.max(breaks, lines);
       const inner = math || e.classList.contains('katex-html');
-      // in a formula the post sets the colours (\color, \colorbox): what is behind its text, from the backgrounds under it
-      let under = inner ? layer(css.backgroundColor, behind || backdrop(e.parentElement)) : null;
+      // the background from the code box down, element by element: looked up from each formula, it went through all the
+      // tags above it every time
+      let under = layer(css.backgroundColor, behind);
       // \colorbox and \fcolorbox are a layer of their own in the stack that holds them, under what they hold
-      const box = under && e.classList.contains('vlist') && e.querySelector(':scope > * > .colorbox, :scope > * > .fcolorbox');
-      if (under && box) under = layer(getComputedStyle(box).backgroundColor, under);
-      // a slideshow turns its slides: the one in view is seen, not all it scrolls to
-      const cut = css.overflowX !== 'visible' || css.overflowY !== 'visible' ? boxes.concat(seenIn(e, css, !e.classList.contains('tg-slides'))) : boxes;
+      const colorbox = math && e.classList.contains('vlist') && e.querySelector(':scope > * > .colorbox, :scope > * > .fcolorbox');
+      if (colorbox) under = layer(getComputedStyle(colorbox).backgroundColor, under);
       /** @type {Node[]} */
       let kids = [...e.childNodes];
       if (e.localName === 'details' && !(/** @type {HTMLDetailsElement} */ (e)).open) kids = kids.filter((c) => c.nodeName === 'SUMMARY').slice(0, 1);
@@ -325,32 +325,44 @@
         const top = new Map(kids.map((c) => [c, c.nodeType === 1 ? /** @type {Element} */ (c).getBoundingClientRect().top : 0]));
         kids.sort((a, b) => (top.get(a) || 0) - (top.get(b) || 0));
       }
-      kids.forEach((c) => walk(c, inner, cut, under));
+      const seen = seenIn(box, e, css);
+      kids.forEach((c) => walk(c, inner, seen, under));
       breaks = Math.max(breaks, lines);
       if (!math && css.display === 'table-cell' && e.nextElementSibling) put('\t');
     };
-    const boxes = [seenIn(pre, getComputedStyle(pre), true)];
-    pre.childNodes.forEach((c) => walk(c, false, boxes, null));
+    // what of the code is seen: the boxes of the post around it cut it too (code in a folded quote), then the code box
+    // itself
+    const around = [];
+    for (let a = pre.parentElement; a && !a.classList.contains('tg-body'); a = a.parentElement) around.unshift(a);
+    const box = [...around, pre].reduce((b, a) => seenIn(b, a, getComputedStyle(a)), ALL);
+    const behind = backdrop(pre);
+    pre.childNodes.forEach((c) => walk(c, false, box, behind));
     return s;
   }
 
   /** @typedef {{ left: number, right: number, top: number, bottom: number }} Box */
-  // What a box that cuts off what it holds shows of it, on the page: its padding box, and all it scrolls to when the
-  // reader scrolls it (a long line of code). Never what is before the start of its scrolling: left of a box written
-  // left to right, right of one written right to left, above any
-  /** @param {HTMLElement} e @param {CSSStyleDeclaration} css @param {boolean} scrolls @returns {Box} */
-  function seenIn(e, css, scrolls) {
+  const ALL = { left: -Infinity, right: Infinity, top: -Infinity, bottom: Infinity };
+  const NONE = { left: Infinity, right: -Infinity, top: Infinity, bottom: -Infinity };
+  // What of the page is seen inside an element, from what is seen around it (box). A box that cuts off what it holds
+  // shows it in its padding box only; one the reader scrolls shows besides all it scrolls to there. Never what is before
+  // the start of its scrolling: left of a box written left to right, right of one written right to left, above any. A
+  // slideshow turns its slides: the one in view is seen, not all it scrolls to
+  /** @param {Box} box @param {HTMLElement} e @param {CSSStyleDeclaration} css @returns {Box} */
+  function seenIn(box, e, css) {
+    if (css.overflowX === 'visible' && css.overflowY === 'visible') return box;
     const r = e.getBoundingClientRect();
     const x = r.left + e.clientLeft, y = r.top + e.clientTop;
-    const box = { left: -Infinity, right: Infinity, top: -Infinity, bottom: Infinity };
-    const scroll = (v) => scrolls && /^(auto|scroll)$/.test(v);
-    if (css.overflowX !== 'visible') {
-      if (!scroll(css.overflowX)) Object.assign(box, { left: x, right: x + e.clientWidth });
-      else if (css.direction === 'rtl') Object.assign(box, { left: x + e.clientWidth - e.scrollLeft - e.scrollWidth, right: x + e.clientWidth - e.scrollLeft });
-      else Object.assign(box, { left: x - e.scrollLeft, right: x - e.scrollLeft + e.scrollWidth });
+    const b = { ...box };
+    if (css.overflowX !== 'visible') { b.left = Math.max(b.left, x); b.right = Math.min(b.right, x + e.clientWidth); }
+    if (css.overflowY !== 'visible') { b.top = Math.max(b.top, y); b.bottom = Math.min(b.bottom, y + e.clientHeight); }
+    if (b.left > b.right || b.top > b.bottom) return NONE; // nothing of it is seen: nothing to scroll into view either
+    const scrolls = (v) => /^(auto|scroll)$/.test(v) && !e.classList.contains('tg-slides');
+    if (scrolls(css.overflowX)) {
+      const more = e.scrollWidth - e.clientWidth;
+      if (css.direction === 'rtl') { b.left -= more + e.scrollLeft; b.right -= e.scrollLeft; } else { b.left -= e.scrollLeft; b.right += more - e.scrollLeft; }
     }
-    if (css.overflowY !== 'visible') Object.assign(box, scroll(css.overflowY) ? { top: y - e.scrollTop, bottom: y - e.scrollTop + e.scrollHeight } : { top: y, bottom: y + e.clientHeight });
-    return box;
+    if (scrolls(css.overflowY)) { b.top -= e.scrollTop; b.bottom += e.scrollHeight - e.clientHeight - e.scrollTop; }
+    return b;
   }
 
   // A colour as CSS gives it, [r, g, b, alpha]: a colour of KaTeX is a name or #hex, so rgb() or rgba()

