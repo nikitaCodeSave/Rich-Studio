@@ -4,7 +4,7 @@ from . import chats
 from .convert import to_input_blocks
 from .diff import diff_specs
 from .entities import text_blocks
-from .parse import check_spec_shape, enum_values, version_tuple
+from .parse import check_spec_shape, enum_values, number_range, version_tuple
 from .source import Spec
 from .validator import Validator, keyboard_errors, method_errors, tg_unescape, validate_rich_message
 
@@ -18,6 +18,7 @@ __all__ = [
     "enum_values",
     "keyboard_errors",
     "method_errors",
+    "number_range",
     "text_blocks",
     "tg_unescape",
     "to_input_blocks",

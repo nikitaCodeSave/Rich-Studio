@@ -153,7 +153,10 @@ export function fieldEditor(f, obj, key, depth, redraw) {
     }
     if (t === 'Integer' || t === 'Float') {
       const wrap = h('div', { class: 'row' });
-      const inp = h('input', { type: 'number', step: t === 'Float' ? 'any' : '1', value: obj[key] ?? '', oninput: (e) => set(e.target.value === '' ? undefined : Number(e.target.value)) });
+      // the spec's range (heading size 1–6): the arrows stay in it, a typed value outside it is outlined (app.css) and
+      // the check warns
+      const [min, max] = f.range || [];
+      const inp = h('input', { type: 'number', step: t === 'Float' ? 'any' : '1', min, max, value: obj[key] ?? '', oninput: (e) => set(e.target.value === '' ? undefined : Number(e.target.value)) });
       wrap.append(inp);
       if (key === 'unix_time') {
         const dt = h('input', { type: 'datetime-local', oninput: (e) => { const v = Math.floor(new Date(e.target.value).getTime() / 1000); if (v) { inp.value = v; set(v); } } });

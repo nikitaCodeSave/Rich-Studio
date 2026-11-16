@@ -796,3 +796,26 @@ def test_the_check_of_a_draft_reports_a_poll_after_the_post_that_would_be_refuse
         assert r["ok"] is False and any("опрос после поста: нужно минимум два варианта" in e for e in r["errors"]), r
     good = client.post("/api/validate", json={**BLOCKS_POST, "poll_after": {"question": "?", "options": ["да", "нет"]}})
     assert good.json()["ok"] is True
+
+
+def test_an_integer_outside_the_range_the_spec_states_is_reported_and_the_editor_knows_it(client):
+    """A heading of size 16556 passed the check silently; only «В HTML» refused it (h1–h6). The range is the spec's
+    description ("…; 1-6, …"); Telegram's verdict on such a value is unmeasured, so it is a warning, as for an enum."""
+    import spec
+
+    spec.current.load_initial()
+
+    def warnings(block):
+        return spec.validate_rich_message(spec.current, {"blocks": [block]})["warnings"]
+
+    (w,) = warnings({"type": "heading", "size": 16556, "text": "Заголовок"})
+    assert "blocks[0].size" in w and "16556" in w and "1–6" in w
+    assert warnings({"type": "heading", "size": 6, "text": "Заголовок"}) == []
+    assert any(
+        "0–24" in w for w in warnings({"type": "map", "location": {"latitude": 55.75, "longitude": 37.62}, "zoom": 25})
+    )
+    # the editor's form reads the same range; a range the app clamps itself is not a limit of the post
+    fields = {f["name"]: f for f in client.get("/api/spec").json()["types"]["InputRichBlockSectionHeading"]["fields"]}
+    assert fields["size"]["range"] == [1, 6] and fields["text"]["range"] is None
+    height = next(f for f in spec.current.types["InputWidgetMessageContent"]["fields"] if f["name"] == "height")
+    assert "50-600" in height["description"] and spec.number_range(height["description"], height["types"]) is None

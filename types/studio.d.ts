@@ -10,6 +10,7 @@ interface SpecField {
   required: boolean;
   description: string;
   enum?: string[] | null;
+  range?: [number, number] | null;
 }
 
 interface SpecType {

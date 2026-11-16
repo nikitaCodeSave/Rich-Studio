@@ -19,7 +19,7 @@ import settings
 
 from .coverage import gaps
 from .diff import TRACK_METHODS, TRACK_PREFIXES, diff_specs
-from .parse import check_spec_shape, enum_values, type_const, version_tuple
+from .parse import check_spec_shape, enum_values, number_range, type_const, version_tuple
 
 BUNDLED = Path(__file__).resolve().parent.parent / "bundled" / "api.json"
 
@@ -45,6 +45,7 @@ def field_summary(f: dict) -> dict:
         "required": f["required"],
         "description": description,
         "enum": enum_values(description),
+        "range": number_range(description, f["types"]),
     }
 
 
