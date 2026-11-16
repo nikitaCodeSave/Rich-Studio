@@ -87,9 +87,11 @@ function go(back) {
     current = step;
   };
   const shown = current;
+  const stacks = [past.value, future.value];
   while (from.value.length && current === shown) move();
   while (from.value.length && here(top()) === current) move();
   if (current !== shown) restore(current);
+  else [past.value, future.value] = stacks; // nothing here to change: the press changes nothing at all
 }
 
 export function undo() { go(true); }

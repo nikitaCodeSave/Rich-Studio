@@ -77,9 +77,10 @@ export default async function ({ browser, BASE, MOCK, check }) {
     await moveTo(page, '@forum_b', 'Новости Б');
     const moved = await seen(page);
     await page.click('#btn-undo');
-    const undone = await seen(page);
+    const undone = { ...await seen(page), redo: await page.isEnabled('#btn-redo') };
+    // every step looks here as what is shown: the press changes nothing, the redo button included
     check('An undo in another forum does not bring the old forum\'s topic',
-      moved.thread === null && undone.thread === null && undone.chosen === 'General',
+      moved.thread === null && undone.thread === null && undone.chosen === 'General' && !undone.redo,
       JSON.stringify({ moved, undone }));
     await context.close();
   }
