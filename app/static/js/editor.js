@@ -37,7 +37,8 @@ export function buildPost() {
   if (S.extra.poll) post.poll_after = S.extra.poll;
   const cbs = callbacksFor(kb);
   if (Object.keys(cbs).length) post.callbacks = cbs;
-  return post;
+  // the fields the editor does not show go as they came, last: the check warns about them, as the API would
+  return Object.assign(post, S.unknown);
 }
 
 // answers only for callback buttons that are still on the keyboard (a text, a rich reply or a link)
@@ -61,6 +62,10 @@ export function draftPayload() {
 // the keys of `_studio` the editor writes itself; any other one is a note of the draft
 const OWN_STUDIO = ['format', 'buffers', 'json'];
 
+/** The top-level fields of a post the studio reads: models.Post as GET /api/spec has it, the list the server checks
+ * against (publisher.POST_FIELDS, held to models.Post by its test). */
+const postFields = () => new Set(S.spec.post.types[S.spec.post.root].fields.map((f) => f.name));
+
 /** @param {Json} post @param {boolean} [keepNotes] only the post changes (JSON applied, an earlier version):
  * the open draft keeps its notes */
 export function loadPost(post, keepNotes = false) {
@@ -68,6 +73,10 @@ export function loadPost(post, keepNotes = false) {
   const studio = post._studio;
   delete post._studio;
   if (!keepNotes) setNotes(studio);
+  // a field outside the post (an agent's, or a chat put into the post) is not in the form but stays as it came
+  // (AGENTS.md rule 1): the check warns about it or refuses it, and the JSON tab shows it
+  const known = postFields();
+  S.unknown = Object.fromEntries(Object.entries(post).filter(([k]) => !known.has(k)));
   S.topicChat = undefined; // the loaded post's topic belongs to the channel it is opened with
   const rm = post.rich_message || {};
   S.buf = { blocks: [], html: '', markdown: '' };

@@ -288,6 +288,9 @@ interface EditorState {
   /** the keys of the draft's `_studio` the editor does not write (`source` and `warnings` of a forwarded post, and
    * whatever comes next): kept as they are and saved back with the draft, never sent */
   notes: Json;
+  /** the top-level fields of the post outside models.Post (GET /api/spec `post`): not in the form, sent and saved
+   * as they came, last in the post; the check warns about them (a chat among them is an error) */
+  unknown: Json;
   media: Json[];
   flags: Json;
   keyboard: ButtonRow[];
