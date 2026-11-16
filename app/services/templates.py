@@ -3,9 +3,10 @@
 A field is {key, label, type: text | multiline | url, required, default}. {{key}} stands only in string values of
 the post, never in its JSON keys. A value is always text, never markup: escaped (html.escape) in HTML, a plain JSON
 string anywhere else (Telegram does not parse the text of a block). In HTML a {{key}} stands in text or in a quoted
-attribute value; a link attribute (href, src) takes only a url field, as its whole value. Markdown is not filled in
-this version: how to escape a value for Telegram's Markdown was never checked against Telegram, so such a template is
-refused with a hint to use the visual mode or HTML.
+attribute value. A link (an HTML link attribute such as href or src, a JSON string under the key url) takes only a url
+field, as its whole value, and never a file upload:name (a file goes only in a media field). Markdown is not filled
+in this version: how to escape a value for Telegram's Markdown was never checked against Telegram, so such a template
+is refused with a hint to use the visual mode or HTML.
 Filling changes nothing in the post but the {{key}} marks (AGENTS.md rule 1), and makes a new draft without channels.
 The size of the filled post is counted before it is built: one field repeated many times must not build gigabytes.
 """
@@ -44,6 +45,11 @@ URL_ATTRS = {
     "background",
     "ping",
 }
+# the JSON key of a link (RichTextUrl, InlineKeyboardButton, WebAppInfo, LoginUrl…), as validator.py reads it: only a
+# whole url field goes there, as in an HTML link attribute. Told by the key's name, not by a list of blocks
+URL_KEY = "url"
+# the post's answers to its buttons (services/callbacks.py): its keys are callback_data, not names of fields
+CALLBACKS = "callbacks"
 MARKDOWN = (
     "{{…}} в Markdown пока не подставляется: переведите пост в визуальный режим или в HTML и сохраните шаблон снова"
 )
@@ -88,10 +94,20 @@ def _where(path: Path) -> str:
     return "".join(f"[{p}]" if isinstance(p, int) else (f".{p}" if i else p) for i, p in enumerate(path)) or "пост"
 
 
+def _key(path: Path) -> str:
+    """The JSON key a string stands under (for a string in a list, the key of the list), as telegram/uploads reads it.
+    A string answer in callbacks stands under its button's callback_data, which names no field: "" then."""
+    for i in range(len(path) - 1, -1, -1):
+        if isinstance(p := path[i], str):
+            return "" if i == 1 and path[0] == CALLBACKS else p
+    return ""
+
+
 def _source(path: Path) -> str:
     """How Telegram reads the string: the html or markdown of an InputRichMessage (the post, its first comment) is
     parsed, any other string is taken as it is."""
-    return str(path[-1]) if path and path[-1] in ("html", "markdown") else "text"
+    key = _key(path)
+    return key if key in ("html", "markdown") and path[-1] == key else "text"
 
 
 def _formatted_by(parent: dict | None) -> str | None:
@@ -246,20 +262,29 @@ def _check_html(src: str, fields: dict[str, dict], where: str) -> None:
             raise Invalid(f"{where}: {m[0]}: {UPLOAD_IN_HTML}")
 
 
-# upload:<name> becomes attach:// only in the post's media fields (telegram/), never inside HTML
+# upload:<name> becomes attach:// only in the post's media fields (telegram/), never inside HTML or in a link
 UPLOAD_IN_HTML = (
     "файл upload: в атрибуте HTML не подставляется — в HTML-посте файл лежит в rich_message.media, а в тексте "
     "на него ссылается tg://photo?id=…"
 )
+UPLOAD_IN_JSON_LINK = (
+    "файл upload: в ссылке JSON (url) не подставляется — файл ставится в медиа-поле поста (media у блока или в "
+    "rich_message.media)"
+)
 
 
-def _html_link_keys(payload: dict) -> set[str]:
-    """The fields standing in an HTML link attribute (href, src…) of a saved template."""
-    keys: set[str] = set()
+def _link_fields(payload: dict) -> dict[str, str]:
+    """The fields standing in a link of a saved template (an HTML link attribute such as href, a JSON url), each with
+    why a file cannot go there."""
+    out: dict[str, str] = {}
     for path, s, _ in _strings(payload):
-        if _source(path) == "html" and VAR.search(s):
-            keys.update(m[1] for m, attr, _ in _html_places(s) if attr in URL_ATTRS)
-    return keys
+        if not VAR.search(s):
+            continue
+        if _source(path) == "html":
+            out.update((m[1], UPLOAD_IN_HTML) for m, attr, _ in _html_places(s) if attr in URL_ATTRS)
+        elif _key(path) == URL_KEY:
+            out.update((k, UPLOAD_IN_JSON_LINK) for k in VAR.findall(s))
+    return out
 
 
 # ---------- fields and values ----------
@@ -340,6 +365,15 @@ def _check(payload: dict, fields: list[dict]) -> None:
                 f"{where}: часть ссылки upload: не подставляется — файл подставляет поле целиком "
                 f'("{mark("файл")}" со значением upload:имя)'
             )
+        if _key(path) == URL_KEY:
+            link = by_key[keys[0]]
+            if not VAR.fullmatch(s) or link["type"] != "url":
+                raise Invalid(
+                    f"{where}: {mark(keys[0])} в ссылке: ссылку подставляет только поле типа url, целиком "
+                    f'("{URL_KEY}": "{mark(keys[0])}")'
+                )
+            if link["default"].startswith("upload:"):
+                raise Invalid(f"{where}: {mark(keys[0])}: {UPLOAD_IN_JSON_LINK}")
         if source == "html":
             _check_html(s, by_key, where)
     if unused := [k for k in by_key if k not in used]:
@@ -416,14 +450,14 @@ def fill(tid: str, version: int, values: dict, title: str = "") -> dict:
     if extra := sorted(set(values) - set(fields)):
         raise Invalid(f"в шаблоне нет полей {', '.join(extra)}")
     filled: dict[str, str] = {}
-    in_html_links = _html_link_keys(t["payload"])
+    in_links = _link_fields(t["payload"])
     for key, f in fields.items():
         v = values.get(key, f["default"])
         if f["required"] and not (isinstance(v, str) and v.strip()):
             raise Invalid(f"заполните «{f['label']}»")
         filled[key] = _value(f, v)
-        if key in in_html_links and filled[key].startswith("upload:"):
-            raise Invalid(f"«{f['label']}»: {UPLOAD_IN_HTML}")
+        if key in in_links and filled[key].startswith("upload:"):
+            raise Invalid(f"«{f['label']}»: {in_links[key]}")
     as_source = {"text": filled, "html": {k: html.escape(v, quote=True) for k, v in filled.items()}}
     # the size of the filled post from the template and the size of each value: nothing is built yet
     grows = {src: {k: _json_len(v) - 2 for k, v in vals.items()} for src, vals in as_source.items()}
