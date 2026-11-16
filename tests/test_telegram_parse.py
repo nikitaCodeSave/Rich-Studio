@@ -16,11 +16,23 @@ def current():
     return spec.current
 
 
+def empty_texts(v, path: str = "rich_message.blocks") -> set[str]:
+    """Where Telegram itself sent back an empty text: that is how it erases one (html-numeric-vanish)."""
+    if isinstance(v, dict):
+        return {p for k, x in v.items() for p in ({f"{path}.{k}"} if x in ("", []) else empty_texts(x, f"{path}.{k}"))}
+    if isinstance(v, list):
+        return {p for i, x in enumerate(v) for p in empty_texts(x, f"{path}[{i}]")}
+    return set()
+
+
 @pytest.mark.parametrize("name", [k for k, v in CAPTURED.items() if v.get("blocks")])
 def test_parsed_blocks_become_valid_input_blocks(current, name):
     blocks = spec.to_input_blocks(current, CAPTURED[name]["blocks"])
     r = spec.validate_rich_message(current, {"blocks": blocks})
-    assert not r["errors"] and not r["warnings"], (r["errors"], r["warnings"])
+    # a text Telegram erased itself comes back empty, and the check rightly says so
+    erased = {f"{p}: пустой текст, Telegram может отклонить блок" for p in empty_texts(CAPTURED[name]["blocks"])}
+    warnings = [w for w in r["warnings"] if w not in erased]
+    assert not r["errors"] and not warnings, (r["errors"], warnings)
 
 
 def test_sent_media_reuses_the_file_id(current):
