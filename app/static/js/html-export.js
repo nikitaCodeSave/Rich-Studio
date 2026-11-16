@@ -371,6 +371,11 @@ function write(blocks, opts, pretty) {
         const m = b[t];
         if (!isObj(m) || typeof m.media !== 'string') { say(here, 'нет файла'); return ''; }
         const [tag, link] = MEDIA_TAGS[t];
+        // the link names a video or an audio; that it is a GIF or a voice note only the type in its media entry says
+        if (link !== t && m.type !== t) {
+          say(here, `у файла нет type «${t}»: по ссылке tg://${link} Telegram не поймёт его как ${t === 'animation' ? 'GIF' : 'голосовое'}`);
+          return '';
+        }
         const src = attrs([['src', `tg://${link}?id=${mediaId(t, m)}`], ['tg-spoiler', !!m.has_spoiler]]);
         return figure(tag === 'img' ? `<img${src}/>` : `<${tag}${src}></${tag}>`, b.caption, here);
       }

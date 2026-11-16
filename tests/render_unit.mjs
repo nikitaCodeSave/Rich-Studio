@@ -140,8 +140,20 @@ for (const [name, url] of Object.entries(URLS)) {
   const sums = await found({ html: `<p>${eq.slice(0, -1)}d EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2X EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2N ${b64} ${b64url} EQAAW7YRbMcifdgzjulEn/pVsAtmwRx30i2I4z6Z9E-qBcnt</p>` });
   check('html: only addresses with a right checksum are found, in base64 and base64url, not in a mix of both',
     JSON.stringify(sums) === JSON.stringify(['EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2N', b64, b64url]), JSON.stringify(sums));
-  const table = await page.evaluate(([eq, uq, b64, b64url]) => [eq, uq, b64, b64url, eq.slice(0, -1) + 'd', eq.toLowerCase(), eq + 'A', 'EQ', null, 42].map((s) => RichRender.isTonAddress(s)).join(), [eq, uq, b64, b64url]);
-  check('isTonAddress table', table === 'true,true,true,true,false,false,false,false,false,false', table);
+  // a mix of both alphabets is neither; «EQE…» with a right checksum is workchain 1, not the EQ… Telegram finds
+  const mixed = 'EQAAW7YRbMcifdgzjulEn/pVsAtmwRx30i2I4z6Z9E-qBcnt';
+  const workchain1 = 'EQEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEKA';
+  const table = await page.evaluate((list) => list.map((s) => RichRender.isTonAddress(s)).join(),
+    [eq, uq, b64, b64url, mixed, workchain1, eq.slice(0, -1) + 'd', eq.toLowerCase(), eq + 'A', 'EQ', null, 42]);
+  check('isTonAddress table', table === 'true,true,true,true,false,false,false,false,false,false,false,false', table);
+  // neighbouring strings of RichText are one text for Telegram
+  const split = await found({ blocks: [{ type: 'paragraph', text: ['адрес ', eq.slice(0, 20), eq.slice(20), ' конец'] }] });
+  check('blocks: an address split between neighbouring strings is found', JSON.stringify(split) === JSON.stringify([eq]), JSON.stringify(split));
+  // Telegram's own blocks went through its detection: drawn with the flag, an address it left as text stays text,
+  // so the parse check and test:parity see a TON address the preview finds and Telegram does not
+  const [answer, asHtml] = await page.evaluate(([eq]) => [RichRender.outline({ rich_message: { blocks: [{ type: 'paragraph', text: `адрес ${eq}` }], skip_entity_detection: true } }),
+    RichRender.outline({ rich_message: { html: `<p>адрес ${eq}</p>` } })], [eq]);
+  check('outline: Telegram\'s blocks drawn with skip_entity_detection differ from HTML where the preview finds the address', answer !== asHtml && !answer.includes('<ton>') && asHtml.includes('<ton>'), answer + ' | ' + asHtml);
   const [mine, theirs] = await page.evaluate(([eq]) => [RichRender.outline({ rich_message: { html: `<p>TON ${eq}</p>` } }),
     RichRender.outline({ rich_message: { blocks: [{ type: 'paragraph', text: ['TON ', { type: 'ton_address', text: eq, address: eq }] }] } })], [eq]);
   check('outline: a found TON address and a ton_address element read the same', mine === theirs && mine.includes('<ton>'), mine + ' | ' + theirs);
@@ -313,6 +325,12 @@ for (const [name, rm] of Object.entries(SLIDESHOWS)) {
   await page.click('#out .tg-pre-copy');
   const copied = await page.evaluate(() => window.__copied);
   check('the copy icon copies the code with its line breaks', copied === 'def f():\n    return 1', JSON.stringify(copied));
+  // a click on the icon is the icon's: a code block inside an expandable quote does not fold or unfold the quote
+  await render({ html: '<blockquote expandable><pre><code class="language-js">let a = 1;</code></pre></blockquote>' });
+  await page.evaluate(() => { window.__copied = ''; });
+  await page.click('#out .tg-expandable .tg-pre-copy');
+  const quote = await page.evaluate(() => [document.querySelector('#out .tg-expandable')?.classList.contains('tg-collapsed'), window.__copied]);
+  check('the copy icon inside an expandable quote copies and leaves the quote as it was', quote[0] === true && quote[1] === 'let a = 1;', JSON.stringify(quote));
   const outline = await page.evaluate(() => [RichRender.outline({ rich_message: { html: '<pre><code class="language-python">x</code></pre>' } }), RichRender.outline({ rich_message: { blocks: [{ type: 'pre', language: 'python', text: 'x' }] } })]);
   check('outline: a code block is still <pre:language> with its text', outline[0] === '<pre:python>x</pre>' && outline[1] === outline[0], outline.join(' | '));
 }

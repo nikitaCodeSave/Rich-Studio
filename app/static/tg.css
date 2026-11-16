@@ -15,7 +15,9 @@
 .tg-preview.tg-dark {
   --tg-bg: #0e1621; --tg-bubble: #182533; --tg-text: #f5f5f5; --tg-muted: #6d7f8f; --tg-link: #6ab3f3;
   --tg-accent: #6ab3f3; --tg-quote-bg: rgba(106,179,243,.1); --tg-code-bg: rgba(255,255,255,.07); --tg-border: rgba(255,255,255,.14);
-  /* code block: checked against a screenshot of Telegram Desktop's night theme, 2026-11-16 (#172) */
+  /* code block: checked against a screenshot of Telegram Desktop's night theme, 2026-11-16 (#172). Except --tg-pre-text:
+     that screenshot has no code without highlighting, so it is extrapolated from the colour of a plain name there
+     (in the light theme the plain code colour is the header label's, and so is this one) */
   --tg-pre-bg: #06090d; --tg-pre-head: #2c445b; --tg-pre-bar: #5382a9; --tg-pre-label: #5888b0; --tg-pre-text: #5485b0; --tg-pre-icon: #486f92;
   --tg-stripe: rgba(255,255,255,.04); --tg-btn-bg: rgba(255,255,255,.1); --tg-spoiler: #4a5866; --tg-mark: #6b5d1c;
 }

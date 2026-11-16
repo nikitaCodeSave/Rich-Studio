@@ -226,7 +226,8 @@
       const done = () => { head.classList.add('tg-copied'); setTimeout(() => head.classList.remove('tg-copied'), 1500); };
       try { navigator.clipboard.writeText(codeText(pre)).then(done, () => {}); } catch (e) { /* no clipboard here (an MCP host's sandbox) */ }
     };
-    copy.addEventListener('click', copyCode);
+    // the click is the icon's: it must not also fold an expandable quote or open a spoiler around the code
+    copy.addEventListener('click', (ev) => { ev.stopPropagation(); copyCode(); });
     copy.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); copyCode(); } });
     return el('div', { class: 'tg-pre' }, head, pre);
   }
@@ -562,6 +563,8 @@
       const n = (six(s[i]) << 18) | (six(s[i + 1]) << 12) | (six(s[i + 2]) << 6) | six(s[i + 3]);
       bytes.push(n >> 16, (n >> 8) & 255, n & 255);
     }
+    // EQ…/UQ…: flags 0x11 (bounceable) or 0x51 (not), workchain 0; «EQE…» with a right checksum is workchain 1
+    if ((bytes[0] !== 0x11 && bytes[0] !== 0x51) || bytes[1] !== 0) return false;
     let crc = 0;
     for (const b of bytes.slice(0, 34)) {
       crc ^= b << 8;
@@ -575,6 +578,8 @@
   const TON_IN_TEXT = new RegExp(`(?<![\\w+/-])${TON_START}[\\w+/-]{46}(?![\\w+/-])`, 'g');
   const NO_DETECTION = 'a, code, pre, .tg-link, .tg-math, .tg-math-block, .tg-time, .tg-emoji, .tg-btn, .tg-media, .tg-unknown-block';
   function findTon(root) {
+    // Telegram reads neighbouring strings of RichText as one text: ['EQAA…', '…M9c'] is one address
+    root.normalize();
     /** @type {Text[]} */
     const texts = [];
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
@@ -810,6 +815,8 @@
       else if (rm.html) body.append(renderHtml(tgEntities(rm.html), ctx));
       else if (rm.markdown) body.append(renderMarkdown(rm.markdown, ctx));
       else body.append(el('p', { class: 'tg-empty', text: 'Пустой пост' }));
+      // blocks Telegram answered with went through its detection already: an address it left as text is text, so
+      // whoever draws them (the parse check, test:parity) passes skip_entity_detection
       if (!rm.skip_entity_detection) findTon(body);
     } catch (e) {
       body.append(el('pre', { class: 'tg-error', text: 'Ошибка рендера: ' + e.message }));

@@ -63,7 +63,8 @@ const exportsAs = async (blocks, expected) => {
   return { ok, r, info: r.ok ? `HTML:     ${mine}\n      expected: ${expected}\n      ${r.html}` : JSON.stringify(r.problems) + (r.diff ? ' ' + JSON.stringify(r.diff) : '') };
 };
 for (const [name, blocks] of Object.entries(inputBlocks)) {
-  const { ok, info } = await exportsAs(blocks, await look({ blocks: captured[name].blocks }));
+  // Telegram's blocks went through its detection already: drawn as they are, with nothing found a second time
+  const { ok, info } = await exportsAs(blocks, await look({ blocks: captured[name].blocks, skip_entity_detection: true }));
   check(`captured ${name}: Telegram's blocks → HTML → the same post`, ok, info);
 }
 
@@ -259,6 +260,18 @@ await refused('Names of Object\'s own properties are not types', [{ type: 'const
     const p = await toHtml([{ type: 'paragraph', text: `Кошелёк ${ton}` }], { skipEntities });
     check(`A TON address as plain text in blocks exports as it is (detection ${skipEntities ? 'off' : 'on'})`, p.ok && p.html === `<p>Кошелёк ${ton}</p>`, JSON.stringify(p));
   }
+  // neighbouring strings are one text for Telegram, and in HTML they are one text anyway
+  const split = await toHtml([{ type: 'paragraph', text: [ton.slice(0, 20), ton.slice(20)] }]);
+  check('A TON address split between neighbouring strings exports as one address', split.ok && split.html === `<p>${ton}</p>`, JSON.stringify(split));
+}
+{
+  // in HTML a GIF and a voice note go as tg://video and tg://audio: what they are only the type of their entry says
+  for (const [kind, what] of [['animation', 'GIF'], ['voice_note', 'голосовое']]) {
+    await refused(`${kind} without its type in the file is refused by name, not as «looks otherwise»`, [{ type: kind, [kind]: { media: 'CgACAgIAAxkBAAI' } }],
+      [new RegExp(`блок 1.*у файла нет type «${kind}».*не поймёт его как ${what}`)]);
+  }
+  const typed = await toHtml([{ type: 'animation', animation: { type: 'animation', media: 'CgACAgIAAxkBAAI' } }]);
+  check('An animation with its type goes as <video src="tg://video"> and its entry', typed.ok && typed.html === '<video src="tg://video?id=animation1"></video>' && typed.media?.[0]?.media?.type === 'animation', JSON.stringify(typed));
 }
 check('Every type HTML cannot say is refused by name in this file (none now)', noHtml.length === 0, 'add a refusal check for: ' + noHtml.join(', '));
 {

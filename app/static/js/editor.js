@@ -229,7 +229,13 @@ export function renderPreview() {
   const fresh = checkParse(post);
   p.dark = dark.value;
   p.channelTitle = channelTitle(chats()[0] || S.config.default_chat) || 'Канал';
-  p.post = fresh && showParsed.value ? { ...post, rich_message: { blocks: fresh.blocks } } : post;
+  p.post = fresh && showParsed.value ? { ...post, rich_message: telegramsBlocks(fresh.blocks) } : post;
+}
+
+/** The blocks Telegram made of the post, to draw as they are: they went through its detection of TON addresses and
+ * the like already, so an address it left as text must stay text in the preview too. */
+function telegramsBlocks(blocks) {
+  return { blocks, skip_entity_detection: true };
 }
 
 // ---------- check against Telegram's parser ----------
@@ -246,7 +252,7 @@ function checkParse(post) {
   else if (!fresh) bar.check = { status: 'stale' };
   else {
     const mine = RichRender.outline(post);
-    const theirs = RichRender.outline({ rich_message: { blocks: fresh.blocks } });
+    const theirs = RichRender.outline({ rich_message: telegramsBlocks(fresh.blocks) });
     bar.check = mine === theirs ? { status: 'same' } : { status: 'diff', ...firstDifference(mine, theirs) };
   }
   return fresh;
