@@ -5,7 +5,7 @@ import re
 import spec
 import store
 
-from . import channels, kinds, loops, publisher
+from . import channels, kinds, loops, media, publisher
 
 TITLE_LEN = 120
 # a closing block tag or a line break ends a line of the post
@@ -75,19 +75,20 @@ def title(payload: dict, kind: str | None = kinds.RICH) -> str:
 
 
 def thumb(payload: dict) -> str | None:
-    """The first photo uploaded through the studio, as a URL the editor can show; None otherwise."""
+    """The first photo uploaded through the studio, as a URL the editor can show; None otherwise. Only a file that
+    is in the uploads (media.url_of): a stored name that is a path never becomes another address of the studio."""
     keys = ["rich_message", *(k.key for k in kinds.KINDS.values() if k.key)]
     stack = [payload.get(k) for k in keys] if isinstance(payload, dict) else []
     while stack:
         x = stack.pop(0)
         if isinstance(x, dict):
-            media = x.get("media")
-            if x.get("type") == "photo" and isinstance(media, str) and media.startswith("upload:"):
-                return "/media/" + media[len("upload:") :]
+            media_ref = x.get("media")
+            if x.get("type") == "photo" and isinstance(media_ref, str) and media_ref.startswith("upload:"):
+                return media.url_of(media_ref[len("upload:") :])
             # a Live Photo's still frame: `photo` of sendLivePhoto and of InputPaidMediaLivePhoto
             still = x.get("photo")
             if isinstance(still, str) and still.startswith("upload:"):
-                return "/media/" + still[len("upload:") :]
+                return media.url_of(still[len("upload:") :])
             stack.extend(x.values())
         elif isinstance(x, list):
             stack.extend(x)

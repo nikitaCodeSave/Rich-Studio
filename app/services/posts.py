@@ -10,7 +10,6 @@ import spec
 import store
 import telegram as tg
 from errors import Conflict, Invalid, MayHaveGone, NotFound, StudioError, Unrecorded, Upstream
-from telegram.uploads import MissingUpload, collect_uploads
 
 from . import channels, kinds, publisher
 from .callbacks import check as check_answers
@@ -109,15 +108,11 @@ def _first_sent(results: list[dict], warnings: list[str]) -> dict:
 
 
 def dry_run_report(chats: list, post: dict, warnings: list[str]) -> dict:
-    """Everything a send would do, without Telegram and without a record in the history."""
-    media_dir = settings.get().media_dir
+    """Everything a send would do, without Telegram and without a record in the history; the files of the post are
+    checked by publisher.validate before."""
     requests = []
     for chat in chats:
         method, params = publisher.request(chat, post)
-        try:
-            collect_uploads(params, {}, media_dir)
-        except MissingUpload as e:
-            raise StudioError(str(e)) from None
         requests.append({"method": method, "params": params, "chat_title": channels.title_of(chat)})
     steps = [
         s
@@ -193,9 +188,12 @@ async def edit_message(
     If the studio published it (`rec`, or found by chat and message id), the record follows the
     channel and the content before the edit is kept as a version. `claimed`: the caller already took
     the post's next version (`edit`)."""
-    publisher.validate(post, chats_hint=EDIT_MESSAGE_CHAT)
+    chat = publisher.resolve_chat(chat_id)
+    # files only of what still goes out: the poll after the post went at publish time, the comment may have too
+    sends = publisher.edit_uploads(rec or store.find_sent(chat, message_id))
+    publisher.validate(post, chats_hint=EDIT_MESSAGE_CHAT, uploads_in=sends)
     params = {
-        "chat_id": publisher.resolve_chat(chat_id),
+        "chat_id": chat,
         "message_id": message_id,
         "rich_message": post["rich_message"],
     }
@@ -255,7 +253,9 @@ async def edit(pid: str, post: dict, actor: str = "api", post_version: int | Non
         raise StudioError(k.edit_refusal)
     if p["status"] == "sent" and not p["message_id"]:
         raise StudioError(f"пост в статусе {p['status']}, редактировать нечего")
-    publisher.validate(post, chats_hint=EDIT_CHAT)
+    # a waiting post goes out whole with the new content; of a sent one only its text, buttons and what waits
+    sends = None if p["status"] in WAITING else publisher.edit_uploads(p)
+    publisher.validate(post, chats_hint=EDIT_CHAT, uploads_in=sends)
     taken = store.claim_version(pid, post_version)
     if taken is None:
         now = (store.get_post(pid) or {}).get("version")
@@ -392,6 +392,7 @@ async def send_kind(
     if not k.prepare or not k.key:
         raise StudioError(f"{k.label}: отправляется не так (POST /api/posts)")
     post = {k.key: k.prepare(params), "pin": pin}
+    publisher.check_uploads(post)  # a waiting one too: its files are checked now, not at its time
     if at is not None:
         when = publisher.parse_at(at)
         recs = store.add_scheduled(publisher.targets(chat_id, chat_ids), post, when, kind=k.name, actor=actor)
