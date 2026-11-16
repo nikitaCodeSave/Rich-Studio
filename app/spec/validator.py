@@ -722,6 +722,8 @@ def erased_texts(src: str, markdown: bool) -> list[tuple[str, str]]:
     text between two tags (measured); in markdown the paragraph, out of code fences (measured: there entities stay as
     typed) and out of `code` (not measured; markdown-it in the preview leaves them as typed there). Where in a
     paragraph of markdown its text ends was not measured, so the whole paragraph is named and left out of the count."""
+    if vanishing(src) is None:  # the usual post: no piece to look at
+        return []
     if markdown:
         texts = [(p, vanishing(MD_CODE_RE.sub("", p))) for p in md_paragraphs(src)]
     else:
@@ -829,7 +831,8 @@ class _HtmlWalk(HTMLParser):
             top = self.stack[-1]
         if tag in HTML_MEDIA:
             self._reach(0, top.about + 1)
-        self.uploads += [(tag, v) for k, v in attrs if k == "src" and v and v.startswith("upload:")]
+        if attrs:
+            self.uploads += [(tag, v) for k, v in attrs if k == "src" and v and v.startswith("upload:")]
         if tag in HTML_VOID:
             return
         i = len(self.stack)
@@ -941,7 +944,7 @@ def source_chars(src: str, markdown: bool) -> tuple[int, int]:
     if markdown:
         for erased, _ in erased_texts(src, markdown):
             src = src.replace(erased, "", 1)
-    else:
+    elif vanishing(src) is not None:
         src = "".join(p for p, tag in html_pieces(src) if tag or not vanishing(p))
     text = TAG_RE.sub("", src)
     # entities as Telegram decodes them; in markdown the link addresses (not decoded at all) are gone already
