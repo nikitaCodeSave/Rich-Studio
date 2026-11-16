@@ -35,7 +35,8 @@ def register(tool: ToolDecorator) -> None:
         (назовите канал по названию из list_channels). Пост или draft_id с version; без chat_id пост уходит в каналы
         черновика, а если их нет, в канал по умолчанию. Опубликованный из черновика пост связан с ним. Ушёл не во все
         каналы: results[].ok и error по каждому; заново по всему списку не публикуйте (будет дубль), только в каналы с
-        ok: false и с новым idempotency_key."""
+        ok: false и с новым idempotency_key. Канал, где error говорит «мог уйти», сначала проверьте с пользователем:
+        пост там, может быть, уже есть."""
         p, _ = post_source(post, draft_id, version, publish=not dry_run)
         if dry_run:
             return await posts.send(p, chat_id, chat_ids, draft_id, dry_run=True)
