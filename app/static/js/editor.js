@@ -11,7 +11,7 @@ import { readIssue, reveal } from './issues.js';
 import { renderKeyboard } from './keyboard.js';
 import { plural } from './labels.js';
 import { renderMedia } from './media.js';
-import { chats, dark, dirty, parsed, S, saveState, showParsed, target } from './state.js';
+import { channelOf, chats, dark, dirty, parsed, S, saveState, showParsed, target } from './state.js';
 
 // ---------- change tracking ----------
 export const refreshPreview = debounce(() => { renderPreview(); validate(); }, 250);
@@ -263,25 +263,68 @@ export function renderOptions() {
     flag(S.options, 'protect_content', 'Запретить пересылку и сохранение', 'protect_content'),
     flag(S.flags, 'skip_entity_detection', 'Не распознавать ссылки, @, #, телефоны автоматически', 'rich_message.skip_entity_detection'),
     flag(S.flags, 'is_rtl', 'Справа налево', 'rich_message.is_rtl'));
+  box.append(h('div', { id: 'opts-topic' }), h('div', { id: 'opts-rest' }));
+  renderTopic();
+  renderRest();
+}
+
+/** After a change of channel. The topic row follows the channel; the field of other parameters is rebuilt only when
+ * the row comes or goes (message_thread_id moves between them) or the topic was dropped with the old channel (the field
+ * may show it), so what is typed in it stays, unparsed text too. @param {boolean} dropped */
+export function refreshTopic(dropped) {
+  if (!$('#opts-topic')) { renderOptions(); return; }
+  const had = !!$('#topic');
+  if (renderTopic() !== had || dropped) renderRest();
+}
+
+function renderTopic() {
+  const row = topicChoice();
+  $('#opts-topic').replaceChildren(...(row ? [row] : []));
+  return !!row;
+}
+
+function renderRest() {
+  const box = $('#opts-rest');
+  box.replaceChildren();
   const m = S.spec.methods.sendRichMessage;
-  if (m) {
-    const known = new Set(['chat_id', 'rich_message', 'reply_markup', 'disable_notification', 'protect_content']);
-    // what options may hold (PostOptions: chat_id, ephemeral_message_parameters… are the studio's); a stored one it
-    // may not stays in the field, so the check's error about it can be fixed here
-    const allowed = new Set(((S.spec.post && S.spec.post.types.PostOptions) || m).fields.map((f) => f.name));
-    const rest = m.fields.filter((f) => !known.has(f.name) && (allowed.has(f.name) || S.options[f.name] !== undefined));
-    const extra = {};
-    for (const f of rest) if (S.options[f.name] !== undefined) extra[f.name] = S.options[f.name];
-    const ta = h('textarea', { class: 'code', style: 'min-height:70px', value: Object.keys(extra).length ? JSON.stringify(extra, null, 1) : '' , placeholder: '{"message_effect_id": "..."}' });
-    ta.addEventListener('input', () => {
-      try {
-        const v = ta.value.trim() ? JSON.parse(ta.value) : {};
-        for (const f of rest) delete S.options[f.name];
-        Object.assign(S.options, v); ta.style.borderColor = ''; changed();
-      } catch { ta.style.borderColor = 'var(--err)'; }
-    });
-    box.append(h('p', { class: 'muted small' }, 'Другие параметры sendRichMessage (из спецификации): ', rest.filter((f) => allowed.has(f.name)).map((f, i) => [i ? ', ' : '', h('code', { title: f.description, text: f.name })])), ta);
-  }
+  if (!m) return;
+  // with the topic list message_thread_id is the list's: the field neither shows nor sets it, so the two never disagree
+  const listed = !!$('#topic');
+  const known = new Set(['chat_id', 'rich_message', 'reply_markup', 'disable_notification', 'protect_content', ...(listed ? ['message_thread_id'] : [])]);
+  // what options may hold (PostOptions: chat_id, ephemeral_message_parameters… are the studio's); a stored one it
+  // may not stays in the field, so the check's error about it can be fixed here
+  const allowed = new Set(((S.spec.post && S.spec.post.types.PostOptions) || m).fields.map((f) => f.name));
+  const rest = m.fields.filter((f) => !known.has(f.name) && (allowed.has(f.name) || S.options[f.name] !== undefined));
+  const extra = {};
+  for (const f of rest) if (S.options[f.name] !== undefined) extra[f.name] = S.options[f.name];
+  const ta = h('textarea', { class: 'code', style: 'min-height:70px', value: Object.keys(extra).length ? JSON.stringify(extra, null, 1) : '' , placeholder: '{"message_effect_id": "..."}' });
+  ta.addEventListener('input', () => {
+    try {
+      const v = ta.value.trim() ? JSON.parse(ta.value) : {};
+      if (listed && v && typeof v === 'object') delete v.message_thread_id;
+      for (const f of rest) delete S.options[f.name];
+      Object.assign(S.options, v); ta.style.borderColor = ''; changed();
+    } catch { ta.style.borderColor = 'var(--err)'; }
+  });
+  box.append(h('p', { class: 'muted small' }, 'Другие параметры sendRichMessage (из спецификации): ', rest.filter((f) => allowed.has(f.name)).map((f, i) => [i ? ', ' : '', h('code', { title: f.description, text: f.name })])), ta);
+}
+
+/** The forum topic of the post (message_thread_id): only for one forum channel with something to choose, its known
+ * topics or the topic the post already has; without them the post goes to General and there is nothing to pick. */
+function topicChoice() {
+  const list = chats();
+  const one = list.length === 1 ? channelOf(list[0]) : null;
+  const tid = S.options.message_thread_id;
+  const topics = (one && one.is_forum && one.topics) || [];
+  if (!one || !one.is_forum || (!topics.length && tid === undefined)) return null;
+  const sel = /** @type {HTMLSelectElement} */ (h('select', { id: 'topic', title: 'message_thread_id. Темы добавляются в окне «Каналы» (кнопка канала в шапке)', onchange: () => {
+    if (sel.value) { S.options.message_thread_id = Number(sel.value); S.topicChat = list[0]; } else delete S.options.message_thread_id;
+    changed();
+  } },
+  h('option', { value: '', text: 'General' }),
+  ...topics.map((t) => h('option', { value: String(t.id), text: t.name, selected: t.id === tid ? true : null })),
+  tid !== undefined && !topics.some((t) => t.id === tid) ? h('option', { value: String(tid), text: '№' + tid, selected: true }) : null));
+  return h('label', { class: 'row', style: 'margin:2px 0' }, 'Тема форума', sel);
 }
 
 // ---------- preview & validation ----------
