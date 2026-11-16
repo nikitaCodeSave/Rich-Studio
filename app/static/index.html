@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="/static/vendor/katex/katex.min.css">
 <link rel="stylesheet" href="/static/tg.css">
 <link rel="stylesheet" href="/static/app.css">
+<script src="/static/theme.js"></script>
 <script src="/static/vendor/katex/katex.min.js"></script>
 <script src="/static/vendor/markdown-it.min.js"></script>
 <script src="/static/render.js"></script>
@@ -23,12 +24,16 @@
   <button id="btn-save" title="Сохранить (Ctrl+S)">Сохранить</button>
   <span id="save-state" class="muted small"></span>
   <span class="grow"></span>
+  <select id="ui-theme" class="theme-select" title="Тема студии (тему предпросмотра Telegram меняет ☾ над ним)" aria-label="Тема студии">
+    <option value="light">Светлая</option>
+    <option value="dark">Тёмная</option>
+  </select>
   <rs-health id="health"></rs-health>
   <button id="spec-badge" class="badge" title="Версия Bot API, по которой строится редактор">Bot API …</button>
   <button id="spec-refresh" class="ghost icon-btn" title="Обновить спецификацию Bot API сейчас">↻</button>
   <input id="chat" type="text" hidden>
   <button id="btn-check" class="ghost chat-btn" title="Канал этого черновика: выбрать, проверить права бота, темы форума">Канал</button>
-  <select id="topic" class="topic-select" title="Тема форума, в которую уйдёт пост" hidden></select>
+  <select id="topic" class="topic-select" title="Тема форума, в которую уйдёт пост. Темы добавляются в окне «Каналы» (кнопка канала слева)" aria-label="Тема форума" hidden></select>
   <button id="btn-me" class="ghost" title="Отправить пост себе в личку (TG_PREVIEW_CHAT)">Мне в личку</button>
   <span class="split" id="publish-split">
     <button id="btn-publish" class="primary">Опубликовать</button><button id="btn-more" class="primary more" title="Отложить, опрос, Live Photo и платный контент, заменить пост" aria-haspopup="menu" aria-expanded="false" aria-controls="publish-menu">▾</button>

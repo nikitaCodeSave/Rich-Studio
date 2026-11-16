@@ -13,7 +13,7 @@ import { setupSource } from './code-editor.js';
 import { bindTarget, loadChannels, showTarget } from './channels.js';
 import { closeDialog, openDialog } from './dialogs.js';
 import { $, $$, act, debounce, h, sentReport, store, toast } from './dom.js';
-import { effect } from '../vendor/signals-core.js';
+import { effect, signal } from '../vendor/signals-core.js';
 import './components/rs-preview.js';
 import './components/rs-edit-bar.js';
 import './components/rs-draft-notes.js';
@@ -31,7 +31,7 @@ import { showMediaPost } from './media-post.js';
 import { showPoll } from './poll.js';
 import { loadPosts, replacePost } from './posts.js';
 import { refreshSpec, showSpec, updateBadge } from './spec-dialog.js';
-import { chat, chatLabel, chats, dark, dirty, editing, parsed, S, saveState, showParsed, target, targetLabel } from './state.js';
+import { chat, chatLabel, chats, dark, dirty, editing, parsed, S, saveState, showParsed, target, targetLabel, uiTheme } from './state.js';
 import { bindTemplates } from './templates.js';
 import { whenPicker } from './when.js';
 
@@ -42,6 +42,15 @@ function bindEffects() {
   effect(() => { $('#save-state').textContent = saveState.value; });
   effect(() => { $('#btn-undo').disabled = !canUndo.value; $('#btn-redo').disabled = !canRedo.value; });
   effect(() => { store.set('dark', dark.value); parsed.value; showParsed.value; renderPreview(); });
+  // the studio's own theme: a chosen one is set on <html> and kept; until then the list shows the system's
+  const system = matchMedia('(prefers-color-scheme: dark)');
+  const systemDark = signal(system.matches);
+  system.addEventListener('change', (e) => { systemDark.value = e.matches; });
+  effect(() => {
+    const theme = uiTheme.value;
+    if (theme) { document.documentElement.dataset.theme = theme; store.set('uiTheme', theme); }
+    /** @type {HTMLSelectElement} */ ($('#ui-theme')).value = theme || (systemDark.value ? 'dark' : 'light');
+  });
   effect(() => { /** @type {any} */ ($('#edit-bar')).post = editing.value; });
   // «Кнопки» in «Посты» shows only for the post being edited
   let wasEditing = editing.peek()?.id;
@@ -162,6 +171,7 @@ function bindActions() {
   bar.addEventListener('leave', () => leaveEditing());
 
   $('#theme-toggle').onclick = () => { dark.value = !dark.value; };
+  $('#ui-theme').onchange = (e) => { uiTheme.value = /** @type {HTMLSelectElement} */ (e.target).value === 'dark' ? 'dark' : 'light'; };
   $('#open-render').onclick = () => act(async () => {
     if (dirty.value || !S.draftId) await saveDraft(true);
     window.open('/render/draft/' + S.draftId + '?theme=' + (dark.value ? 'dark' : 'light'), '_blank', 'noopener');
@@ -201,6 +211,8 @@ async function boot() {
     [S.spec, S.config] = await Promise.all([api('GET', '/api/spec'), api('GET', '/api/config')]);
   } catch (e) { document.body.prepend(h('p', { class: 'err', style: 'padding:12px', text: 'Не удалось загрузить сервис: ' + e.message })); return; }
   dark.value = store.get('dark', dark.value);
+  const theme = store.get('uiTheme', null);
+  uiTheme.value = theme === 'light' || theme === 'dark' ? theme : null;
   $('#chat').value = S.config.default_chat || '';
   $('#chat').placeholder = S.config.default_chat || '@канал или id';
   if (!S.config.token_set) toast('TG_BOT_TOKEN не задан: редактор и предпросмотр работают, отправка нет. Добавьте токен в .env и перезапустите.', 'err');
