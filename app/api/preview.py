@@ -6,13 +6,15 @@ import re
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import HTMLResponse
 
 import store
 from errors import NotFound
 from models import Post
 from services import publisher
+
+from .deps import ui as from_ui
 
 router = APIRouter()
 TEMPLATE = Path(__file__).resolve().parent.parent / "static" / "render.html"
@@ -34,6 +36,7 @@ def render_page(post: dict, theme: str = "auto", title: str = "Предпрос�
 @router.post("/api/validate", tags=["posts"], summary="Проверить пост по спецификации: ошибки, предупреждения, символы")
 def validate(
     post: Post,
+    ui: bool = Depends(from_ui),
     chat_ids: Annotated[
         list[str] | None,
         Query(
@@ -49,7 +52,7 @@ def validate(
     Тело — сам пост. Поле верхнего уровня, которого у поста нет (`disable_notification` вне `options`), —
     предупреждение, а не ошибка: в Telegram оно не уходит. `chat_id`/`chat_ids` в теле — ошибка, как `chat_id` в
     `options`: каналы этого маршрута — query-параметр `chat_ids`, а публикация с ними в посте отвечает 400."""
-    return publisher.check(post.model_dump(), publisher.checked_targets(chat_ids), CHATS_IN_QUERY)
+    return publisher.check(post.model_dump(), publisher.checked_targets(chat_ids), CHATS_IN_QUERY, ui)
 
 
 @router.post(
