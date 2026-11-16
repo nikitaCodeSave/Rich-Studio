@@ -12,7 +12,7 @@ make check                                      # всё: ruff, format, mypy, с
 make fmt                                        # автоисправление формата и линтеров
 ```
 
-Изменение готово, когда зелёный CI в PR: он гоняет `make check` и весь `make e2e-local`. Пока работаешь, запускай `make check-fast` и тесты своей области (`pytest tests/<файл> -k …`, `npm run test:render`, `make e2e-local ONLY=<проверка>`); полный набор прогонит CI. Изменил маршруты, модели API или инструменты MCP намеренно — `make docs` и закоммить `docs/openapi.json` и `docs/reference/` (тесты `test_openapi_contract.py` и `test_reference_docs.py` сверяют их). Браузерные проверки: `make e2e-local` (свой стенд на свободных портах рядом с рабочей студией; нужен Chromium для Playwright).
+Изменение готово к ревью, когда зелёный CI в PR: он гоняет те же шаги, что `make check`, и весь `make e2e-local` (job `e2e` ждёт зелёный `python`). Пока работаешь, запускай `make check-fast` и тесты своей области: `pytest tests/<файл> -k …`, `make e2e-local ONLY=<проверка>`, а для редактора, санитайзера и предпросмотра нужные `npm run test:…` (`render`, `parity`, `shots`, `export`, `completion`, `codemirror`: в `check-fast` их нет). Полный набор прогонит CI. Изменил маршруты, модели API или инструменты MCP намеренно — `make docs` и закоммить `docs/openapi.json` и `docs/reference/` (тесты `test_openapi_contract.py` и `test_reference_docs.py` сверяют их). Браузерные проверки: `make e2e-local` (свой стенд на свободных портах рядом с рабочей студией; нужен Chromium для Playwright).
 
 ## Главные правила
 
@@ -43,7 +43,7 @@ make fmt                                        # автоисправление
 - Перед PR: свежий `main` (`git merge origin/main`), `make docs`, если менялись маршруты или инструменты, затем `make check-fast`. Номер нового файла миграции, занятый другим PR, роняет `test_migrations.py`: после слияния с `main` возьмите следующий свободный, так же и номер новой браузерной проверки.
 - Ревью делает не автор (см. раздел 9 в `docs/REVIEW_CHECKLIST.md`). Approve и merge только у человека.
 - Job `supply-chain` и Trivy в `docker` падают и от свежей CVE в зависимости, которой нет в диффе. Сначала попробуйте обновить зависимость отдельным PR (`make lock LOCK_ARGS="--upgrade-package <имя>"`, для CodeMirror `make vendor-update`; шаг 3a в `.claude/skills/ci-triage/SKILL.md`). Если исправления нет, временно игнорируйте её: `pip-audit --ignore-vuln <ID>` в `ci.yml` или строка в `.trivyignore`, всегда с комментарием «почему, ссылка, до какой даты». Отключать job нельзя.
-- В облачной сессии зависимости ставит `.claude/hooks/session-start.sh` (в `.venv` и `node_modules`). `make check-fast` — то же без браузера.
+- В облачной сессии зависимости ставит `.claude/hooks/session-start.sh` (в `.venv` и `node_modules`). `make check-fast` — это `make check` без JS-тестов (`npm run test:…`).
 
 ## Документация в том же PR
 

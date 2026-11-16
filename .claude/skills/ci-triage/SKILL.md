@@ -42,7 +42,7 @@ git switch -c deps/<what> origin/main
 make lock LOCK_ARGS="--upgrade-package <name>"   # a transitive package (a CVE); after raising a pin in requirements*.txt plain `make lock`
 .venv/bin/pip install -r requirements-dev.txt     # the bumped tools, so make check runs what CI runs
 git diff --stat                                   # only the bumped packages and their dependencies move
-make check && git commit -am "requirements.lock: …" && git push
+make check-fast && git commit -am "requirements.lock: …" && git push   # the whole set runs in CI
 ```
 
 CodeMirror (a CVE from `npm audit`, or a planned update): `make vendor-update` moves the whole set to its latest versions together and builds the copy again; commit `package.json`, the lock and `app/static/vendor/` (the old `codemirror-<hash>/` goes, a new one comes). After a hand edit of `package.json` or the lock, `make vendor` alone. If a version brought in a package the set did not have, `make vendor` names the `npm install --save-dev --save-exact …` to run first. `a second copy <pkg> <version> in node_modules/<other>/node_modules/<pkg>` means one package moved past what another one of the set accepts: `make vendor-update`, then `npm ls <pkg>` shows one version.
@@ -67,7 +67,7 @@ The same pause-then-read in other checks is a later PR: list those files in this
 
 **Browser checks locally**: `make e2e-local`, one check `make e2e-local ONLY=poll`. It brings up its own stand on free ports with an empty DATA_DIR. The working studio on 7424 is a container that talks to the real Telegram; the harness refuses to run against it, and the stand stops its own processes by PID. The proof of a flake fix is `E2E_SLOW=500 make e2e-local ONLY=<check>` (every request of the page is delayed, as on a slow runner): the old check goes red, the new one green.
 
-Done when `make check` is green locally (a browser fix: also the red-then-green proof and the whole `make e2e-local` set) and `gh pr checks <n> --watch` is green for every PR.
+Done when `gh pr checks <n> --watch` is green for every PR; locally `make check-fast` and the one check you fixed (a browser fix: the red-then-green proof with `E2E_SLOW=500 make e2e-local ONLY=<check>`).
 
 ## 4. Hand off
 
