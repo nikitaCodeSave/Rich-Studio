@@ -493,6 +493,26 @@ def test_a_file_with_a_name_that_is_not_utf8_does_not_break_health_or_the_cleanu
     assert not list(media.media_dir().iterdir())
 
 
+def test_a_file_with_a_name_that_is_not_utf8_is_listed_opens_and_is_deleted_by_its_url(client):
+    """The list shows the name with «�» (JSON has no such bytes) and gives its URL with the bytes as they are: the
+    picture opens by it, and DELETE /api/media/ takes the same segment (the editor's ✕ sends it)."""
+    import os
+
+    from services import media
+
+    (media.media_dir() / os.fsdecode(b"\xff-bad.png")).write_bytes(b"\x89PNG")
+    (media.media_dir() / os.fsdecode(b"\xfe-notes.txt")).write_bytes(b"text")  # a download, with its name
+    r = client.get("/api/media")
+    assert r.status_code == 200, r.text
+    f, txt = (next(x for x in r.json() if x["kind"] == k) for k in ("photo", "document"))
+    assert f["name"] == "�-bad.png" and f["url"] == "/media/%FF-bad.png" and f["used"] is False, f
+    assert client.get(f["url"]).content == b"\x89PNG"
+    assert txt["url"] == "/media/%FE-notes.txt" and client.get(txt["url"]).content == b"text"
+    for x in (f, txt):
+        assert client.delete("/api/media/" + x["url"].removeprefix("/media/")).status_code == 200
+    assert not list(media.media_dir().iterdir())
+
+
 def test_a_text_edit_of_a_sent_post_is_not_refused_for_a_file_of_what_already_went(client, tg):
     """The editor sends poll_after and comment with every edit; the poll went at publish time and editMessageText
     takes only the text and the buttons, so a file of the poll deleted since then is no reason to refuse."""

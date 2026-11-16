@@ -1,6 +1,9 @@
 """Uploads for posts (upload:<name>)."""
 
-from fastapi import APIRouter, File, UploadFile
+import os
+from urllib.parse import unquote_to_bytes
+
+from fastapi import APIRouter, File, Request, UploadFile
 from fastapi.responses import FileResponse
 
 import settings
@@ -9,6 +12,15 @@ from models import FetchReq
 from services import media
 
 router = APIRouter()
+
+
+def _name(request: Request, name: str) -> str:
+    """The file name as its bytes came in the URL (the last segment of the path): the `url` of a file whose name is
+    not UTF-8 carries its bytes (%FF), which the path parameter would have turned into «�». The same name otherwise."""
+    raw = request.scope.get("raw_path")
+    if not isinstance(raw, bytes):
+        return name
+    return os.fsdecode(unquote_to_bytes(raw.split(b"?", 1)[0].rsplit(b"/", 1)[-1]))
 
 
 @router.get(
@@ -60,17 +72,17 @@ def media_cleanup():
     tags=["media"],
     summary="Удалить файл; если он нужен отложенному посту, черновику или шаблону, 409 (force=true удаляет всё равно)",
 )
-def media_delete(name: str, force: bool = False):
-    media.delete(name, force)
+def media_delete(request: Request, name: str, force: bool = False):
+    media.delete(_name(request, name), force)
     return {"ok": True}
 
 
 @router.get("/media/{name}", include_in_schema=False)
-def media_file(name: str):
-    p = media.path_of(name)
+def media_file(request: Request, name: str):
+    p = media.path_of(_name(request, name))
     if p.suffix.lower() in media.INLINE:
         r = FileResponse(p)
     else:  # never render uploaded html/svg/etc. on the studio origin
-        r = FileResponse(p, media_type="application/octet-stream", filename=p.name)
+        r = FileResponse(p, media_type="application/octet-stream", filename=media.shown(p.name))
     r.headers["Content-Security-Policy"] = "sandbox; default-src 'none'"
     return r

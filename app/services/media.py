@@ -57,18 +57,29 @@ def kind(name: str) -> str:
     return "document"
 
 
+def shown(name: str) -> str:
+    """The name for JSON (answers, the log, a search in the database): one that is not UTF-8 (after an unzip, by
+    hand; Python keeps it with surrogates) has «�» in place of its bytes. Its URL (_url) keeps the bytes."""
+    return name.encode("utf-8", "surrogateescape").decode("utf-8", "replace")
+
+
 def describe(name: str) -> dict:
-    return {"name": name, "kind": kind(name), "url": _url(name), "ref": f"upload:{name}"}
+    return {"name": shown(name), "kind": kind(name), "url": _url(name), "ref": f"upload:{shown(name)}"}
 
 
-def list_files() -> list[dict]:
-    """Uploads, newest first; `used` is false when no draft, template or live post mentions the file."""
+def _files() -> list[tuple[Path, bool]]:
+    """The files of the uploads, newest first, each with whether a draft, template or live post mentions it."""
     files = [
         p for p in media_dir().iterdir() if p.is_file() and not p.name.startswith(".")
     ]  # .name.part: a download in progress
     files.sort(key=lambda p: -p.stat().st_mtime)
     refs = store.backup.upload_refs()
-    return [{**describe(p.name), "size": p.stat().st_size, "used": p.name in refs} for p in files]
+    return [(p, p.name in refs) for p in files]
+
+
+def list_files() -> list[dict]:
+    """Uploads, newest first; `used` is false when no draft, template or live post mentions the file."""
+    return [{**describe(p.name), "size": p.stat().st_size, "used": used} for p, used in _files()]
 
 
 def delete_unused(older_than: float | None = None) -> list[str]:
@@ -76,15 +87,10 @@ def delete_unused(older_than: float | None = None) -> list[str]:
 
     older_than: unix time; only files last changed before it (housekeeping keeps fresh uploads).
     """
-    gone = [
-        f["name"]
-        for f in list_files()
-        if not f["used"] and (older_than is None or (media_dir() / f["name"]).stat().st_mtime < older_than)
-    ]
-    for name in gone:  # names from the folder itself: also one put there by hand that no post can use (path_of)
-        (media_dir() / name).unlink(missing_ok=True)
-    # the answer and the log are JSON: a name that is not UTF-8 is shown with � in place of its bytes
-    return [name.encode("utf-8", "surrogateescape").decode("utf-8", "replace") for name in gone]
+    gone = [p for p, used in _files() if not used and (older_than is None or p.stat().st_mtime < older_than)]
+    for p in gone:  # the folder's own files: also one put there by hand that no post can use (path_of)
+        p.unlink(missing_ok=True)
+    return [shown(p.name) for p in gone]
 
 
 def usage() -> dict:
@@ -111,7 +117,8 @@ def free_name(filename: str | None) -> str:
 
 
 def used_by(name: str) -> list[str]:
-    """What still needs the file: scheduled or missed posts, drafts and templates that mention upload:<name>."""
+    """What still needs the file: scheduled or missed posts, drafts and templates that mention upload:<name>. The
+    stored content is UTF-8: a name that is not (shown with «�») is mentioned by none of it."""
     ref = describe(name)["ref"]
     waiting = {"scheduled": "отложенный", "missed": "пропущенный"}
     posts = [f"{waiting[p['status']]} пост в {p['chat_id']}" for p in store.using_upload(ref)]
