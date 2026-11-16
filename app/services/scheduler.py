@@ -27,7 +27,7 @@ async def _send_claimed(queued: dict, now: float) -> None:
     p = store.get_post(queued["id"]) or queued  # the content as it is now, after any edit since the query
     try:
         res = await publisher.send(publisher.resolve_chat(p["chat_id"]), p["payload"], p.get("kind"))
-    except StudioError as e:  # bad settings: nothing was sent
+    except StudioError as e:  # bad settings, or a request the studio refuses (RESERVED_PARAMS in options): not sent
         store.update_post(p["id"], status="failed", error=str(e))
         return
     except tg.TelegramError as e:

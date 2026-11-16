@@ -1,5 +1,6 @@
 """Bot API specification: source, change log and validation."""
 
+from . import chats
 from .convert import to_input_blocks
 from .diff import diff_specs
 from .entities import text_blocks
@@ -10,6 +11,7 @@ from .validator import Validator, keyboard_errors, method_errors, tg_unescape, v
 __all__ = [
     "Spec",
     "Validator",
+    "chats",
     "check_spec_shape",
     "current",
     "diff_specs",

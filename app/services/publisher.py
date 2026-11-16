@@ -27,7 +27,16 @@ from errors import Invalid, MayHaveGone, StudioError
 from . import callbacks, kinds
 
 log = logging.getLogger("rich-studio.publisher")
-RESERVED_PARAMS = {"chat_id", "rich_message", "reply_markup", "message_id"}
+# parameters of sendRichMessage the studio sets itself, never options: where the post goes and what it is
+RESERVED_PARAMS = {"chat_id", "rich_message", "reply_markup", "message_id", "ephemeral_message_parameters"}
+# why, where it is more than «the studio sets it»
+RESERVED_WHY = {
+    # with callback_query_id Telegram ignores chat_id and shows the message to whoever pressed that button, with
+    # receiver_user_id to one member of the chat: either way not a post of the channel, yet the studio would record
+    # one, pin it, comment under it. A rich reply to a button press is callbacks[…].reply (#163, ADR 0021)
+    "ephemeral_message_parameters": "с ним сообщение видит один человек, а не канал, и студия записала бы его "
+    "постом; rich-ответ на нажатие кнопки задаётся в callbacks[…].reply",
+}
 MAY_HAVE_GONE = "Пост мог уйти в канал, проверьте перед повтором"
 POLL_MAY_HAVE_GONE = "Опрос мог уйти в канал, проверьте перед повтором"
 UNRECORDED = "опубликован, студия не смогла записать — не публикуйте повторно"
@@ -118,6 +127,29 @@ def targets(chat_id, chat_ids, draft_id: str | None = None) -> list:
     return [resolve_chat(chat_id)]
 
 
+def checked_targets(chat_ids=None, draft_id: str | None = None) -> list:
+    """Where a post would go, for its check: as targets() says, but a wrong or missing chat is left out, the others
+    stay (a check raises nothing; publishing tells what is wrong)."""
+    if not chat_ids and draft_id:
+        d = store.get_draft(draft_id)
+        if d is None:  # a deleted draft goes nowhere, not to the default channel
+            return []
+        chat_ids = d.get("chat_ids")
+    if chat_ids:
+        good = []
+        for c in chat_ids:
+            try:
+                normalize_chats([c])
+            except StudioError:
+                continue
+            good.append(c)
+        return targets(None, good) if good else []
+    try:
+        return targets(None, None)
+    except StudioError:  # no default channel
+        return []
+
+
 def check_thread(chats: list, post: dict) -> None:
     """A forum topic belongs to one chat: refuse it for several chats or for a known non-forum one."""
     tid = (post.get("options") or {}).get("message_thread_id")
@@ -132,21 +164,49 @@ def check_thread(chats: list, post: dict) -> None:
         raise StudioError(f"{ch.get('title') or chats[0]} не форум: уберите message_thread_id из options")
 
 
-def options(post: dict) -> dict:
+def options_error(post: dict) -> str | None:
+    """What options must not hold (RESERVED_PARAMS), or None."""
     opts = post.get("options") or {}
-    bad = RESERVED_PARAMS & set(opts)
-    if bad:
-        raise StudioError(f"в options нельзя задавать {', '.join(sorted(bad))}")
-    return opts
+    bad = sorted(RESERVED_PARAMS & set(opts)) if isinstance(opts, dict) else []
+    if not bad:
+        return None
+    why = "; ".join(f"{k}: {RESERVED_WHY[k]}" for k in bad if k in RESERVED_WHY)
+    return f"в options нельзя задавать {', '.join(bad)}" + (f" ({why})" if why else "")
 
 
-def _check_post(post: dict) -> dict:
-    """Validation report of the text and of the buttons under it."""
+def options(post: dict) -> dict:
+    if bad := options_error(post):
+        raise StudioError(bad)
+    return post.get("options") or {}
+
+
+# the first comment goes to the discussion group of the channel, a supergroup
+DISCUSSION = ("supergroup", "в группе обсуждения")
+
+
+def places(chats: Iterable) -> list[tuple[str, str]]:
+    """The chats a post goes to as spec.chats.warnings reads them: (type, where in words). Only a chat the studio
+    checked (services/channels.py) has a type; one nobody checked gets no warnings. Raises nothing."""
+    out = []
+    for c in chats:
+        try:
+            ch = store.get_channel(c)
+        except Exception:  # a warning is not worth a failed check
+            log.exception("could not read channel %s for the chat rules", c)
+            continue
+        if ch and ch.get("type"):
+            out.append(spec.chats.place(ch["type"], bool(ch.get("is_forum")), ch.get("title"), c))
+    return list(dict.fromkeys(out))
+
+
+def _check_post(post: dict, where: list[tuple[str, str]]) -> dict:
+    """Validation report of the text, of the buttons under it and of the options, with what Telegram refuses in the
+    chats it goes to (`where`, from places())."""
     r = spec.validate_rich_message(spec.current, post["rich_message"])
-    bad_buttons = spec.keyboard_errors(post.get("reply_markup"))
-    if bad_buttons:
-        r = {**r, "ok": False, "errors": r["errors"] + bad_buttons}
-    return r
+    bad = spec.keyboard_errors(post.get("reply_markup")) + ([e] if (e := options_error(post)) else [])
+    if bad:
+        r = {**r, "ok": False, "errors": r["errors"] + bad}
+    return {**r, "warnings": r["warnings"] + spec.chats.warnings(spec.current, post, where)}
 
 
 def _check_comment(post: dict) -> dict | None:
@@ -154,18 +214,21 @@ def _check_comment(post: dict) -> dict | None:
     if not post.get("comment"):
         return None
     c = spec.validate_rich_message(spec.current, post["comment"])
+    refused = spec.chats.warnings(spec.current, {"rich_message": post["comment"]}, [DISCUSSION])
     return {
         **c,
         "errors": ["комментарий: " + e for e in c["errors"]],
-        "warnings": ["комментарий: " + w for w in c["warnings"]],
+        "warnings": ["комментарий: " + w for w in c["warnings"] + refused],
     }
 
 
-def check(post: dict) -> dict:
+def check(post: dict, chats: Iterable = ()) -> dict:
     """Validation report of the post, its first comment and the rich replies to its buttons (a draft is saved with
-    it, the editor shows it); raises nothing. The stats are the post's own."""
-    r = _check_post(post)
-    for part in (_check_comment(post), callbacks.check(post)):
+    it, the editor shows it), with warnings for what Telegram refuses in `chats`, the ones it goes to; raises nothing.
+    The stats are the post's own."""
+    where = places(chats)
+    r = _check_post(post, where)
+    for part in (_check_comment(post), callbacks.check(post, where)):
         if part:
             r = {
                 **r,
@@ -176,17 +239,19 @@ def check(post: dict) -> dict:
     return r
 
 
-def validate(post: dict) -> dict:
-    """Validation report; raises Invalid if the post, its first comment or a reply to its buttons has errors."""
+def validate(post: dict, chats: Iterable = ()) -> dict:
+    """Validation report; raises Invalid if the post, its first comment or a reply to its buttons has errors. What
+    Telegram refuses in `chats`, the ones it goes to, is a warning."""
     options(post)
-    r = _check_post(post)
+    where = places(chats)
+    r = _check_post(post, where)
     if not r["ok"]:
         raise Invalid({"message": "пост не прошёл проверку", **r})
     if c := _check_comment(post):
         if not c["ok"]:
             raise Invalid({"message": "первый комментарий не прошёл проверку", **c})
         r = {**r, "warnings": r["warnings"] + c["warnings"]}
-    cb = callbacks.check(post)
+    cb = callbacks.check(post, where)
     r = {**r, "warnings": r["warnings"] + cb["warnings"]}  # the reply's own warnings too, refused or not
     if cb["errors"]:
         raise Invalid({"message": "ответ на кнопку не прошёл проверку", **r, "ok": False, "errors": cb["errors"]})

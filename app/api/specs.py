@@ -54,12 +54,16 @@ def post_envelope() -> dict:
 
 
 @router.get(
-    "/api/spec", summary="Сводка спецификации для редактора (rich-типы, методы, изменения, поля поста для подсказок)"
+    "/api/spec",
+    summary="Сводка спецификации для редактора (rich-типы, методы, изменения, поля поста для подсказок, в каких чатах "
+    "что не работает)",
 )
 def get_spec():
     post = post_envelope()
     roots = [t for shape in post["types"].values() for f in shape["fields"] for t in f["types"]]
-    return {**spec.current.summary(roots), "post": post}
+    # chat_rules: where Telegram refuses a field or a type, read from the descriptions (spec/chats.py); the editor
+    # marks what does not work in the chats the post goes to
+    return {**spec.current.summary(roots), "post": post, "chat_rules": spec.chats.summary(spec.current)}
 
 
 @router.get("/api/spec/raw", summary="Полный api.json")
