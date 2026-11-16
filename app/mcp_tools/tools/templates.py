@@ -53,8 +53,8 @@ def register(tool: ToolDecorator) -> None:
         https://site/{{slug}}.
         Значение при заполнении всегда текст: разметки оно не создаёт. В Markdown поля пока не подставляются:
         возьмите блоки или HTML. Файл подставляет поле url целиком со значением upload:имя в медиа поста (блок,
-        rich_message.media), не в атрибут HTML. HTML с полями должен разбираться без ошибок HTML5 (без «=» без
-        имени, лишних кавычек в тегах, < вне тегов). Ничего не публикует."""
+        rich_message.media), не в атрибут HTML и не в url. HTML с полями должен разбираться без ошибок HTML5
+        (без «=» без имени, лишних кавычек в тегах, < вне тегов). Ничего не публикует."""
         try:
             return templates.save(title, parse_post(post), [f.model_dump() for f in fields], template_id, version)
         except Conflict as e:

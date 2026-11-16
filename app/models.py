@@ -221,7 +221,8 @@ class TemplateReq(BaseModel):
     post: Post = Field(
         ...,
         description="Пост, как для отправки: {{key}} стоит только в строковых значениях (в HTML — в тексте или в "
-        "атрибуте в кавычках, в href/src — только поле типа url целиком); в Markdown поля пока не подставляются",
+        "атрибуте в кавычках, в href/src и в JSON-ключе url — только поле типа url целиком); в Markdown поля пока "
+        "не подставляются",
     )
     fields: list[TemplateField] = Field(default_factory=list, description="Поля шаблона: каждое стоит в посте")
 
