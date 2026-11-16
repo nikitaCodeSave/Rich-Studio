@@ -513,6 +513,30 @@ def test_a_file_with_a_name_that_is_not_utf8_is_listed_opens_and_is_deleted_by_i
     assert not list(media.media_dir().iterdir())
 
 
+def test_a_file_deleted_while_the_list_of_uploads_is_read_does_not_fail_it(client, monkeypatch):
+    """The editor reads the list again right after its own DELETE: a file gone between the folder's listing and its
+    size is no 500 (found by e2e/54-delete-upload-by-its-url)."""
+    from pathlib import Path
+
+    from services import media
+
+    for name in ("stays.png", "gone.png"):
+        (media.media_dir() / name).write_bytes(b"\x89PNG")
+    real, seen = Path.stat, []
+
+    def deleted_after_its_first_look(self, *a, **kw):
+        if self.name == "gone.png":
+            seen.append(1)
+            if len(seen) > 1:
+                raise FileNotFoundError(2, "No such file or directory", str(self))
+        return real(self, *a, **kw)
+
+    monkeypatch.setattr(Path, "stat", deleted_after_its_first_look)
+    r = client.get("/api/media")
+    assert r.status_code == 200 and "stays.png" in [f["name"] for f in r.json()], r.text
+    assert client.post("/api/media/cleanup").status_code == 200
+
+
 def test_a_text_edit_of_a_sent_post_is_not_refused_for_a_file_of_what_already_went(client, tg):
     """The editor sends poll_after and comment with every edit; the poll went at publish time and editMessageText
     takes only the text and the buttons, so a file of the poll deleted since then is no reason to refuse."""

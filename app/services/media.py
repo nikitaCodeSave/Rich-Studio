@@ -4,9 +4,11 @@ import asyncio
 import base64
 import binascii
 import ipaddress
+import os
 import re
 import secrets
 import socket
+import stat
 import urllib.request
 from pathlib import Path
 from urllib.parse import quote, unquote, urljoin, urlsplit
@@ -67,19 +69,27 @@ def describe(name: str) -> dict:
     return {"name": shown(name), "kind": kind(name), "url": _url(name), "ref": f"upload:{shown(name)}"}
 
 
-def _files() -> list[tuple[Path, bool]]:
-    """The files of the uploads, newest first, each with whether a draft, template or live post mentions it."""
-    files = [
-        p for p in media_dir().iterdir() if p.is_file() and not p.name.startswith(".")
-    ]  # .name.part: a download in progress
-    files.sort(key=lambda p: -p.stat().st_mtime)
+def _files() -> list[tuple[Path, os.stat_result, bool]]:
+    """The files of the uploads, newest first, each looked at once (a file deleted meanwhile, say by the DELETE the
+    editor reads the list after, is left out) and with whether a draft, template or live post mentions it."""
+    files = []
+    for p in media_dir().iterdir():
+        if p.name.startswith("."):  # .name.part: a download in progress
+            continue
+        try:
+            st = p.stat()
+        except FileNotFoundError:
+            continue
+        if stat.S_ISREG(st.st_mode):
+            files.append((p, st))
+    files.sort(key=lambda f: -f[1].st_mtime)
     refs = store.backup.upload_refs()
-    return [(p, p.name in refs) for p in files]
+    return [(p, st, p.name in refs) for p, st in files]
 
 
 def list_files() -> list[dict]:
     """Uploads, newest first; `used` is false when no draft, template or live post mentions the file."""
-    return [{**describe(p.name), "size": p.stat().st_size, "used": used} for p, used in _files()]
+    return [{**describe(p.name), "size": st.st_size, "used": used} for p, st, used in _files()]
 
 
 def delete_unused(older_than: float | None = None) -> list[str]:
@@ -87,7 +97,7 @@ def delete_unused(older_than: float | None = None) -> list[str]:
 
     older_than: unix time; only files last changed before it (housekeeping keeps fresh uploads).
     """
-    gone = [p for p, used in _files() if not used and (older_than is None or p.stat().st_mtime < older_than)]
+    gone = [p for p, st, used in _files() if not used and (older_than is None or st.st_mtime < older_than)]
     for p in gone:  # the folder's own files: also one put there by hand that no post can use (path_of)
         p.unlink(missing_ok=True)
     return [shown(p.name) for p in gone]
