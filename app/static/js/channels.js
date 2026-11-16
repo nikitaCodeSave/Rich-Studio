@@ -5,7 +5,7 @@ import { $, act, h, toast } from './dom.js';
 import { changed, refreshTopic, renderPreview, validate } from './editor.js';
 import { showInviteLinks } from './invite-links.js';
 import { renderKeyboard } from './keyboard.js';
-import { channelOf, channelTitle, chatLabel, chats, S, topicHome } from './state.js';
+import { channelOf, channelTitle, chatLabel, chats, S, sameChat, topicHome } from './state.js';
 
 export { channelTitle };
 
@@ -31,7 +31,7 @@ export function showTarget() {
   if (tid === undefined) S.topicChat = undefined;
   else if (S.topicChat === undefined) S.topicChat = home;
   // a topic belongs to its chat: in another chat it would send the post nowhere or to a wrong thread
-  const dropped = tid !== undefined && (home === undefined || home !== S.topicChat);
+  const dropped = tid !== undefined && !sameChat(home, S.topicChat);
   if (dropped) { delete S.options.message_thread_id; S.topicChat = undefined; changed(); }
   refreshTopic(dropped);
 }

@@ -122,8 +122,10 @@ async function openCopy(p) {
     const full = await api('GET', '/api/posts/' + p.id);
     setDraft(null, null); editing.value = null;
     $('#title').value = 'Копия поста ' + (p.message_id || '');
-    loadPost(full.payload, false, full.chat_id);
-    showTarget(); // the copy goes where the header says: the topic of the post's own forum stays there
+    // the copy is the post sent again: to its own chat, with its forum topic
+    /** @type {HTMLInputElement} */ ($('#chat')).value = String(full.chat_id);
+    loadPost(full.payload);
+    showTarget();
     resetHistory();
     dirty.value = true; saveState.value = 'есть изменения';
     autosave();

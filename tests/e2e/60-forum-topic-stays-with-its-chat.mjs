@@ -4,7 +4,7 @@
 // whatever the header says. A page of its own: the forums are a faked GET /api/channels.
 
 /** @param {import('./harness.mjs').Ctx} ctx */
-export default async function ({ browser, BASE, check }) {
+export default async function ({ browser, BASE, MOCK, check }) {
   const forum = (chat_id, title, topics) => ({ chat_id, title, type: 'supergroup', is_forum: true, topics,
     checked_at: '2026-11-16T00:00:00Z', is_default: false, can_post: true, rights: { status: 'administrator', can_post_messages: true } });
   const channels = [forum('@forum_a', 'Форум А', [{ id: 5, name: 'Новости А' }]), forum('@forum_b', 'Форум Б', [{ id: 8, name: 'Новости Б' }]),
@@ -113,7 +113,8 @@ export default async function ({ browser, BASE, check }) {
     await context.close();
   }
 
-  // one Ctrl+Z undoes a change: a step that differed only by the topic left behind in forum A is passed over
+  // one Ctrl+Z undoes a change: a step that differed only by the topic left behind in forum A is passed over, before
+  // the change and after it, so the buttons go off when nothing is left to change
   {
     const { context, page } = await open();
     await pick(page, '5');
@@ -124,10 +125,13 @@ export default async function ({ browser, BASE, check }) {
     const before = await seen(page);
     await moveTo(page, '@forum_b', 'Новости Б');
     await page.click('#btn-undo');
-    const undone = await seen(page);
+    const undone = { ...await seen(page), more: await page.isEnabled('#btn-undo') };
+    await page.click('#btn-redo');
+    const redone = { ...await seen(page), more: await page.isEnabled('#btn-redo') };
     check('One undo after the topic was left behind undoes the change before it',
-      before.silent && before.thread === 5 && !undone.silent && undone.thread === null,
-      JSON.stringify({ before, undone }));
+      before.silent && before.thread === 5 && !undone.silent && undone.thread === null && !undone.more
+      && redone.silent && redone.thread === null && !redone.more,
+      JSON.stringify({ before, undone, redone }));
     await context.close();
   }
 
@@ -151,6 +155,30 @@ export default async function ({ browser, BASE, check }) {
     check('A post opened for editing keeps its topic whatever chat the header shows',
       post.id && [opened, own, other].every((s) => s.thread === 5 && s.chosen === 'Новости А'),
       JSON.stringify({ id: post.id, opened, own, other }));
+    await context.close();
+  }
+
+  // «Открыть» on a post that did not go out is the post sent again: the copy goes to the post's own forum with its
+  // topic, whatever chat the header had
+  {
+    const { context, page } = await open('@forum_c');
+    const fail = (description) => fetch(MOCK + '/fail', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ method: 'sendRichMessage', description }) });
+    const title = 'Не вышел в тему';
+    await fail('Bad Request: not enough rights to send text messages to the chat');
+    await page.evaluate((t) => fetch('/api/send', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: '@forum_a', post: { rich_message: { blocks: [{ type: 'heading', size: 1, text: t }] }, options: { message_thread_id: 5 } } }) }), title);
+    // the refusal is stored once the send answered: the mock may answer sends again
+    const failed = await page.evaluate((t) => fetch('/api/posts').then((r) => r.json()).then((ps) => ps.some((p) => p.status === 'failed' && (p.title || '').includes(t))), title);
+    await fail(null);
+    await page.click('#side-tabs [data-tab=posts]');
+    const row = page.locator('#posts li.post-row', { hasText: title });
+    await row.getByRole('button', { name: 'Открыть' }).click();
+    await header(page, 'Форум А');
+    await topics(page, 'Новости А');
+    const copy = { ...await seen(page), chat: await page.inputValue('#chat'), title: await page.inputValue('#title') };
+    check('A copy of a post that did not go out keeps the post\'s forum and topic',
+      failed && copy.chat === '@forum_a' && copy.thread === 5 && copy.chosen === 'Новости А' && /^Копия поста/.test(copy.title),
+      JSON.stringify({ failed, copy }));
     await context.close();
   }
 }

@@ -91,9 +91,7 @@ const READ = {
 
 /** @param {Json} post @param {boolean} [keepNotes] only the post changes (JSON applied, an earlier version):
  * the open draft keeps its notes */
-/** @param {string} [topicChat] the chat the post's topic belongs to when it came from elsewhere (a published post's
- * own chat); by default where the topic leads now (topicHome) */
-export function loadPost(post, keepNotes = false, topicChat = undefined) {
+export function loadPost(post, keepNotes = false) {
   post = clone(post || {});
   const studio = post._studio;
   delete post._studio;
@@ -118,8 +116,8 @@ export function loadPost(post, keepNotes = false, topicChat = undefined) {
   const { inline_keyboard: kb, ...markup } = post.reply_markup || {};
   S.keyboard = kb || [];
   S.options = post.options || {};
-  // the loaded post's topic belongs to its chat: in another one showTarget drops it
-  S.topicChat = S.options.message_thread_id === undefined ? undefined : topicChat ?? topicHome();
+  // the loaded post's topic belongs to where it leads now: in another chat showTarget drops it
+  S.topicChat = S.options.message_thread_id === undefined ? undefined : topicHome();
   // a comment with its HTML as a string is edited in the form, its other fields kept; any other one stays as it came
   const c = post.comment;
   const html = isObject(c) && typeof c.html === 'string';

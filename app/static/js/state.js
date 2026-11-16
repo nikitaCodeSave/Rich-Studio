@@ -32,6 +32,12 @@ export const chat = () => chats()[0];
 /** Where a forum topic of the post leads: the edited post's own chat («Обновить пост» sends it there), else the one
  * channel chosen; none for several. */
 export const topicHome = () => { const e = editing.peek(); if (e) return e.chat_id; const c = chats(); return c.length === 1 ? c[0] : undefined; };
+/** One chat under two names (@Name and @name, @name and its -100… id once checked). */
+export const sameChat = (a, b) => {
+  if (a === undefined || a === null || b === undefined || b === null) return false;
+  const one = channelOf(String(a));
+  return String(a).toLowerCase() === String(b).toLowerCase() || (!!one && one === channelOf(String(b)));
+};
 // body fields for one or several channels
 // always the explicit list the confirmation showed, never "whatever the saved draft says"
 export const target = () => { const c = chats(); return { chat_ids: c.length ? c : [S.config.default_chat].filter(Boolean) }; };

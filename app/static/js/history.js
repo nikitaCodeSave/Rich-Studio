@@ -1,7 +1,7 @@
 // Undo/redo for the whole post: a stack of draft snapshots, one per pause in editing.
 import { computed, signal } from '../vendor/signals-core.js';
 import { autosave, draftPayload, loadPost, setMode } from './editor.js';
-import { dirty, parsed, S, saveState, showParsed, topicHome } from './state.js';
+import { dirty, parsed, S, sameChat, saveState, showParsed, topicHome } from './state.js';
 
 const LIMIT = 100;
 const PAUSE_MS = 400; // edits closer than this become one undo step
@@ -54,39 +54,43 @@ export function recordHistory() {
   timer = setTimeout(commit, PAUSE_MS);
 }
 
-function restore(snap) {
+/** The step as it shows here: in another chat its topic would send the post to a wrong thread or nowhere, so it stays
+ * behind. */
+function here(snap) {
   const { post, chat } = JSON.parse(snap);
-  // undone in another chat, the step's topic would send the post to a wrong thread or nowhere: it stays behind
-  const moved = post.options?.message_thread_id !== undefined && (chat === undefined || chat !== topicHome());
-  if (moved) delete post.options.message_thread_id;
+  if (post.options?.message_thread_id === undefined || sameChat(chat, topicHome())) return snap;
+  delete post.options.message_thread_id;
+  return JSON.stringify({ post });
+}
+
+function restore(snap) {
+  current = snap;
   const inJson = S.mode === 'json';
-  loadPost(post);
-  current = moved ? snapshot() : snap;
+  loadPost(JSON.parse(snap).post);
   if (inJson) setMode('json', true); // an undo while typing JSON keeps the person in the JSON tab
   dirty.value = true;
   saveState.value = 'есть изменения';
   autosave();
 }
 
-// a step that differed only by a topic left behind in another chat changes nothing now: the next one goes with it
-export function undo() {
+/** One Ctrl+Z or Ctrl+Y changes what is shown: a step that differed only by a topic left behind in another chat looks
+ * here like its neighbour, so it goes along, before the change and after it (or the next press would change nothing).
+ * @param {boolean} back */
+function go(back) {
   if (timer) commit(); // an edit still waiting for its pause is the step to undo
+  const [from, to] = back ? [past, future] : [future, past];
+  const top = () => (back ? from.value.at(-1) : from.value[0]);
+  const move = () => {
+    const step = here(top());
+    from.value = back ? from.value.slice(0, -1) : from.value.slice(1);
+    to.value = back ? [current, ...to.value] : [...to.value, current];
+    current = step;
+  };
   const shown = current;
-  while (past.value.length && current === shown) {
-    const prev = past.value.at(-1);
-    past.value = past.value.slice(0, -1);
-    future.value = [current, ...future.value];
-    restore(prev);
-  }
+  while (from.value.length && current === shown) move();
+  while (from.value.length && here(top()) === current) move();
+  if (current !== shown) restore(current);
 }
 
-export function redo() {
-  if (timer) commit();
-  const shown = current;
-  while (future.value.length && current === shown) {
-    const next = future.value[0];
-    future.value = future.value.slice(1);
-    past.value = [...past.value, current];
-    restore(next);
-  }
-}
+export function undo() { go(true); }
+export function redo() { go(false); }
