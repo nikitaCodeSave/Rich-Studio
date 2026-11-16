@@ -324,6 +324,42 @@ def test_a_whole_link_field_in_a_json_link_is_checked_when_filled(client):
     assert text[1] == {"type": "url", "text": '"Читать"', "url": "https://site/a"}
 
 
+def test_a_file_never_goes_into_a_json_link(client):
+    """As in an HTML link attribute: telegram/uploads makes a file of upload: only in a media field, under url it
+    would go to Telegram as the text upload:a.png."""
+    link = {"key": "u", "type": "url", "default": "upload:a.png"}
+    r = client.post("/api/templates", json={"title": "t", "post": button_link("{{u}}"), "fields": [link]})
+    assert r.status_code == 422 and "upload:" in r.json()["detail"] and "JSON" in r.json()["detail"], r.text
+    t = make(client, {"title": "t", "post": button_link("{{u}}"), "fields": [{**link, "default": "https://site/a"}]})
+    r = fill(client, t, u="upload:a.png")
+    assert r.status_code == 422 and "upload:" in r.text and "JSON" in r.text, r.text
+    # one field in a media field and in a link: the file would reach the link too
+    photo = {"type": "photo", "photo": {"type": "photo", "media": "{{u}}"}}
+    both = {**button_link("{{u}}"), "rich_message": {"blocks": [photo]}}
+    t = make(client, {"title": "t2", "post": both, "fields": [{**link, "default": "https://site/a.png"}]})
+    assert fill(client, t, u="upload:a.png").status_code == 422
+    assert store.list_drafts() == []
+
+
+def test_the_keys_of_callbacks_are_button_data_not_fields(client):
+    """callbacks[callback_data] is the answer to a button: a string answer to the button "url" is text, not a link, and
+    to the button "html" is not HTML. A url inside an answer object (answerCallbackQuery.url) is a link."""
+    buttons = [[{"text": "a", "callback_data": "url"}, {"text": "b", "callback_data": "html"}]]
+    post = {
+        "rich_message": {"blocks": [{"type": "paragraph", "text": "x"}]},
+        "reply_markup": {"inline_keyboard": buttons},
+        "callbacks": {"url": "Спасибо, {{name}}", "html": "Ещё раз, {{name}}"},
+    }
+    t = make(client, {"title": "t", "post": post, "fields": [{"key": "name"}]})
+    r = fill(client, t, name="<b>Аня</b>")
+    assert r.status_code == 200, r.text
+    answers = store.get_draft(r.json()["id"])["payload"]["callbacks"]
+    assert answers == {"url": "Спасибо, <b>Аня</b>", "html": "Ещё раз, <b>Аня</b>"}
+    post["callbacks"] = {"url": {"text": "{{name}}", "url": "https://t.me/bot?start={{name}}"}}
+    r = client.post("/api/templates", json={"title": "t", "post": post, "fields": [{"key": "name"}]})
+    assert r.status_code == 422 and "целиком" in r.json()["detail"], r.text
+
+
 def test_a_link_field_takes_an_anchor_or_a_path_and_a_file_only_where_it_is_sent(client):
     """As the preview's safeUrl: #anchor and /path are links too. upload:name works only in the post's JSON (media):
     in an HTML attribute it would stay upload:name, the HTML way to a file is tg://photo?id= and rich_message.media."""
