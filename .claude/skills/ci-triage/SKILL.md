@@ -5,7 +5,7 @@ description: Bring red CI on GitHub back to green: find what failed, tell a flak
 
 # CI triage
 
-Every failure gets a cause backed by evidence before anything is fixed: "new versions broke it" is where the work starts. The project rules applied here (areas and paths, `make check`, merge by a human) are in `AGENTS.md`.
+Every failure gets a cause backed by evidence before anything is fixed: "new versions broke it" is where the work starts.
 
 ## 1. Map the failures
 
@@ -26,7 +26,7 @@ Done when every failed run has its job, step and failing test or line, you know 
 | `test_lock.py`: `requirements.lock отстал от requirements.txt` | a pin in `requirements.txt` moved without `make lock` | 3a |
 | `vendor_codemirror: app/static/vendor/ is not what package-lock.json gives` or `vendor_codemirror: … a second copy …` | `package.json` or the lock moved a package of the CodeMirror set; the copy in `app/static/vendor/codemirror-*` is made by `scripts/vendor_codemirror.mjs` | 3a, `make vendor` |
 | `FAIL  <check>` in `e2e` of a PR whose diff cannot reach the editor (an image digest, docs, another job's deps) | flake: a fixed pause before reading a page that updates asynchronously | 3b |
-| `supply-chain` or Trivy: a CVE in a package outside the diff | a fresh advisory | the CVE rule in `AGENTS.md` |
+| `supply-chain` or Trivy in `docker`: a CVE in a package outside the diff | a fresh advisory | 3c |
 | anything else | a real break | reproduce locally (`make check-fast`, the single test), fix test-first (`tests/AGENTS.md`) |
 
 Evidence for a flake, one is enough: the check's own output shows the action succeeded (the mock got the right call) while the page it read was stale; the same check fails in other runs (`gh run list --status failure --limit 60 --json databaseId --jq '.[].databaseId'`, then `gh run view <id> --log-failed | grep "FAIL  "` for each); `gh run rerun <id> --failed` goes green.
@@ -45,29 +45,13 @@ git diff --stat                                   # only the bumped packages and
 make check-fast && git commit -am "requirements.lock: …" && git push   # the whole set runs in CI
 ```
 
-CodeMirror (a CVE from `npm audit`, or a planned update): `make vendor-update` moves the whole set to its latest versions together and builds the copy again; commit `package.json`, the lock and `app/static/vendor/` (the old `codemirror-<hash>/` goes, a new one comes). After a hand edit of `package.json` or the lock, `make vendor` alone. If a version brought in a package the set did not have, `make vendor` names the `npm install --save-dev --save-exact …` to run first. `a second copy <pkg> <version> in node_modules/<other>/node_modules/<pkg>` means one package moved past what another one of the set accepts: `make vendor-update`, then `npm ls <pkg>` shows one version.
+CodeMirror (a CVE from `npm audit`, or a planned update): `make vendor-update` moves the whole set to its latest versions together and builds the copy again; commit `package.json`, the lock and `app/static/vendor/` (the old `codemirror-<hash>/` goes, a new one comes). After a hand edit of `package.json` or the lock, `make vendor` alone. If a version brought in a package the set did not have, `make vendor` names the `npm install --save-dev --save-exact …` to run first. `<pkg>: a second copy <version> in node_modules/<other>/node_modules/<pkg>` means one package moved past what another one of the set accepts: `make vendor-update`, then `npm ls <pkg>` shows one version.
 
-**b. Flaky browser check**: its own PR (area editor). Replace the pause before the read with a wait for the event, then the unchanged `check` (as in `tests/e2e/19-a-new-post-becomes.mjs`):
+**b. Flaky browser check**: its own PR (area editor). Replace the pause before the read with a wait for the event and keep the `check` unchanged; how to wait: `tests/AGENTS.md`. The same pause-then-read in other checks is a later PR: list those files in this PR's description.
 
-```js
-await page.waitForFunction(() => /опрос/.test(document.querySelector('#posts li')?.textContent || ''), null, { timeout: 8000 }).catch(() => {});
-```
+**c. A fresh CVE outside the diff**: first the bump of 3a in its own PR. If no fix can be taken yet, ignore the CVE for a while, always with a comment: why, a link, until what date. For pip-audit, `--ignore-vuln <ID>` in `ci.yml`; for Trivy, a line in `.trivyignore`, which the `image scan` step reads only once the file is mounted into the Trivy container and passed as `--ignorefile`. Never turn the job off.
 
-For the mock's log or the API, `until` from the harness, counted from before the action (the log keeps the whole session):
-
-```js
-const before = (await mockLog()).filter((c) => c.method === 'sendPoll').length;
-await page.click('#send');
-const poll = await until(async () => (await mockLog()).filter((c) => c.method === 'sendPoll').slice(before).pop());
-```
-
-Two actions that each reload the same list (a tab, then a filter) go one after the other: wait for the first one's result, or the older reload may land last.
-
-The same pause-then-read in other checks is a later PR: list those files in this PR's description.
-
-**Browser checks locally**: `make e2e-local`, one check `make e2e-local ONLY=poll`. It brings up its own stand on free ports with an empty DATA_DIR. The working studio on 7424 is a container that talks to the real Telegram; the harness refuses to run against it, and the stand stops its own processes by PID. The proof of a flake fix is `E2E_SLOW=500 make e2e-local ONLY=<check>` (every request of the page is delayed, as on a slow runner): the old check goes red, the new one green.
-
-Done when `gh pr checks <n> --watch` is green for every PR; locally `make check-fast` and the one check you fixed (a browser fix: the red-then-green proof with `E2E_SLOW=500 make e2e-local ONLY=<check>`).
+Done when `gh pr checks <n> --watch` is green for every PR; locally `make check-fast` and the one check you fixed (a browser fix: `E2E_SLOW=500 make e2e-local ONLY=<check>` red on the old check, green on the new one).
 
 ## 4. Hand off
 

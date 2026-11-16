@@ -28,5 +28,5 @@ def register(tool: ToolDecorator) -> None:
 
     @tool(READ)
     async def list_media() -> list:
-        """Загруженные файлы: в посте указываются как ref (upload:<имя>); used — нужен ли черновику, шаблону или посту."""
+        """Загруженные файлы: ref (upload:<имя>) для поста; used — нужен ли черновику, шаблону или посту."""
         return media.list_files()

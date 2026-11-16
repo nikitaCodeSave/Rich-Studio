@@ -32,3 +32,4 @@
 | [0022](0022-code-block-without-highlighting.md) | Код-блок в предпросмотре как в Telegram Desktop, но без подсветки синтаксиса; вид файла `tg://` по записи в `media`; адрес TON по контрольной сумме, в HTML, Markdown и блоках |
 | [0023](0023-chat-type-rules-from-descriptions.md) | Что не работает в чате назначения: правила из описаний спецификации, замеры отдельным списком; `ephemeral_message_parameters` в `options` запрещён |
 | [0024](0024-no-widgets-in-editor.md) | HTML-виджетов (`sendWidget`) в редакторе нет: в канал они не отправляются, клиент рисует их сам, а не браузер; методы доступны через `/api/raw` |
+| [0025](0025-log-fields-and-health-format.md) | Журнал и отчёт: свои короткие имена полей вместо OTel semconv, `request_id` по W3C Trace Context, из `application/health+json` только `version` и `time`, без уведомлений MCP |

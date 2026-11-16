@@ -34,7 +34,9 @@ def needs_confirmation(method: str) -> bool:
     dependencies=[Depends(need("admin"))],
 )
 async def raw(method: str, request: Request, params: dict[str, Any] = Body(default_factory=dict)):
-    """Только для уровня admin; `RAW_API=off` выключает маршрут совсем."""
+    """Только для уровня admin; `RAW_API=off` выключает маршрут. Без заголовка `X-Confirm: yes` проходят `get*`,
+    `send*`, `edit*`, `answer*`, `copy*`, `forward*`, `stopPoll`, `pinChatMessage`, `unpinChatMessage` и
+    `setMessageReaction`; всем остальным методам и `getUpdates` он нужен."""
     if not settings.get().raw_api:
         raise StudioError("/api/raw выключен (RAW_API=off)", status=403)
     if not re.fullmatch(r"[A-Za-z]+", method):

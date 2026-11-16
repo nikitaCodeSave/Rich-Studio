@@ -291,13 +291,21 @@ def _check_comment(post: dict) -> dict | None:
     }
 
 
+def _check_poll_after(post: dict) -> dict | None:
+    if post.get("poll_after") is None:
+        return None
+    bad = kinds.poll_error(post["poll_after"])
+    return {"errors": [bad] if bad else [], "warnings": []}
+
+
 def check(post: dict, chats: Iterable = (), chats_hint: str = CHATS_NEXT_TO_POST, ui: bool = False) -> dict:
-    """Validation report of the post, its first comment and the rich replies to its buttons (a draft is saved with
-    it, the editor shows it), with warnings for what Telegram refuses in `chats`, the ones it goes to; raises nothing.
-    The stats are the post's own. `chats_hint`: where the caller takes the chats, for chat_ids put in the post."""
+    """Validation report of the post, its first comment, the rich replies to its buttons and the poll after it (a
+    draft is saved with it, the editor shows it), with warnings for what Telegram refuses in `chats`, the ones it goes
+    to; raises nothing. The stats are the post's own. `chats_hint`: where the caller takes the chats, for chat_ids put
+    in the post."""
     where = places(chats)
     r = _check_post(post, where, chats_hint, ui)
-    for part in (_check_comment(post), callbacks.check(post, where)):
+    for part in (_check_comment(post), callbacks.check(post, where), _check_poll_after(post)):
         if part:
             r = {
                 **r,

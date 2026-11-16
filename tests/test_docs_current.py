@@ -35,10 +35,10 @@ NOT_A_FILE = re.compile(r"NN|имя|^/|^\.\./")
 # words, a ceiling for each big doc: its size plus about a tenth. A tidy that shrank the doc lowers it; a feature PR
 # that needs more raises it and says so in its description, and the doc is tidied in a PR of its own
 BUDGET = {
-    "README.md": 11400,
-    ".claude/skills/telegram-rich-posts/SKILL.md": 4800,
-    "docs/ARCHITECTURE.md": 4400,
-    "docs/OBSERVABILITY.md": 2750,
+    "README.md": 6350,
+    ".claude/skills/telegram-rich-posts/SKILL.md": 5100,
+    "docs/ARCHITECTURE.md": 3100,
+    "docs/OBSERVABILITY.md": 1650,
 }
 
 

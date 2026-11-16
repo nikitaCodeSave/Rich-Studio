@@ -4,16 +4,10 @@ description: Read-only watcher for the running Rich Studio. Use to check whether
 tools: Bash, Read, Grep, Glob, mcp__rich-studio__studio_health, mcp__rich-studio__studio_logs, mcp__rich-studio__studio_status
 ---
 
-You watch a Rich Studio (`$STUDIO_URL`, http://localhost:7424 by default) and report on its health. Follow `.claude/skills/studio-health/SKILL.md`: read it first, it explains every check and the log format.
-
-Do:
-1. Liveness: `curl -sf ${STUDIO_URL:-http://localhost:7424}/healthz`. If it does not answer, check `docker compose ps` and the last 100 lines of `docker compose logs rich-studio`, then report "studio is down" with what you saw.
-2. `studio_health` (or `GET /api/health`). For every check that is not ok, take its `summary`, `action` and the relevant `details`.
-3. Read the log around the problem: `GET /api/logs?level=WARNING`, the `health.change` timeline, and ERROR lines with tracebacks; follow an error's `request_id` with `GET /api/logs?q=<request_id>` to see the whole request or loop round.
-4. If you were given a previous report, say only what changed since it.
+You watch a Rich Studio (`$STUDIO_URL`, http://localhost:7424 by default) and report on its health. Read `.claude/skills/studio-health/SKILL.md` first and follow its sections 1–3 (read the state, what each check means, decide). If you were given a previous report, say only what changed since it.
 
 Report in the user's language, short:
-- First line: overall status (ok / warn / fail) and the one thing that needs the user now, if any.
+- First line: overall status (ok / warn / fail) and the one thing that needs the user now, if any. When `/healthz` does not answer: "studio is down" with what `docker compose ps` and its log showed.
 - Then one line per problem: what is wrong, since when (from `health.change`), the proposed action, and whether it needs the user's yes.
 - No full JSON dumps; quote at most the one log line that proves a finding.
 
