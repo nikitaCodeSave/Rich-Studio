@@ -493,6 +493,21 @@ def test_a_file_with_a_name_that_is_not_utf8_does_not_break_health_or_the_cleanu
     assert not list(media.media_dir().iterdir())
 
 
+def test_a_symlink_loop_in_the_uploads_does_not_break_the_list_health_or_the_cleanup(client):
+    """Put there by hand (ln -s loop.png loop.png): its stat fails with ELOOP, not FileNotFoundError. Path.is_file()
+    used to swallow that, so the file was left out; after #204 the list read stat itself and answered 500."""
+    import os
+
+    from services import health, media
+
+    os.symlink("loop.png", media.media_dir() / "loop.png")
+    (media.media_dir() / "ok.png").write_bytes(b"\x89PNG")
+    r = client.get("/api/media")
+    assert r.status_code == 200 and [f["name"] for f in r.json()] == ["ok.png"], r.text
+    assert next(c for c in health.report()["checks"] if c["name"] == "storage")["status"] == "ok"
+    assert client.post("/api/media/cleanup").status_code == 200
+
+
 def test_a_file_with_a_name_that_is_not_utf8_is_listed_opens_and_is_deleted_by_its_url(client):
     """The list shows the name with «�» (JSON has no such bytes) and gives its URL with the bytes as they are: the
     picture opens by it, and DELETE /api/media/ takes the same segment (the editor's ✕ sends it)."""

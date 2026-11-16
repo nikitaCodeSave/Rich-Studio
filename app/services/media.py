@@ -78,7 +78,7 @@ def _files() -> list[tuple[Path, os.stat_result, bool]]:
             continue
         try:
             st = p.stat()
-        except FileNotFoundError:
+        except OSError:  # gone meanwhile, a symlink loop (ELOOP), no access: not a file to list
             continue
         if stat.S_ISREG(st.st_mode):
             files.append((p, st))
