@@ -218,9 +218,10 @@ function write(blocks, opts, pretty) {
         const same = t === 'bank_card_number' ? shown.replace(/\D/g, '') === String(v[key] ?? '').replace(/\D/g, '') : shown === prefix + v[key];
         if (opts.skipEntities) say(here, 'при «Не распознавать ссылки, @, #…» (skip_entity_detection) Telegram не найдёт его в HTML');
         else if (!same) say(here, `текст «${shown}» не совпадает с ${prefix}${v[key]}: в HTML Telegram находит такие элементы только по тексту`);
-        // the TON addresses Telegram finds in text are the preview's: user-friendly EQ…/UQ… of 48 characters with a right
-        // checksum (RichRender.isTonAddress); a raw «0:83df…» or a mistyped address stays text
-        else if (t === 'ton_address' && !RichRender.isTonAddress(shown)) say(here, `адрес «${shown}» Telegram в тексте не найдёт: он находит только адреса EQ… и UQ… из 48 символов с верной контрольной суммой`);
+        // the TON addresses Telegram finds in text are the preview's: user-friendly ones of 48 characters with a right
+        // checksum and flags, so starting E, U, k or 0 (RichRender.isTonAddress); a raw «0:83df…» or a mistyped address
+        // stays text
+        else if (t === 'ton_address' && !RichRender.isTonAddress(shown)) say(here, `адрес «${shown}» Telegram в тексте не найдёт: он находит только адреса из 48 символов на E, U, k или 0 (EQ…, UQ…, kQ…, 0Q…) с верной контрольной суммой`);
         // the text stays as the author wrote it; written without the spaces it would read otherwise than the blocks
         else if (t === 'bank_card_number' && /\D/.test(shown)) notes.push(`${here}: «${shown}» в HTML останется текстом, номером карты Telegram делает только цифры без пробелов`);
         return inner();

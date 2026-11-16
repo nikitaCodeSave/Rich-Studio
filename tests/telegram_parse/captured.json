@@ -596,6 +596,30 @@
   "source": "<p><a href=\"https://example.com/?q=&quot;x&quot;\">ссылка</a></p>",
   "spec": "Bot API 10.4"
  },
+ "html-href-space": {
+  "blocks": [
+   {
+    "text": "ссылка",
+    "type": "paragraph"
+   }
+  ],
+  "captured_at": "2026-11-16",
+  "format": "html",
+  "source": "<p><a href=\"https://example.com/?q=a b\">ссылка</a></p>",
+  "spec": "Bot API 10.4"
+ },
+ "html-href-u2028": {
+  "blocks": [
+   {
+    "text": "ссылка",
+    "type": "paragraph"
+   }
+  ],
+  "captured_at": "2026-11-16",
+  "format": "html",
+  "source": "<p><a href=\"https://example.com/?q=a&#x2028;b\">ссылка</a></p>",
+  "spec": "Bot API 10.4"
+ },
  "html-inline": {
   "blocks": [
    {
@@ -773,6 +797,67 @@
   "source": "<p>Формула <tg-math>a^2</tg-math></p><tg-math-block>\\sum_i i</tg-math-block><p><tg-time unix=\"1798761600\" format=\"wDT\">дата</tg-time> и <tg-time unix=\"1798761600\" format=\"r\"></tg-time></p>",
   "spec": "Bot API 10.3"
  },
+ "html-numeric-entities": {
+  "blocks": [
+   {
+    "text": [
+     "A: A A A как есть: &",
+     {
+      "hashtag": "X41",
+      "text": "#X41",
+      "type": "hashtag"
+     },
+     "; &#65 &#; &",
+     {
+      "hashtag": "x",
+      "text": "#x",
+      "type": "hashtag"
+     },
+     ";"
+    ],
+    "type": "paragraph"
+   },
+   {
+    "text": "управляющие: a b c d e f g",
+    "type": "paragraph"
+   },
+   {
+    "text": "128…160: xxxx x",
+    "type": "paragraph"
+   },
+   {
+    "text": "в pre: a b c",
+    "type": "pre"
+   },
+   {
+    "text": {
+     "text": "в code: a b",
+     "type": "code"
+    },
+    "type": "paragraph"
+   }
+  ],
+  "captured_at": "2026-11-16",
+  "format": "html",
+  "source": "<p>A: &#65; &#0000000000000065; &#x0000000000041; как есть: &#X41; &#65 &#; &#x;</p><p>управляющие: a&#0;b&#1;c&#9;d&#10;e&#13;f&#31;g</p><p>128…160: x&#128;x&#150;x&#159;x&#160;x</p><pre>в pre: a&#0;b&#9;c</pre><p><code>в code: a&#10;b</code></p>",
+  "spec": "Bot API 10.4"
+ },
+ "html-numeric-vanish": {
+  "blocks": [
+   {
+    "text": "первый абзац",
+    "type": "paragraph"
+   },
+   {
+    "text": "",
+    "type": "paragraph"
+   }
+  ],
+  "captured_at": "2026-11-16",
+  "format": "html",
+  "source": "<p>первый абзац</p><p>второй a&#xD800;b</p>",
+  "spec": "Bot API 10.4"
+ },
  "html-quotes": {
   "blocks": [
    {
@@ -946,6 +1031,62 @@
   "format": "html",
   "source": "Текст без абзаца\nвторая строка<br>после br<p>абзац</p>хвост",
   "spec": "Bot API 10.3"
+ },
+ "html-ton-checksum": {
+  "blocks": [
+   {
+    "text": [
+     "Неверная сумма EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9d и EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2X, верная ",
+     {
+      "address": "EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2N",
+      "text": "EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2N",
+      "type": "ton_address"
+     },
+     ". Base64 ",
+     {
+      "address": "EQAAW7YRbMcifdgzjulEn/pVsAtmwRx30i2I4z6Z9E+qBcnt",
+      "text": "EQAAW7YRbMcifdgzjulEn/pVsAtmwRx30i2I4z6Z9E+qBcnt",
+      "type": "ton_address"
+     },
+     " и base64url ",
+     {
+      "address": "EQAAW7YRbMcifdgzjulEn_pVsAtmwRx30i2I4z6Z9E-qBcnt",
+      "text": "EQAAW7YRbMcifdgzjulEn_pVsAtmwRx30i2I4z6Z9E-qBcnt",
+      "type": "ton_address"
+     },
+     ", смесь алфавитов ",
+     {
+      "address": "EQAAW7YRbMcifdgzjulEn/pVsAtmwRx30i2I4z6Z9E-qBcnt",
+      "text": "EQAAW7YRbMcifdgzjulEn/pVsAtmwRx30i2I4z6Z9E-qBcnt",
+      "type": "ton_address"
+     },
+     ". Workchain 1 ",
+     {
+      "address": "EQEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEKA",
+      "text": "EQEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEKA",
+      "type": "ton_address"
+     },
+     ". Masterchain ",
+     {
+      "address": "Ef8AW7YRbMcifdgzjulEn_pVsAtmwRx30i2I4z6Z9E-qBTal",
+      "text": "Ef8AW7YRbMcifdgzjulEn_pVsAtmwRx30i2I4z6Z9E-qBTal",
+      "type": "ton_address"
+     },
+     ", testnet ",
+     {
+      "address": "kQAAW7YRbMcifdgzjulEn_pVsAtmwRx30i2I4z6Z9E-qBXJn",
+      "text": "kQAAW7YRbMcifdgzjulEn_pVsAtmwRx30i2I4z6Z9E-qBXJn",
+      "type": "ton_address"
+     },
+     "."
+    ],
+    "type": "paragraph"
+   }
+  ],
+  "captured_at": "2026-11-16",
+  "format": "html",
+  "source": "<p>Неверная сумма EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9d и EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2X, верная EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2N. Base64 EQAAW7YRbMcifdgzjulEn/pVsAtmwRx30i2I4z6Z9E+qBcnt и base64url EQAAW7YRbMcifdgzjulEn_pVsAtmwRx30i2I4z6Z9E-qBcnt, смесь алфавитов EQAAW7YRbMcifdgzjulEn/pVsAtmwRx30i2I4z6Z9E-qBcnt. Workchain 1 EQEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEKA. Masterchain Ef8AW7YRbMcifdgzjulEn_pVsAtmwRx30i2I4z6Z9E-qBTal, testnet kQAAW7YRbMcifdgzjulEn_pVsAtmwRx30i2I4z6Z9E-qBXJn.</p>",
+  "spec": "Bot API 10.4"
  },
  "md-breaks": {
   "blocks": [
@@ -1525,6 +1666,37 @@
   "format": "markdown",
   "source": "**жирный _курсив ||спойлер `код`||_** и ~~**зачёркнутый жирный**~~ и [**ссылка**](https://t.me)",
   "spec": "Bot API 10.3"
+ },
+ "md-numeric-entities": {
+  "blocks": [
+   {
+    "text": "A: A A и xxx",
+    "type": "paragraph"
+   },
+   {
+    "text": "",
+    "type": "paragraph"
+   },
+   {
+    "text": [
+     "третий ",
+     {
+      "text": "",
+      "type": "bold"
+     },
+     " конец"
+    ],
+    "type": "paragraph"
+   },
+   {
+    "text": "код &#65; &#xD800;",
+    "type": "pre"
+   }
+  ],
+  "captured_at": "2026-11-16",
+  "format": "markdown",
+  "source": "A: &#65; &#0000000000000065; и x&#128;x&#150;x\n\nвторой a&#xD800;b\n\nтретий **жирный&#1114112;** конец\n\n```\nкод &#65; &#xD800;\n```",
+  "spec": "Bot API 10.4"
  },
  "md-quote": {
   "blocks": [

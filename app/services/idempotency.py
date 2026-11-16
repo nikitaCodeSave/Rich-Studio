@@ -2,7 +2,8 @@
 
 Agents retry requests after timeouts. With the same key a retry gets the first result
 back instead of a second post in the channel:
-- done: the stored result is returned again;
+- done: the stored result is returned again, a publish that went to some of its channels only too (publisher.publish
+  answers it with the results of each when one of them is confirmed sent);
 - still running: 409, try later;
 - the first attempt hit a network error mid-send ("may have gone"): the same error again, with what to do
   instead, never a blind resend, however late the retry; check the channel and use a new key;

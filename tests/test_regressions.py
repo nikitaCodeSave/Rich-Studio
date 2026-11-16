@@ -661,3 +661,124 @@ def test_a_draft_or_a_template_may_name_a_file_not_uploaded_yet_but_never_a_path
     r = client.post(fill, json={"version": t["version"], "values": {"pic": "upload:../x.png"}})
     assert r.status_code == 422, r.text
     assert client.post(fill, json={"version": t["version"], "values": {"pic": "upload:b.png"}}).status_code == 200
+
+
+# ---------- #212: a publish to several channels that went to some of them ----------
+# how the send to the second channel (@b) fails, what its error says, whether the post may be there all the same
+SECOND_FAILS = [
+    ("refused", "chat not found", False),  # Telegram's own 400
+    ("not a member", "bot is not a member", False),  # a channel the bot cannot post to
+    ("file deleted", "partial.png", False),  # the studio refuses it: the file went between the check and this send
+    ("network", "мог уйти", True),  # Telegram took it, the answer was lost
+]
+
+
+def _second_channel_fails(monkeypatch, tg, how: str) -> None:
+    """Every channel but @b takes the post; the send to @b fails `how` (SECOND_FAILS)."""
+    import telegram
+
+    real = telegram.call
+
+    async def second_fails(method, params=None, *a, **kw):
+        if method != "sendRichMessage" or (params or {}).get("chat_id") != "@b":
+            return await real(method, params, *a, **kw)
+        if how == "file deleted":
+            (settings.get().media_dir / "partial.png").unlink(missing_ok=True)
+        elif how != "network":
+            code, text = (
+                (400, "Bad Request: chat not found") if how == "refused" else (403, "Forbidden: bot is not a member")
+            )
+            tg.queue["sendRichMessage"] = [{"ok": False, "error_code": code, "description": text}]
+        res = await real(method, params, *a, **kw)
+        if how == "network":
+            raise httpx.ReadTimeout("timed out")
+        return res
+
+    monkeypatch.setattr(telegram, "call", second_fails)
+
+
+def _sends_to(tg, chat: str) -> int:
+    return len([c for c in tg.calls if c["method"] == "sendRichMessage" and c["body"].get("chat_id") == chat])
+
+
+def _partial_post(client) -> dict:
+    assert client.post("/api/media", files={"file": ("partial.png", b"\x89PNG", "image/png")}).status_code == 200
+    return _photo("upload:partial.png")
+
+
+@pytest.mark.parametrize("how, why, unknown", SECOND_FAILS)
+def test_a_failed_second_channel_keeps_the_first_sent_and_a_retry_with_the_key_sends_nothing(
+    client, tg, monkeypatch, how, why, unknown
+):
+    body, h = {"post": _partial_post(client), "chat_ids": ["@a", "@b"]}, {"Idempotency-Key": f"partial-{how}"}
+    _second_channel_fails(monkeypatch, tg, how)
+    first = client.post("/api/send", json=body, headers=h)
+    assert first.status_code == 200, first.text
+    went, missed = first.json()["results"]
+    # where it went, with its message_id, and where it did not and why
+    assert went["ok"] and went["chat_id"] == "@a" and went["message"]["message_id"] == went["post"]["message_id"]
+    assert not missed["ok"] and missed["chat_id"] == "@b" and why in missed["error"], missed
+    rows = {p["chat_id"]: p for p in client.get("/api/posts").json()}
+    assert rows["@a"]["status"] == "sent" and rows["@a"]["message_id"] == went["message"]["message_id"]
+    assert rows["@b"]["status"] == "failed" and why in rows["@b"]["error"], rows["@b"]
+    assert rows["@b"]["outcome_unknown"] is unknown
+    sent = len([c for c in tg.calls if c["method"] == "sendRichMessage"])
+    _partial_post(client)  # the file is back: a retry that ran again would reach Telegram
+    again = client.post("/api/send", json=body, headers=h)
+    assert again.status_code == 200 and again.json() == first.json(), again.text
+    assert len([c for c in tg.calls if c["method"] == "sendRichMessage"]) == sent and _sends_to(tg, "@a") == 1
+
+
+def test_publish_post_to_several_channels_answers_a_retry_with_its_key_from_the_first_result(client, tg, monkeypatch):
+    from test_mcp import call
+
+    post = _partial_post(client)
+    _second_channel_fails(monkeypatch, tg, "file deleted")
+    _, first, text = call(client, "publish_post", post=post, chat_ids=["@a", "@b"], idempotency_key="partial-mcp")
+    assert first is not None, text
+    assert [(r["chat_id"], r["ok"]) for r in first["results"]] == [("@a", True), ("@b", False)]
+    _, again, text = call(client, "publish_post", post=post, chat_ids=["@a", "@b"], idempotency_key="partial-mcp")
+    assert again == first, text
+    assert _sends_to(tg, "@a") == 1
+
+
+def test_a_studio_refusal_after_a_channel_that_may_have_got_the_post_keeps_the_key(client, tg, monkeypatch):
+    """Nothing confirmed, but @a may have the post: not a 400 that frees the key for a resend to @a."""
+    import telegram
+
+    real = telegram.call
+
+    async def lost_then_refused(method, params=None, *a, **kw):
+        res = await real(method, params, *a, **kw)
+        if method == "sendRichMessage" and params["chat_id"] == "@a":
+            (settings.get().media_dir / "partial.png").unlink()
+            raise httpx.ReadTimeout("timed out")
+        return res
+
+    body, h = {"post": _partial_post(client), "chat_ids": ["@a", "@b"]}, {"Idempotency-Key": "partial-unknown"}
+    monkeypatch.setattr(telegram, "call", lost_then_refused)
+    first = client.post("/api/send", json=body, headers=h)
+    assert first.status_code == 502 and "могло уйти" in first.json()["detail"]["message"], first.text
+    assert any("partial.png" in e for e in first.json()["detail"]["errors"]), first.text
+    rows = {p["chat_id"]: p for p in client.get("/api/posts").json()}
+    assert rows["@a"]["outcome_unknown"] is True and rows["@b"]["status"] == "failed"
+    again = client.post("/api/send", json=body, headers=h)
+    assert again.status_code == 502 and "новым ключом" in again.json()["detail"]["message"], again.text
+    assert _sends_to(tg, "@a") == 1
+
+
+@pytest.mark.parametrize("how, why, unknown", SECOND_FAILS)
+def test_a_scheduled_post_to_several_channels_keeps_the_one_that_went_and_never_resends(
+    client, tg, monkeypatch, how, why, unknown
+):
+    body = {"post": _partial_post(client), "chat_ids": ["@a", "@b"], "at": int(time.time())}
+    assert client.post("/api/schedule", json=body).status_code == 200
+    _second_channel_fails(monkeypatch, tg, how)
+    asyncio.run(scheduler.run_due_posts())
+    rows = {p["chat_id"]: p for p in client.get("/api/posts").json()}
+    assert rows["@a"]["status"] == "sent" and rows["@a"]["message_id"], rows["@a"]
+    assert rows["@b"]["status"] == "failed" and why in rows["@b"]["error"], rows["@b"]
+    assert rows["@b"]["outcome_unknown"] is unknown
+    asyncio.run(scheduler.run_due_posts())
+    reached = 0 if how == "file deleted" else 1  # a refused file never reaches Telegram
+    assert _sends_to(tg, "@a") == 1 and _sends_to(tg, "@b") == reached

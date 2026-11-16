@@ -102,7 +102,7 @@ def _first_sent(results: list[dict], warnings: list[str]) -> dict:
                 **({"errors": errors} if errors else {}),
             }
         )
-    if any(publisher.MAY_HAVE_GONE in r["error"] for r in results):
+    if any(publisher.may_be_out(r) for r in results):
         # no answer from Telegram is not «not sent»: the headline says what is known, not more
         raise MayHaveGone({"message": "ни один канал не подтвердил отправку, в часть могло уйти", "errors": errors})
     raise Upstream({"message": "ни в один канал не отправлено", "errors": errors})

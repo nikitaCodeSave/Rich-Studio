@@ -37,17 +37,17 @@ export function showTarget() {
   }
   if (!one || !one.is_forum) { sel.hidden = true; return; }
   const topics = one.topics || [];
-  sel.replaceChildren(h('option', { value: '', text: 'Тема: General' }),
-    ...topics.map((t) => h('option', { value: String(t.id), text: 'Тема: ' + t.name, selected: t.id === topic ? true : null })),
-    topic !== undefined && !topics.some((t) => t.id === topic) ? h('option', { value: String(topic), text: 'Тема №' + topic, selected: true }) : null,
-    h('option', { value: '+', text: 'Темы…' }));
+  // «Тема форума», not «Тема»: the list is the forum's thread, not the studio's light or dark theme (#ui-theme);
+  // only topics in it, new ones are added in «Каналы» (the channel button)
+  sel.replaceChildren(h('option', { value: '', text: 'Тема форума: General' }),
+    ...topics.map((t) => h('option', { value: String(t.id), text: 'Тема форума: ' + t.name, selected: t.id === topic ? true : null })),
+    topic !== undefined && !topics.some((t) => t.id === topic) ? h('option', { value: String(topic), text: 'Тема форума №' + topic, selected: true }) : null);
   sel.hidden = false;
 }
 
 export function bindTarget() {
   const sel = /** @type {HTMLSelectElement} */ ($('#topic'));
   sel.onchange = () => {
-    if (sel.value === '+') { showChannels(); showTarget(); return; }
     if (sel.value) { S.options.message_thread_id = Number(sel.value); S.topicChat = chats()[0]; } else delete S.options.message_thread_id;
     changed();
   };
