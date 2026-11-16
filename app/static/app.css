@@ -35,8 +35,10 @@ code { background: var(--soft); padding: 0 4px; border-radius: 4px; font-size: 1
 .brand { font-weight: 700; color: var(--accent); margin-right: 4px; }
 .title-input { width: 190px; flex: 0 1 170px; min-width: 100px; font-weight: 600; }
 .chat-input { width: 150px; flex: 0 1 150px; text-overflow: ellipsis; min-width: 100px; }
-.chat-btn { flex: 0 0 auto; max-width: 320px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.topic-select { flex: 0 0 auto; max-width: 180px; font-size: 12px; }
+/* the channel button and the forum topic list shrink too (their labels end in «…»), or a forum's header in one row
+   pushes «▾» off the screen at 1280–1400 px */
+.chat-btn { flex: 0 1 auto; min-width: 120px; max-width: 320px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.topic-select { flex: 0 1 auto; min-width: 110px; max-width: 180px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .theme-select { flex: 0 0 auto; font-size: 12px; }
 .channels { display: flex; flex-direction: column; gap: 8px; max-height: 60vh; overflow: auto; }
 .channel { border: 1px solid var(--border); border-radius: 8px; padding: 8px; display: flex; flex-direction: column; gap: 4px; }
