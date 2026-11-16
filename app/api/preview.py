@@ -4,8 +4,9 @@ import html
 import json
 import re
 from pathlib import Path
+from typing import Annotated
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from fastapi.responses import HTMLResponse
 
 import store
@@ -29,8 +30,20 @@ def render_page(post: dict, theme: str = "auto", title: str = "Предпрос�
 
 
 @router.post("/api/validate", tags=["posts"], summary="Проверить пост по спецификации: ошибки, предупреждения, символы")
-def validate(post: Post):
-    return publisher.check(post.model_dump())
+def validate(
+    post: Post,
+    chat_ids: Annotated[
+        list[str] | None,
+        Query(
+            description="Куда пойдёт пост (можно несколько): предупреждения о том, что Telegram не примет в этих "
+            "чатах (web_app в канале…). Без параметра — канал по умолчанию",
+        ),
+    ] = None,
+):
+    """Для проверенных каналов (окно «Каналы», `POST /api/channels`) ещё предупреждения о том, что Telegram в чате
+    такого типа не примет по описаниям спецификации: кнопка `web_app` вне лички, `switch_inline_query_current_chat`
+    и reply-клавиатура в канале, `message_effect_id` вне лички; блок `thinking` — в любом чате."""
+    return publisher.check(post.model_dump(), publisher.checked_targets(chat_ids))
 
 
 @router.post(

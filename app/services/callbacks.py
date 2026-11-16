@@ -15,6 +15,7 @@ clicks (`posts.reply_errors`).
 import asyncio
 import logging
 import time
+from collections.abc import Sequence
 
 import spec
 import store
@@ -45,6 +46,8 @@ FORBIDDEN = {
     "business_connection_id": "ответ уходит от бота, не от бизнес-аккаунта",
     "allow_paid_broadcast": "платная рассылка в ответе на нажатие не включается: каждое нажатие стоило бы звёзд",
 }
+# where a reply goes, for the rules of spec/chats.py
+EPHEMERAL = (spec.chats.EPHEMERAL, "в rich-ответе на нажатие")
 FORBIDDEN_EPHEMERAL = {
     "callback_query_id": "его задаёт студия при нажатии",
     "receiver_user_id": "кто нажмёт, заранее не известно, а Telegram примет ответ только нажавшему",
@@ -73,10 +76,11 @@ def forbidden(reply: dict) -> list[str]:
     return out
 
 
-def check(post: dict) -> dict:
+def check(post: dict, places: Sequence[tuple[str, str]] = ()) -> dict:
     """Errors and warnings of the answers to the post's buttons, each with the button it is for. A text and an object
     of answerCallbackQuery fields are what they always were: anything odd in them is a warning, as Telegram may still
-    take it. The rich reply is checked like a post: its errors stop the post."""
+    take it. The rich reply is checked like a post: its errors stop the post. `places`: the chats of the post
+    (publisher.places), where the reply is shown, ephemeral or not."""
     cbs = post.get("callbacks")
     if cbs is None or cbs == {}:
         return {"errors": [], "warnings": []}
@@ -87,13 +91,13 @@ def check(post: dict) -> dict:
     warnings: list[str] = []
     for data, answer in cbs.items():
         where = f"ответ на кнопку «{labels.get(data) or data}»"
-        e, w = _check_answer(answer)
+        e, w = _check_answer(answer, places)
         errors += [f"{where}: {x}" for x in e]
         warnings += [f"{where}: {x}" for x in w]
     return {"errors": errors, "warnings": warnings}
 
 
-def _check_answer(answer) -> tuple[list[str], list[str]]:
+def _check_answer(answer, places: Sequence[tuple[str, str]]) -> tuple[list[str], list[str]]:
     if isinstance(answer, str):
         return [], []
     if not isinstance(answer, dict):
@@ -114,7 +118,7 @@ def _check_answer(answer) -> tuple[list[str], list[str]]:
     warnings = v.warnings + v.errors  # the answer worked like this before: Telegram decides, not the studio
     reply = answer.get(REPLY)
     if reply is not None:
-        e, w = _check_reply(reply)
+        e, w = _check_reply(reply, places)
         errors += e
         warnings += w
         if isinstance(answer.get("cache_time"), int) and answer["cache_time"] > 0:
@@ -122,7 +126,7 @@ def _check_answer(answer) -> tuple[list[str], list[str]]:
     return errors, warnings
 
 
-def _check_reply(reply) -> tuple[list[str], list[str]]:
+def _check_reply(reply, places: Sequence[tuple[str, str]]) -> tuple[list[str], list[str]]:
     """The reply is a sendRichMessage request without its chat and its query: rich_message like a post, the other
     parameters by the spec, fields the spec does not know as warnings, FORBIDDEN as errors."""
     if not isinstance(reply, dict):
@@ -151,7 +155,9 @@ def _check_reply(reply) -> tuple[list[str], list[str]]:
         else:
             v.check(value, f["types"], f"{REPLY}.{k}")
     errors += v.errors + spec.keyboard_errors(reply.get("reply_markup"))
-    warnings += v.warnings
+    # an ephemeral message shown in the chat of the post: what does not work in either (spec/chats.py)
+    refused = spec.chats.warnings(spec.current, reply, [EPHEMERAL, *places], at=f"{REPLY}.", options="")
+    warnings += v.warnings + refused
     if _labels(reply.get("reply_markup")):
         warnings.append(f"{REPLY}.reply_markup: на кнопки callback_data внутри ответа студия не отвечает")
     return errors, warnings

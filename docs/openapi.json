@@ -3147,7 +3147,7 @@
       "description": "Successful Response"
      }
     },
-    "summary": "Сводка спецификации для редактора (rich-типы, методы, изменения, поля поста для подсказок)",
+    "summary": "Сводка спецификации для редактора (rich-типы, методы, изменения, поля поста для подсказок, в каких чатах что не работает)",
     "tags": [
      "spec"
     ]
@@ -3771,7 +3771,31 @@
   },
   "/api/validate": {
    "post": {
+    "description": "Для проверенных каналов (окно «Каналы», `POST /api/channels`) ещё предупреждения о том, что Telegram в чате\nтакого типа не примет по описаниям спецификации: кнопка `web_app` вне лички, `switch_inline_query_current_chat`\nи reply-клавиатура в канале, `message_effect_id` вне лички; блок `thinking` — в любом чате.",
     "operationId": "validate_api_validate_post",
+    "parameters": [
+     {
+      "description": "Куда пойдёт пост (можно несколько): предупреждения о том, что Telegram не примет в этих чатах (web_app в канале…). Без параметра — канал по умолчанию",
+      "in": "query",
+      "name": "chat_ids",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "items": {
+          "type": "string"
+         },
+         "type": "array"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "Куда пойдёт пост (можно несколько): предупреждения о том, что Telegram не примет в этих чатах (web_app в канале…). Без параметра — канал по умолчанию",
+       "title": "Chat Ids"
+      }
+     }
+    ],
     "requestBody": {
      "content": {
       "application/json": {

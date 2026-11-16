@@ -13,9 +13,17 @@ from services.drafts import keep_notes
 
 def register(tool: ToolDecorator) -> None:
     @tool(READ)
-    async def validate_post(post: PostArg) -> dict:
-        """Проверить пост по спецификации: ошибки (исправить обязательно), предупреждения, длина."""
-        return publisher.check(parse_post(post))
+    async def validate_post(
+        post: PostArg,
+        chat_ids: Annotated[
+            list[str] | None,
+            Field(description="Куда пойдёт пост (list_channels); без поля — канал по умолчанию"),
+        ] = None,
+    ) -> dict:
+        """Проверить пост по спецификации: ошибки (исправить обязательно), предупреждения, длина. Для проверенных
+        каналов предупреждает о том, что Telegram в чате такого типа не примет (кнопка web_app вне лички,
+        switch_inline_query в канале, message_effect_id…): правила взяты из описаний полей Bot API."""
+        return publisher.check(parse_post(post), publisher.checked_targets(chat_ids))
 
     @tool(LOCAL)
     async def save_draft(
@@ -40,7 +48,8 @@ def register(tool: ToolDecorator) -> None:
     ) -> dict:
         """Сохранить черновик и сразу проверить его (validation: ошибки исправить и сохранить снова; первый
         комментарий и rich-ответы на кнопки, callbacks[…].reply, проверяются как пост, их ошибки начинаются
-        с «комментарий:» и «ответ на кнопку «…»:»). Он появится
+        с «комментарий:» и «ответ на кнопку «…»:»; предупреждения называют и то, что Telegram не примет в каналах
+        черновика, например кнопку web_app в канале). Он появится
         в редакторе, предпросмотр по адресу preview_path; дальше preview_post и publish_post принимают draft_id.
         С draft_id обновляет существующий черновик (связь с правкой опубликованного поста сохраняется).
         Заметки студии в _studio (source, warnings пересланного поста) остаются; буферы редактора сбрасываются:
@@ -67,7 +76,7 @@ def register(tool: ToolDecorator) -> None:
             "goes_to": channels.goes_to(d["chat_ids"]),
             "preview_path": f"/render/draft/{d['id']}",
             **draft_links(d["id"]),
-            "validation": publisher.check(d["payload"]),
+            "validation": publisher.check(d["payload"], publisher.checked_targets(d["chat_ids"])),
         }
 
     @tool(READ)

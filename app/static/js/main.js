@@ -21,7 +21,8 @@ import './components/rs-health.js';
 import './components/rs-parse-check.js';
 import { editPost, leaveEditing, reschedulePost, showHistory, updatePost } from './editing.js';
 import { loadDrafts, newDraft, openDraft, renderDrafts, saveDraft, watchDrafts } from './drafts.js';
-import { autosave, bindHtmlExport, bindJson, buildPost, changed, parsedToBlocks, parseKey, renderPreview, setMode } from './editor.js';
+import { autosave, bindHtmlExport, bindJson, buildPost, changed, parsedToBlocks, parseKey, renderPreview, setMode, validate } from './editor.js';
+import { renderKeyboard } from './keyboard.js';
 import { watchHealth } from './health.js';
 import { canRedo, canUndo, redo, undo } from './history.js';
 import { STATUS_LABELS } from './labels.js';
@@ -87,7 +88,8 @@ function bindActions() {
   $('#title').oninput = () => { dirty.value = true; autosave(); };
   // the channel belongs to the draft: changing it is a change of the draft
   // dirty at once: a publish right after the change must not go by the old saved channels; only the redraw waits
-  const redrawTarget = debounce(() => { showTarget(); renderPreview(); }, 300);
+  // what Telegram refuses depends on the chats: the button cards and the check follow them
+  const redrawTarget = debounce(() => { showTarget(); renderPreview(); renderKeyboard(); validate(); }, 300);
   $('#chat').oninput = () => { dirty.value = true; saveState.value = 'есть изменения'; autosave(); redrawTarget(); };
   bindTarget();
   addEventListener('keydown', (e) => {
