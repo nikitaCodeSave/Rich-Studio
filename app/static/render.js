@@ -543,13 +543,14 @@
         node.classList.add('tg-task'); node.firstElementChild.disabled = true;
       } else if (tag === 'a' && attr('name') && !attr('href')) {
         rep = el('a', { name: attr('name'), id: 'anchor-' + attr('name'), class: 'tg-anchor' });
-      } else if (tag === 'a' && linkDropped(attr('href'))) {
-        // Telegram drops a link whose address has a ", a space… in it (LINK_DROPS) and keeps only its text
+      } else if (tag === 'a' && (linkDropped(attr('href')) || attr('href')?.includes('\u2028'))) {
+        // Telegram drops a link whose address has a ", a space… in it (LINK_DROPS) and keeps only its text, and so it
+        // does over a U+2028 here: tgEntities took the typed ones out of the address (hrefTyped), this one is an entity
         node.replaceWith(...kids()); return;
       } else if (tag === 'a' && attr('href')) {
-        // U+2028 out, as Telegram takes it out, then the sanitizer's check again: «/&#x2028;/x» was a path, «//x» is a
-        // link to another site
-        const href = safeUrl(tgAddress(attr('href')));
+        // a U+2028 typed as it is went out before the browser read the address, so the sanitizer saw the address as
+        // it is: «/U+2028/x» typed is «//x», a link to another site
+        const href = safeUrl(attr('href'));
         if (href === null) node.removeAttribute('href');
         else {
           node.setAttribute('href', href);
@@ -639,6 +640,21 @@
   // A tag, to tell the text of html from its tags (the same source as HTML_TAG_RE in app/spec/validator.py, which says
   // why it is linear): a piece of text between two tags is what Telegram erases for an entity it makes no character of
   const TAG = /<\/?[A-Za-z](?=([^\s/<>]*))\1(?:[^<>"']|"[^"<]*"|'[^'<]*')*>/g;
+  // An attribute of a tag, its name and its value as written (the same source as ATTR_RE in app/spec/validator.py):
+  // the spaces around it are the ASCII ones of html, so a U+2028 is part of a value without quotes, as for the browser
+  const ATTR_RE = /(?<=[\t\n\f\r "'/])([^\t\n\f\r "'=/>]+)(?:[\t\n\f\r ]*=[\t\n\f\r ]*("[^"]*"|'[^']*'|[^\t\n\f\r >]*))?/g;
+  // <a href> as Telegram reads it: a U+2028 typed as it is it takes out of the address before it decodes the entities,
+  // so one that an entity makes (&#x2028;, &#8232;) stays there, and over it Telegram drops the link (measured, issue
+  // #195; the same rule is tg_href in app/spec/validator.py). In <tg-button url> that was not measured.
+  function hrefTyped(tag) {
+    if (!tag.includes('\u2028') || !/^<a[\t\n\f\r /]/i.test(tag)) return tag;
+    for (const m of tag.matchAll(ATTR_RE)) {
+      if (m[1].toLowerCase() !== 'href') continue;
+      const value = m[2] || '', end = (m.index || 0) + m[0].length;
+      return tag.slice(0, end - value.length) + value.replace(/\u2028/g, '') + tag.slice(end);
+    }
+    return tag;
+  }
   // html as the browser must get it to read the entities as Telegram does: a numeric one is the character Telegram
   // makes (an entity again where it would be markup), in a tag too, but one that erases text stays as typed there (not
   // measured in attributes); 128…159 go as the characters themselves, as entities the browser would read them by
@@ -657,7 +673,7 @@
     });
     const text = (s) => (vanishes(s) ? '' : put(s, false));
     for (const m of src.matchAll(TAG)) {
-      out += text(src.slice(at, m.index)) + put(m[0], true);
+      out += text(src.slice(at, m.index)) + put(hrefTyped(m[0]), true);
       const p = /^<(\/?)pre[\s/>]/i.exec(m[0]);
       if (p) pre = Math.max(0, pre + (p[1] ? -1 : 1));
       at = (m.index || 0) + m[0].length;
@@ -667,8 +683,9 @@
 
   // A link address as Telegram takes it, its entities decoded (measured on Bot API 10.4, 2026-11-16, issue #174; the
   // same set is LINK_DROPS in app/spec/validator.py): over a " < > space or control character, U+0085, U+00A0, U+2003,
-  // U+3000 or U+200B in it Telegram drops the link and keeps its text, in html and in blocks alike; U+2028 it takes
-  // out of the address. A button looks the same with any address: Telegram refuses the post over a bad one, and the
+  // U+3000 or U+200B in it Telegram drops the link and keeps its text, in html and in blocks alike; U+2028 typed as it
+  // is it takes out of the address (tgAddress, in html hrefTyped), and over one an entity makes in html it drops the
+  // link (issue #195). A button looks the same with any address: Telegram refuses the post over a bad one, and the
   // check says so. js/html-export.js writes these characters %-encoded (percentAddress).
   // eslint-disable-next-line no-control-regex -- the control characters are the point
   const LINK_DROPS = /["<>\u0000-\u0020\u0085\u00a0\u2003\u3000\u200b]/;
@@ -678,13 +695,14 @@
   const percentAddress = (url) => tgAddress(url).replace(new RegExp(LINK_DROPS.source, 'g'), encodeURIComponent);
 
   // ---------- TON addresses Telegram finds in the text ----------
-  // A user-friendly TON address: 48 characters of base64url or base64 for 36 bytes, that is flags, workchain, a 32-byte
-  // hash and the CRC16-XMODEM of those 34 bytes, big-endian. Telegram finds one in the text of a post by itself, in
-  // html, markdown and the strings of blocks alike, and only with a right checksum (measured for #172; captured
-  // html-detected-card-ton and html-ton-checksum). js/html-export.js checks ton_address texts with the same function.
-  const TON_START = '[EU]Q';
+  // A user-friendly TON address: 48 characters of base64 and base64url, a mix of both too, for 36 bytes, that is flags,
+  // workchain, a 32-byte hash and the CRC16-XMODEM of those 34 bytes, big-endian. Telegram finds one in the text of a
+  // post by itself, in html, markdown and the strings of blocks alike, with a right checksum, flags 0x11, 0x51, 0x91 or
+  // 0xd1 (EQ…, UQ…, kQ…, 0Q…) and any workchain (measured for #172 and #195; captured html-detected-card-ton and
+  // html-ton-checksum). js/html-export.js checks ton_address texts with the same function.
   const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  const TON_FORM = new RegExp(`^${TON_START}(?:[\\w-]{46}|[A-Za-z0-9+/]{46})$`); // one alphabet, not a mix of both
+  const TON_FORM = /^[\w+/-]{48}$/;
+  const TON_FLAGS = new Set([0x11, 0x51, 0x91, 0xd1]); // bounceable or not, on the main net or the test one
   function isTonAddress(s) {
     if (typeof s !== 'string' || !TON_FORM.test(s)) return false;
     const six = (c) => (c === '-' || c === '+' ? 62 : c === '_' || c === '/' ? 63 : B64.indexOf(c));
@@ -693,8 +711,8 @@
       const n = (six(s[i]) << 18) | (six(s[i + 1]) << 12) | (six(s[i + 2]) << 6) | six(s[i + 3]);
       bytes.push(n >> 16, (n >> 8) & 255, n & 255);
     }
-    // EQ…/UQ…: flags 0x11 (bounceable) or 0x51 (not), workchain 0; «EQE…» with a right checksum is workchain 1
-    if ((bytes[0] !== 0x11 && bytes[0] !== 0x51) || bytes[1] !== 0) return false;
+    // the workchain (bytes[1]) is any: 1, 2, 0x7f, −128 and −1 (Ef8…) were found alike
+    if (!TON_FLAGS.has(bytes[0])) return false;
     let crc = 0;
     for (const b of bytes.slice(0, 34)) {
       crc ^= b << 8;
@@ -705,7 +723,7 @@
 
   // Unless skip_entity_detection is on. Not inside code, links, formulas and other elements that already are something
   // else. A card number with spaces Telegram does not find, and the preview finds no card numbers at all.
-  const TON_IN_TEXT = new RegExp(`(?<![\\w+/-])${TON_START}[\\w+/-]{46}(?![\\w+/-])`, 'g');
+  const TON_IN_TEXT = /(?<![\w+/-])[\w+/-]{48}(?![\w+/-])/g;
   const NO_DETECTION = 'a, code, pre, .tg-link, .tg-math, .tg-math-block, .tg-time, .tg-emoji, .tg-btn, .tg-media, .tg-unknown-block';
   function findTon(root) {
     // Telegram reads neighbouring strings of RichText as one text: ['EQAA…', '…M9c'] is one address
