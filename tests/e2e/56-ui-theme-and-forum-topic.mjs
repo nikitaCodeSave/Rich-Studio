@@ -124,10 +124,20 @@ export default async function ({ browser, BASE, check }) {
     await page.route('**/api/channels', (route) => (route.request().method() === 'GET' ? route.fulfill({ json: [forum] }) : route.continue()));
     await page.goto(BASE);
     await page.waitForSelector('.block');
+    // a post with a topic in a channel that is no forum: without the list the topic is in the field of other parameters;
+    // the topic is dropped with that channel, and the field drops it too, or it would come back with the next edit there
+    const draft = await page.evaluate(() => fetch('/api/drafts', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Тема не форума', chat_ids: ['@plain'], post: { rich_message: { blocks: [{ type: 'paragraph', text: 'Текст' }] }, options: { message_thread_id: 7 } } }) }).then((r) => r.json()));
+    await page.goto(BASE + '/?draft=' + draft.id);
+    await page.waitForFunction(() => /message_thread_id/.test(/** @type {HTMLTextAreaElement} */ (document.querySelector('#opts textarea'))?.value || ''), null, { timeout: 8000 }).catch(() => {});
+    const before = await page.evaluate(() => /** @type {HTMLTextAreaElement} */ (document.querySelector('#opts textarea'))?.value);
     await page.evaluate(() => { const i = /** @type {HTMLInputElement} */ (document.querySelector('#chat')); i.value = '@forum_bare'; i.dispatchEvent(new Event('input')); });
     await page.waitForFunction(() => document.querySelector('#btn-check').textContent.includes('Форум без тем'), null, { timeout: 8000 }).catch(() => {});
-    const seen = await page.evaluate(() => ({ header: document.querySelector('#btn-check').textContent, topic: !!document.querySelector('#topic') }));
-    check('A forum without known topics shows no topic list', /Форум без тем/.test(seen.header) && !seen.topic, JSON.stringify(seen));
+    const seen = await page.evaluate(() => ({ header: document.querySelector('#btn-check').textContent, topic: !!document.querySelector('#topic'),
+      field: /** @type {HTMLTextAreaElement} */ (document.querySelector('#opts textarea'))?.value }));
+    check('A forum without known topics shows no topic list; a topic dropped with the channel leaves the field too',
+      /Форум без тем/.test(seen.header) && !seen.topic && /"message_thread_id": 7/.test(before || '') && seen.field === '',
+      JSON.stringify({ before, ...seen }));
     await context.close();
   }
 

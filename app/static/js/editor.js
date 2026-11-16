@@ -269,11 +269,12 @@ export function renderOptions() {
 }
 
 /** After a change of channel. The topic row follows the channel; the field of other parameters is rebuilt only when
- * the row comes or goes (message_thread_id moves between them), so what is typed in it stays, unparsed text too. */
-export function refreshTopic() {
+ * the row comes or goes (message_thread_id moves between them) or the topic was dropped with the old channel (the field
+ * may show it), so what is typed in it stays, unparsed text too. @param {boolean} dropped */
+export function refreshTopic(dropped) {
   if (!$('#opts-topic')) { renderOptions(); return; }
   const had = !!$('#topic');
-  if (renderTopic() !== had) renderRest();
+  if (renderTopic() !== had || dropped) renderRest();
 }
 
 function renderTopic() {

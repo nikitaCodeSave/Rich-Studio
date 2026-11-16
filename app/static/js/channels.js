@@ -26,13 +26,13 @@ export function showTarget() {
   const btn = $('#btn-check');
   btn.textContent = (list.length ? list.map(chatLabel).join(', ') : 'Канал не выбран') + ' ▾';
   btn.title = (list.length ? 'Пост уйдёт в: ' + list.map(chatLabel).join(', ') + '\n' : '') + 'Выбрать каналы (id через запятую), проверить права бота, темы форума';
-  if (S.options.message_thread_id === undefined) S.topicChat = undefined;
+  const tid = S.options.message_thread_id;
+  if (tid === undefined) S.topicChat = undefined;
   else if (S.topicChat === undefined && list.length === 1) S.topicChat = list[0];
   // a topic belongs to its chat: in another chat it would send the post nowhere or to a wrong thread
-  else if (list.length !== 1 || list[0] !== S.topicChat) {
-    delete S.options.message_thread_id; S.topicChat = undefined; changed();
-  }
-  refreshTopic();
+  const dropped = tid !== undefined && (list.length !== 1 || list[0] !== S.topicChat);
+  if (dropped) { delete S.options.message_thread_id; S.topicChat = undefined; changed(); }
+  refreshTopic(dropped);
 }
 
 export function bindTarget() {
