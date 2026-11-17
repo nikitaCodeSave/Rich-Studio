@@ -40,7 +40,10 @@
     const label = typeof media === 'object' && media ? media.media : media;
     const spoiler = media && media.has_spoiler;
     let node;
-    if (!src) {
+    if (!src && typeof label === 'string' && label && !/^[a-z][a-z0-9+.-]*:/i.test(label)) {
+      // a file_id (a forwarded post, /api/raw): the file is in Telegram, the page cannot fetch it without the bot token
+      node = el('div', { class: 'tg-media-ph', title: label }, el('span', { class: 'tg-media-kind', text: kindLabel(kind) + ' из Telegram' }), el('small', { text: 'уйдёт с постом, в предпросмотре не показывается' }));
+    } else if (!src) {
       node = el('div', { class: 'tg-media-ph' }, el('span', { class: 'tg-media-kind', text: kindLabel(kind) }), el('small', { text: label || 'нет файла' }));
     } else if (kind === 'photo' || (kind === 'animation' && /\.gif(?:[?#]|$)/i.test(src))) {
       // a GIF plays only in <img>; Telegram shows an animation playing by itself in a loop, without controls

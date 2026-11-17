@@ -971,6 +971,10 @@ for (const [name, rm] of Object.entries(SLIDESHOWS)) {
   check('an animation carries the GIF label', label === '"GIF"', label);
   const ph = await kinds({ html: '<video src="tg://video?id=f"></video>', media: [{ id: 'f', media: { type: 'animation', media: 'CgACAgIAAxkBAAI' } }] });
   check('an animation Telegram already has (file_id) is a GIF placeholder', ph.length === 1 && ph[0][0] === 'tg-media tg-media-animation' && /GIF/.test(await page.evaluate(() => document.querySelector('#out .tg-media-ph')?.textContent || '')), JSON.stringify(ph));
+  await kinds({ blocks: [{ type: 'photo', photo: { type: 'photo', media: 'AgACAgIAAxkBAAM7' } }, { type: 'photo', photo: { type: 'photo', media: 'attach://p' } }] });
+  const phs = await page.evaluate(() => [...document.querySelectorAll('#out .tg-media-ph')].map((n) => [n.textContent, n.getAttribute('title')]));
+  check('a file_id placeholder says the file is in Telegram and goes with the post; attach:// keeps its name',
+    JSON.stringify(phs) === JSON.stringify([['Фото из Telegramуйдёт с постом, в предпросмотре не показывается', 'AgACAgIAAxkBAAM7'], ['Фотоattach://p', null]]), JSON.stringify(phs));
 }
 
 // ---------- video / animation muted ----------
