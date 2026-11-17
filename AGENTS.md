@@ -77,6 +77,7 @@ make fmt                                        # автоисправление
 | здоровье работающей студии (skill и субагент) | `.claude/skills/studio-health/SKILL.md`, `.claude/agents/studio-monitor.md` |
 | красный CI, PR Dependabot | `.claude/skills/ci-triage/SKILL.md` |
 | документация устарела или разрослась | `.claude/skills/docs-tidy/SKILL.md` |
+| русский текст ясно и без канцелярита: документация, коммиты, PR, подписи | `.claude/skills/writing-clearly/SKILL.md` |
 | отчёт и changelog последнего обновления, что дальше | `docs/releases/` (последний файл) |
 
 Сообщения коммитов и описания PR пиши по-русски или по-английски, коротко: что видно снаружи и зачем.
