@@ -1,6 +1,6 @@
 # Rich Studio
 
-Локальный сервис для постов в Telegram-канал на Rich Messages (Bot API 10.4, `sendRichMessage`): визуальный редактор, предпросмотр как в Telegram, публикация в несколько каналов, отложка, закреп, первый комментарий, опросы, кнопки с ответами, а также HTTP API, MCP-сервер для AI-агентов и skill для Claude Code.
+Локальный сервис для постов в Telegram-канал на Rich Messages (Bot API 10.5, `sendRichMessage`): визуальный редактор, предпросмотр как в Telegram, публикация в несколько каналов, отложка, закреп, первый комментарий, опросы, кнопки с ответами, а также HTTP API, MCP-сервер для AI-агентов и skill для Claude Code.
 
 ![Редактор: пост-анонс из блоков слева, предпросмотр как в Telegram справа, в шапке канал «название · id» и точка состояния студии](docs/images/editor.jpg)
 
@@ -242,8 +242,8 @@ curl -s localhost:7424/api/validate -H 'content-type: application/json' \
 ```json
 {"ok": false,
  "errors": ["rich_message.blocks[0]: нет обязательного поля cells (InputRichBlockTable)"],
- "warnings": ["rich_message.blocks[0].rows: поля нет в InputRichBlockTable (спецификация Bot API 10.4)"],
- "stats": {"blocks": 1, "depth": 1, "chars": 0, "max_string_bytes": 0, "media": 0}, "spec_version": "Bot API 10.4"}
+ "warnings": ["rich_message.blocks[0].rows: поля нет в InputRichBlockTable (спецификация Bot API 10.5)"],
+ "stats": {"blocks": 1, "depth": 1, "chars": 0, "max_string_bytes": 0, "media": 0}, "spec_version": "Bot API 10.5"}
 ```
 
 **Пробная отправка.** `"dry_run": true` показывает запросы, которые уйдут в Telegram, ничего не отправляя и не записывая:

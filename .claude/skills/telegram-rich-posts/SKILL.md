@@ -5,7 +5,7 @@ description: Write, check, preview and publish Telegram channel posts with Rich 
 
 # Telegram rich posts
 
-What follows is for **Bot API 10.4 (09.11.2026)**. Telegram adds formatting often, so step 1 comes first in every session.
+What follows is for **Bot API 10.5 (22.11.2026)**. Telegram adds formatting often, so step 1 comes first in every session.
 
 ## 1. Check the Bot API version
 
@@ -19,7 +19,7 @@ curl -s https://raw.githubusercontent.com/PaulSonOfLars/telegram-bot-api-spec/ma
 
 - Over MCP: `bot_api_status`; `refresh_bot_api` downloads the newest spec now (by itself the studio checks at startup and every 12 hours). A server studio answers `pinned`: its spec changes only with an image update, so say that instead of retrying.
 - Both report `gaps`: blocks the editor has no Russian label, preview or «В HTML» export for (`part`: `labels`, `preview`, `export`). They send fine; tell the user the preview may show them as a JSON stub and «В HTML» refuses the post.
-- Newer than 10.4: before writing, read the diff `POST $S/api/spec/refresh` returns (types, fields, methods) and https://core.telegram.org/bots/api-changelog. Use new features when they fit and say which.
+- Newer than 10.5: before writing, read the diff `POST $S/api/spec/refresh` returns (types, fields, methods) and https://core.telegram.org/bots/api-changelog. Use new features when they fit and say which.
 - Exact fields of a type or method: `describe_type`, `curl -s "${A[@]}" $S/api/spec/type/InputRichBlockTable` or `jq '.types.InputRichBlockTable' api.json`. Every field of a post: `curl -s "${A[@]}" $S/api/spec | jq '.post.types | map_values([.fields[].name])'` (`Post`; `PostOptions`, the sendRichMessage parameters of `options`; `PollAfter`, the sendPoll ones of `poll_after`).
 - The HTML/Markdown tag grammar is not in api.json but in https://core.telegram.org/bots/api#rich-message-formatting-options (WebFetch may truncate it): check it for a tag not listed below and after a new version.
 
@@ -33,7 +33,7 @@ curl -s https://raw.githubusercontent.com/PaulSonOfLars/telegram-bot-api-spec/ma
 
 ## 3. Cheat sheet
 
-**Blocks** (`type`): `paragraph{text}`, `heading{text,size 1-6}`, `pre{text,language?}`, `footer{text}`, `divider`, `mathematical_expression{expression}` (LaTeX), `anchor{name}`, `list{items[{blocks,has_checkbox?,is_checked?,value?,type?}]}`, `blockquote{blocks,credit?}`, `expandable_blockquote{text,credit?}`, `pullquote{text,credit?}`, `collage{blocks,caption?}`, `slideshow{blocks,caption?}`, `table{cells[[{text?,is_header?,colspan?,rowspan?,align,valign}]],is_bordered?,is_striped?,is_compact?,caption?}`, `details{summary,blocks,is_open?}`, `map{location{latitude,longitude},zoom?,width?,height?,caption?}`, `buttons{buttons[1-8],align?}`, `photo|video|animation|audio|document|voice_note{<kind>: InputMedia*, caption?}`, `thinking{text}` (drafts in private chats only).
+**Blocks** (`type`): `paragraph{text}`, `heading{text,size 1-6}`, `pre{text,language?}`, `footer{text}`, `divider`, `mathematical_expression{expression}` (LaTeX), `anchor{name}`, `list{items[{blocks,has_checkbox?,is_checked?,value?,type?}]}`, `blockquote{blocks,credit?}`, `expandable_blockquote{blocks,credit?}` (blocks since 10.5, text before), `pullquote{text,credit?}`, `collage{blocks,caption?}`, `slideshow{blocks,caption?}`, `table{cells[[{text?,is_header?,colspan?,rowspan?,align,valign}]],is_bordered?,is_striped?,is_compact?,caption?}`, `details{summary,blocks,is_open?}`, `map{location{latitude,longitude},zoom?,width?,height?,caption?}`, `buttons{buttons[1-8],align?}`, `photo|video|animation|audio|document|voice_note{<kind>: InputMedia*, caption?}`, `thinking{text}` (drafts in private chats only).
 Block captions are `{text, credit?}`, a table's caption is RichText. The spec marks a cell's `align` (left/center/right) and `valign` (top/middle/bottom) required; Telegram takes a cell without them as left, middle.
 A list item holds blocks: `{"type":"list","items":[{"blocks":[{"type":"paragraph","text":"Пункт"}]}]}`.
 

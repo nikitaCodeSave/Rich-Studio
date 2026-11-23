@@ -23,7 +23,7 @@
     {"blocks": [{"type": "paragraph", "text": "Подготовить слайды"}], "has_checkbox": true, "is_checked": true},
     {"blocks": [{"type": "paragraph", "text": "Позвать гостей"}], "has_checkbox": true, "is_checked": false}
   ]},
-  {"type": "expandable_blockquote", "text": "Длинная выдержка из прошлого эфира, которая показывается свёрнутой и раскрывается по нажатию.", "credit": "Ведущий"},
+  {"type": "expandable_blockquote", "blocks": [{"type": "paragraph", "text": "Длинная выдержка из прошлого эфира, которая показывается свёрнутой и раскрывается по нажатию."}, {"type": "paragraph", "text": "Внутри свёрнутой цитаты теперь любые блоки: абзацы, списки, код."}], "credit": "Ведущий"},
   {"type": "pullquote", "text": "Задавайте вопросы заранее в комментариях", "credit": "Редакция"},
   {"type": "details", "summary": "Как подключиться", "is_open": false, "blocks": [
     {"type": "paragraph", "text": "Ссылка появится в канале за 10 минут до начала."},
