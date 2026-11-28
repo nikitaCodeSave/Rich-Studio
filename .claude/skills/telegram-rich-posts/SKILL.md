@@ -5,7 +5,7 @@ description: Write, check, preview and publish Telegram channel posts with Rich 
 
 # Telegram rich posts
 
-What follows is for **Bot API 10.4 (09.11.2026)**. Telegram adds formatting often, so step 1 comes first in every session.
+What follows is for **Bot API 10.5 (22.11.2026)**. Telegram adds formatting often, so step 1 comes first in every session.
 
 ## 1. Check the Bot API version
 
@@ -19,7 +19,7 @@ curl -s https://raw.githubusercontent.com/PaulSonOfLars/telegram-bot-api-spec/ma
 
 - Over MCP: `bot_api_status`; `refresh_bot_api` downloads the newest spec now (by itself the studio checks at startup and every 12 hours). A server studio answers `pinned`: its spec changes only with an image update, so say that instead of retrying.
 - Both report `gaps`: blocks the editor has no Russian label, preview or «В HTML» export for (`part`: `labels`, `preview`, `export`). They send fine; tell the user the preview may show them as a JSON stub and «В HTML» refuses the post.
-- Newer than 10.4: before writing, read the diff `POST $S/api/spec/refresh` returns (types, fields, methods) and https://core.telegram.org/bots/api-changelog. Use new features when they fit and say which.
+- Newer than 10.5: before writing, read the diff `POST $S/api/spec/refresh` returns (types, fields, methods) and https://core.telegram.org/bots/api-changelog. Use new features when they fit and say which.
 - Exact fields of a type or method: `describe_type`, `curl -s "${A[@]}" $S/api/spec/type/InputRichBlockTable` or `jq '.types.InputRichBlockTable' api.json`. Every field of a post: `curl -s "${A[@]}" $S/api/spec | jq '.post.types | map_values([.fields[].name])'` (`Post`; `PostOptions`, the sendRichMessage parameters of `options`; `PollAfter`, the sendPoll ones of `poll_after`).
 - The HTML/Markdown tag grammar is not in api.json but in https://core.telegram.org/bots/api#rich-message-formatting-options (WebFetch may truncate it): check it for a tag not listed below and after a new version.
 
@@ -33,14 +33,14 @@ curl -s https://raw.githubusercontent.com/PaulSonOfLars/telegram-bot-api-spec/ma
 
 ## 3. Cheat sheet
 
-**Blocks** (`type`): `paragraph{text}`, `heading{text,size 1-6}`, `pre{text,language?}`, `footer{text}`, `divider`, `mathematical_expression{expression}` (LaTeX), `anchor{name}`, `list{items[{blocks,has_checkbox?,is_checked?,value?,type?}]}`, `blockquote{blocks,credit?}`, `expandable_blockquote{text,credit?}`, `pullquote{text,credit?}`, `collage{blocks,caption?}`, `slideshow{blocks,caption?}`, `table{cells[[{text?,is_header?,colspan?,rowspan?,align,valign}]],is_bordered?,is_striped?,is_compact?,caption?}`, `details{summary,blocks,is_open?}`, `map{location{latitude,longitude},zoom?,width?,height?,caption?}`, `buttons{buttons[1-8],align?}`, `photo|video|animation|audio|document|voice_note{<kind>: InputMedia*, caption?}`, `thinking{text}` (drafts in private chats only).
+**Blocks** (`type`): `paragraph{text}`, `heading{text,size 1-6}`, `pre{text,language?}`, `footer{text}`, `divider`, `mathematical_expression{expression}` (LaTeX), `anchor{name}`, `list{items[{blocks,has_checkbox?,is_checked?,value?,type?}]}`, `blockquote{blocks,credit?}`, `expandable_blockquote{blocks,credit?}`, `pullquote{text,credit?}`, `collage{blocks,caption?}`, `slideshow{blocks,caption?}`, `table{cells[[{text?,is_header?,colspan?,rowspan?,align,valign}]],is_bordered?,is_striped?,is_compact?,caption?}`, `details{summary,blocks,is_open?}`, `map{location{latitude,longitude},zoom?,width?,height?,caption?}`, `buttons{buttons[1-8],align?}`, `photo|video|animation|audio|document|voice_note{<kind>: InputMedia*, caption?}`, `thinking{text}` (drafts in private chats only).
 Block captions are `{text, credit?}`, a table's caption is RichText. The spec marks a cell's `align` (left/center/right) and `valign` (top/middle/bottom) required; Telegram takes a cell without them as left, middle.
 A list item holds blocks: `{"type":"list","items":[{"blocks":[{"type":"paragraph","text":"Пункт"}]}]}`.
 
 **Inline RichText**: a string, an array, or `{type, text, …}`: `bold`, `italic`, `underline`, `strikethrough`, `spoiler`, `marked`, `code`, `subscript`, `superscript`, `url{url}`, `text_mention{user}`, `mention{username}`, `ton_address{address}`, `date_time{unix_time,date_time_format}`, `anchor_link{anchor_name}`, `reference{name}`, `reference_link{reference_name}`; `email_address`, `phone_number`, `bank_card_number`, `hashtag`, `cashtag`, `bot_command` repeat the text in a field of their own name. Without `text`: `custom_emoji{custom_emoji_id,alternative_text}`, `mathematical_expression{expression}`, `anchor{name}`, `button{button}`.
 
 **HTML tags**: `p h1-h6 b i u s sub sup mark code pre>code.language-x a[href] hr footer blockquote>cite aside(pullquote) ul ol li input[type=checkbox] details>summary table[bordered striped compact] caption tr th td[colspan rowspan align valign] figure figcaption img video audio`, plus `tg-spoiler, tg-emoji[emoji-id], tg-math, tg-math-block, tg-collage, tg-slideshow, tg-document, tg-thinking, tg-button-row`.
-How Telegram reads them (its parses: `tests/telegram_parse/captured.json`; the studio preview follows them): `<blockquote expandable>` (`collapsed` gives a plain quote); `<tg-time unix format>text</tg-time>`, dropped without text; `<tg-map lat long zoom>` (by the docs, not measured); `<tg-button-row align>` with `<tg-button type=url|copy_text|callback_data …>`; a footnote `<a href="#n1">` + `<tg-reference name="n1">` (without the reference, a plain link); `<a href="#name">` to `<a name="name">`; `<a href="#">` is the top of the post. `<span class="tg-spoiler">` is NOT a spoiler. A `<table>` without attributes has no borders; header cells are centred.
+How Telegram reads them (its parses: `tests/telegram_parse/captured.json`; the studio preview follows them): `<blockquote expandable>` holds blocks and a `<cite>` like a plain quote, bare text in it is a paragraph (`collapsed` gives a plain quote); `<tg-time unix format>text</tg-time>`, dropped without text; `<tg-map lat long zoom>` (by the docs, not measured); `<tg-button-row align>` with `<tg-button type=url|copy_text|callback_data …>`; a footnote `<a href="#n1">` + `<tg-reference name="n1">` (without the reference, a plain link); `<a href="#name">` to `<a name="name">`; `<a href="#">` is the top of the post. `<span class="tg-spoiler">` is NOT a spoiler. A `<table>` without attributes has no borders; header cells are centred.
 
 **Telegram's parse**: `send_preview_to_me` (HTTP `preview-send`) answers with `parsed.input_blocks`, the post as Telegram parsed it, as `rich_message.blocks`: confirm there that a formula, spoiler or table came out as meant, or send them as the post.
 
@@ -162,6 +162,7 @@ Clicks, comments, reactions and poll results need the update loop (`GET $S/api/u
 - A reply that did not go (refused, 429, no answer in those 4 seconds, a forbidden field, a press that waited in the studio over 14 seconds, e.g. queued after downtime) is a `callback.reply_failed` line in `studio_logs` and counts in the post's `reply_errors` (`{callback_data: {n, error, at}}`) next to `clicks`.
 - One button, one fixed reply: callback buttons inside a reply get no answer (no multi-step flows).
 - The preview from `send_preview_to_me` answers its buttons too: the user can try a reply there.
+- Do not change `callback_query_mode` with `setMySettings` (Bot API 10.5): the studio finds the post of a press by the `message` of the callback query, which the modes `inline` and `auto` replace with `inline_message_id`; the button then gets an empty answer and the click is not counted.
 
 ### HTTP API
 

@@ -236,7 +236,7 @@ def test_pre_and_quotes_become_blocks_and_blank_lines_paragraphs(client):
             "blocks": [{"type": "paragraph", "text": ["Цитата ", {"type": "italic", "text": "строка"}]}],
         },
         {"type": "paragraph", "text": "Хвост\nвторая строка"},
-        {"type": "expandable_blockquote", "text": "Свёрнутая"},
+        {"type": "expandable_blockquote", "blocks": [{"type": "paragraph", "text": "Свёрнутая"}]},
     ]
     assert warnings == []
     assert spec.validate_rich_message(spec.current, {"blocks": blocks})["ok"]
