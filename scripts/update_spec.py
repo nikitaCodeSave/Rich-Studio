@@ -2,7 +2,7 @@
 
 Downloads the spec (SPEC_URL, by default telegram-bot-api-spec on GitHub), checks its shape,
 and replaces the bundled copy byte for byte when the version or the tracked types changed.
-Prints what changed in the rich types and methods, then what labels.js and render.js still lack
+Prints what changed in the rich types and methods, then what labels.js, render.js and html-export.js still lack
 (the same list tests/test_spec_coverage.py checks). Exit code: 0 nothing new, 10 the bundled spec was updated, 1 download or check failed.
 Run: make spec-update
 """
@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "app"))
 
 from settings import Settings  # noqa: E402
-from spec.coverage import gaps  # noqa: E402
+from spec.coverage import gaps, todo  # noqa: E402
 from spec.diff import diff_specs  # noqa: E402
 from spec.parse import check_spec_shape, version_tuple  # noqa: E402
 
@@ -58,7 +58,7 @@ def main() -> int:
         else "\nПодписи, предпросмотр и экспорт «В HTML» уже знают всё новое."
     )
     for g in missing:
-        print(f"- {g['kind']} {g['name']} ({g['type']}): {g['where']} в app/static/{g['file']}")
+        print(f"- {todo(g)}")
     return UPDATED
 
 

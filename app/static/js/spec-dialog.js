@@ -18,7 +18,7 @@ export function updateBadge() {
   b.classList.toggle('warn', !fresh && (S.spec.gaps.length > 0 || !!(check && check.error)));
   b.title = 'Редактор построен по ' + S.spec.version + (S.spec.release_date ? ' (' + S.spec.release_date + ')' : '')
     + (fresh ? '. Есть новое в API!' : '')
-    + (S.spec.gaps.length ? `. Редактору не хватает подписей, предпросмотра или «В HTML» для ${S.spec.gaps.length} типов` : '')
+    + (S.spec.gaps.length ? `. Редактору не хватает подписей, предпросмотра или «В HTML»: ${S.spec.gaps.length}` : '')
     + (check ? '. Проверено ' + when(check.at) + (check.error ? ': не удалось скачать' : '') : '');
 }
 
@@ -30,10 +30,13 @@ export function changesList(changes) {
 
 // what labels.js, render.js and html-export.js do not know yet: the editor still works, it only looks rougher
 export function gapsList(gaps) {
-  if (!gaps.length) return [h('p', { class: 'ok small', text: '✓ Подписи, предпросмотр и «В HTML» знают все блоки и элементы текста этой версии.' })];
+  if (!gaps.length) return [h('p', { class: 'ok small', text: '✓ Подписи, предпросмотр и «В HTML» знают все блоки, элементы текста и их поля этой версии.' })];
   const part = { labels: 'нет русской подписи (в палитре видно имя из спецификации)', preview: 'нет отрисовки (в предпросмотре заглушка с JSON, в Telegram уйдёт как есть)', export: 'нет записи в HTML («В HTML» откажется переводить пост с ним)' };
-  return [h('p', { class: 'w small', text: 'Чего пока не хватает редактору. Пост с этими блоками всё равно отправится; поправить можно в коде или дождаться еженедельного PR.' }),
-    h('ul', { class: 'changes' }, gaps.map((g) => h('li', {}, h('code', { text: g.name }), ` (${g.kind === 'block' ? 'блок' : 'элемент текста'} ${g.type}): `, h('span', { class: 'muted', text: part[g.part] || g.part }))))];
+  const kind = { block: 'блок', inline: 'элемент текста', object: 'объект в блоке' };
+  // a field of a type the hand-written parts do know: the spec added it or dropped it
+  const field = (g) => (g.gone ? 'поля больше нет в спецификации, а предпросмотр и «В HTML» его ещё читают' : 'новое поле: предпросмотр его не рисует, «В HTML» откажется переводить пост с ним');
+  return [h('p', { class: 'w small', text: 'Чего пока не хватает редактору. Пост с этими блоками и полями всё равно отправится; поправить можно в коде или дождаться еженедельного PR.' }),
+    h('ul', { class: 'changes' }, gaps.map((g) => h('li', {}, h('code', { text: g.field ? `${g.name}.${g.field}` : g.name }), ` (${kind[g.kind] || g.kind} ${g.type}): `, h('span', { class: 'muted', text: g.field ? field(g) : part[g.part] || g.part }))))];
 }
 
 /** Download the newest spec now; the badge, the palette and the forms follow. Returns a one-line summary. */

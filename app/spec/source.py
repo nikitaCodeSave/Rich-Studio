@@ -214,7 +214,7 @@ class Spec:
             "types": out_types,
             "methods": methods,
             "changes": self.changes[:10],
-            # what labels.js and render.js do not know yet in this version
+            # what labels.js, render.js and html-export.js do not know yet in this version
             "gaps": gaps(self.types),
             "last_check": self.last_check,
         }
