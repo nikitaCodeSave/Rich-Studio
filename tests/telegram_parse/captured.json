@@ -73,10 +73,10 @@
     "type": "footer"
    }
   ],
-  "captured_at": "2026-10-09",
+  "captured_at": "2026-11-28",
   "format": "html",
   "source": "<h2>Экспериментальные элементы</h2>\n<p>Синтаксис этих тегов взят из сторонней библиотеки, а не из официального описания. Проверьте на тестовом канале.</p>\n\n<blockquote collapsed>\n  Длинная цитата, которая показывается свёрнутой. Читатель раскрывает её нажатием.\n  Удобно для расшифровок, логов и длинных выдержек.\n</blockquote>\n\n<p>Эфир начнётся <tg-time unix=\"1798761600\" format=\"wDT\">1 января 2027 в 03:00 МСК</tg-time>: у каждого читателя время покажется в его часовом поясе.</p>\n\n<p>Утверждение со сноской<a href=\"#src1\"><sup>1</sup></a>.</p>\n\n<tg-button-row align=\"center\">\n  <tg-button type=\"url\" url=\"https://t.me/telegram\" style=\"primary\">Открыть канал</tg-button>\n  <tg-button type=\"copy_text\" text=\"PROMO2026\">Скопировать промокод</tg-button>\n</tg-button-row>\n\n<footer><tg-reference name=\"src1\">1. Источник: core.telegram.org/bots/api</tg-reference></footer>\n",
-  "spec": "Bot API 10.3"
+  "spec": "Bot API 10.5"
  },
  "example-post-showcase": {
   "blocks": [
@@ -462,10 +462,10 @@
     "type": "footer"
    }
   ],
-  "captured_at": "2026-10-09",
+  "captured_at": "2026-11-28",
   "format": "html",
   "source": "<h1>Rich-пост: витрина возможностей</h1>\n<p>Этот пост отправлен ботом через <code>sendRichMessage</code>. В обычном посте есть только <b>жирный</b>, <i>курсив</i>, <u>подчёркивание</u>, <s>зачёркивание</s> и <tg-spoiler>спойлер</tg-spoiler>. Здесь к ним добавляются <mark>выделение маркером</mark>, H<sub>2</sub>O и x<sup>2</sup>, формулы вроде <tg-math>e^{i\\pi} + 1 = 0</tg-math> и <a href=\"https://core.telegram.org/bots/api\">обычные ссылки</a>.</p>\n\n<h2>Содержание</h2>\n<ol>\n  <li><a href=\"#table\">Таблица</a></li>\n  <li><a href=\"#lists\">Списки и чек-лист</a></li>\n  <li><a href=\"#quotes\">Цитаты</a></li>\n  <li><a href=\"#more\">Раскрывающийся блок и код</a></li>\n</ol>\n\n<hr/>\n\n<a name=\"table\"></a>\n<h2>Таблица</h2>\n<table bordered striped>\n  <caption>Тарифы канала</caption>\n  <tr><th>Тариф</th><th align=\"right\">Цена</th><th align=\"center\">Доступ</th></tr>\n  <tr><td>Базовый</td><td align=\"right\">0 ₽</td><td align=\"center\">посты</td></tr>\n  <tr><td>Клуб</td><td align=\"right\">490 ₽</td><td align=\"center\">посты + чат</td></tr>\n  <tr><td colspan=\"2\">Годовая подписка со скидкой</td><td align=\"center\"><b>−20%</b></td></tr>\n</table>\n\n<a name=\"lists\"></a>\n<h2>Списки и чек-лист</h2>\n<ul>\n  <li>Обычный пункт</li>\n  <li>Пункт со <b>вложенным</b> списком\n    <ul><li>второй уровень</li></ul>\n  </li>\n</ul>\n<ul>\n  <li><input type=\"checkbox\" checked>Написать пост</li>\n  <li><input type=\"checkbox\" checked>Сверстать таблицу</li>\n  <li><input type=\"checkbox\">Опубликовать</li>\n</ul>\n\n<a name=\"quotes\"></a>\n<h2>Цитаты</h2>\n<blockquote>\n  <p>Хорошее оформление экономит читателю время.</p>\n  <cite>Редакция канала</cite>\n</blockquote>\n<aside>Крупная центрированная цитата для акцента<cite>pull quote</cite></aside>\n\n<a name=\"more\"></a>\n<h2>Раскрывающийся блок и код</h2>\n<details>\n  <summary>Нажмите, чтобы раскрыть подробности</summary>\n  <p>Внутри может быть что угодно: абзацы, списки, таблицы, медиа.</p>\n  <tg-math-block>\\int_0^1 x^2\\,dx = \\frac{1}{3}</tg-math-block>\n</details>\n<pre><code class=\"language-python\">print(\"Привет из rich-поста\")</code></pre>\n\n<p><a href=\"#\">Наверх ↑</a></p>\n<footer>Подпишитесь, чтобы не пропустить следующие посты</footer>\n",
-  "spec": "Bot API 10.3"
+  "spec": "Bot API 10.5"
  },
  "html-blocks": {
   "blocks": [
@@ -502,10 +502,10 @@
     "type": "pre"
    }
   ],
-  "captured_at": "2026-10-09",
+  "captured_at": "2026-11-28",
   "format": "html",
   "source": "<h3>H3</h3><footer>подвал</footer><hr/><details open><summary>Открыто</summary><p>внутри</p></details><pre><code class=\"language-js\">let a = 1;</code></pre><pre>без языка</pre>",
-  "spec": "Bot API 10.3"
+  "spec": "Bot API 10.5"
  },
  "html-detected-card-ton": {
   "blocks": [
@@ -527,10 +527,10 @@
     "type": "paragraph"
    }
   ],
-  "captured_at": "2026-11-15",
+  "captured_at": "2026-11-28",
   "format": "html",
   "source": "<p>Карта 4242 4242 4242 4242, адрес TON EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c и UQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAJKZ</p>",
-  "spec": "Bot API 10.4"
+  "spec": "Bot API 10.5"
  },
  "html-entities": {
   "blocks": [
@@ -547,10 +547,47 @@
     "type": "paragraph"
    }
   ],
-  "captured_at": "2026-11-15",
+  "captured_at": "2026-11-28",
   "format": "html",
   "source": "<p>1&nbsp;2 3&mdash;4 5&laquo;6 7&#X22;8</p>",
-  "spec": "Bot API 10.4"
+  "spec": "Bot API 10.5"
+ },
+ "html-expandable-blocks": {
+  "blocks": [
+   {
+    "blocks": [
+     {
+      "text": "абзац",
+      "type": "paragraph"
+     },
+     {
+      "items": [
+       {
+        "blocks": [
+         {
+          "text": "пункт",
+          "type": "paragraph"
+         }
+        ],
+        "label": "•"
+       }
+      ],
+      "type": "list"
+     },
+     {
+      "text": "код",
+      "type": "pre"
+     }
+    ],
+    "credit": "Автор",
+    "text": "",
+    "type": "expandable_blockquote"
+   }
+  ],
+  "captured_at": "2026-11-28",
+  "format": "html",
+  "source": "<blockquote expandable><p>абзац</p><ul><li>пункт</li></ul><pre>код</pre><cite>Автор</cite></blockquote>",
+  "spec": "Bot API 10.5"
  },
  "html-href-apos": {
   "blocks": [
@@ -563,10 +600,10 @@
     "type": "paragraph"
    }
   ],
-  "captured_at": "2026-11-15",
+  "captured_at": "2026-11-28",
   "format": "html",
   "source": "<p><a href=\"https://example.com/?q=&#x27;x&#x27;\">ссылка</a></p>",
-  "spec": "Bot API 10.4"
+  "spec": "Bot API 10.5"
  },
  "html-href-pct22": {
   "blocks": [
@@ -579,10 +616,10 @@
     "type": "paragraph"
    }
   ],
-  "captured_at": "2026-11-15",
+  "captured_at": "2026-11-28",
   "format": "html",
   "source": "<p><a href=\"https://example.com/?q=%22x%22\">ссылка</a></p>",
-  "spec": "Bot API 10.4"
+  "spec": "Bot API 10.5"
  },
  "html-href-quot": {
   "blocks": [
@@ -591,10 +628,10 @@
     "type": "paragraph"
    }
   ],
-  "captured_at": "2026-11-15",
+  "captured_at": "2026-11-28",
   "format": "html",
   "source": "<p><a href=\"https://example.com/?q=&quot;x&quot;\">ссылка</a></p>",
-  "spec": "Bot API 10.4"
+  "spec": "Bot API 10.5"
  },
  "html-href-space": {
   "blocks": [
@@ -603,10 +640,10 @@
     "type": "paragraph"
    }
   ],
-  "captured_at": "2026-11-16",
+  "captured_at": "2026-11-28",
   "format": "html",
   "source": "<p><a href=\"https://example.com/?q=a b\">ссылка</a></p>",
-  "spec": "Bot API 10.4"
+  "spec": "Bot API 10.5"
  },
  "html-href-u2028": {
   "blocks": [
@@ -615,10 +652,10 @@
     "type": "paragraph"
    }
   ],
-  "captured_at": "2026-11-16",
+  "captured_at": "2026-11-28",
   "format": "html",
   "source": "<p><a href=\"https://example.com/?q=a&#x2028;b\">ссылка</a></p>",
-  "spec": "Bot API 10.4"
+  "spec": "Bot API 10.5"
  },
  "html-inline": {
   "blocks": [
@@ -697,10 +734,10 @@
     "type": "paragraph"
    }
   ],
-  "captured_at": "2026-10-09",
+  "captured_at": "2026-11-28",
   "format": "html",
   "source": "<p><b>b</b> <strong>strong</strong> <i>i</i> <em>em</em> <u>u</u> <ins>ins</ins> <s>s</s> <del>del</del> <strike>strike</strike> <mark>mark</mark> <sub>sub</sub> <sup>sup</sup> <code>code</code> <span class=\"tg-spoiler\">span</span> <tg-spoiler>tg</tg-spoiler></p>",
-  "spec": "Bot API 10.3"
+  "spec": "Bot API 10.5"
  },
  "html-lists": {
   "blocks": [
@@ -758,10 +795,10 @@
     "type": "list"
    }
   ],
-  "captured_at": "2026-10-09",
+  "captured_at": "2026-11-28",
   "format": "html",
   "source": "<ol start=\"5\"><li>пять</li><li>шесть</li></ol><ul><li><input type=\"checkbox\" checked> да</li><li><input type=\"checkbox\"> нет</li></ul>",
-  "spec": "Bot API 10.3"
+  "spec": "Bot API 10.5"
  },
  "html-math-nested": {
   "blocks": [
@@ -781,10 +818,10 @@
     "type": "mathematical_expression"
    }
   ],
-  "captured_at": "2026-11-16",
+  "captured_at": "2026-11-28",
   "format": "html",
   "source": "<p>Формула в формуле <tg-math>a<tg-math>b</tg-math>c</tg-math> и в блоке</p><tg-math-block>x+<tg-math>y</tg-math></tg-math-block>",
-  "spec": "Bot API 10.4"
+  "spec": "Bot API 10.5"
  },
  "html-math-time": {
   "blocks": [
@@ -815,10 +852,10 @@
     "type": "paragraph"
    }
   ],
-  "captured_at": "2026-10-09",
+  "captured_at": "2026-11-28",
   "format": "html",
   "source": "<p>Формула <tg-math>a^2</tg-math></p><tg-math-block>\\sum_i i</tg-math-block><p><tg-time unix=\"1798761600\" format=\"wDT\">дата</tg-time> и <tg-time unix=\"1798761600\" format=\"r\"></tg-time></p>",
-  "spec": "Bot API 10.3"
+  "spec": "Bot API 10.5"
  },
  "html-numeric-entities": {
   "blocks": [
@@ -860,10 +897,10 @@
     "type": "paragraph"
    }
   ],
-  "captured_at": "2026-11-16",
+  "captured_at": "2026-11-28",
   "format": "html",
   "source": "<p>A: &#65; &#0000000000000065; &#x0000000000041; как есть: &#X41; &#65 &#; &#x;</p><p>управляющие: a&#0;b&#1;c&#9;d&#10;e&#13;f&#31;g</p><p>128…160: x&#128;x&#150;x&#159;x&#160;x</p><pre>в pre: a&#0;b&#9;c</pre><p><code>в code: a&#10;b</code></p>",
-  "spec": "Bot API 10.4"
+  "spec": "Bot API 10.5"
  },
  "html-numeric-vanish": {
   "blocks": [
@@ -876,10 +913,10 @@
     "type": "paragraph"
    }
   ],
-  "captured_at": "2026-11-16",
+  "captured_at": "2026-11-28",
   "format": "html",
   "source": "<p>первый абзац</p><p>второй a&#xD800;b</p>",
-  "spec": "Bot API 10.4"
+  "spec": "Bot API 10.5"
  },
  "html-quotes": {
   "blocks": [
@@ -894,6 +931,12 @@
     "type": "blockquote"
    },
    {
+    "blocks": [
+     {
+      "text": "expandable",
+      "type": "paragraph"
+     }
+    ],
     "text": "expandable",
     "type": "expandable_blockquote"
    },
@@ -912,10 +955,10 @@
     "type": "pullquote"
    }
   ],
-  "captured_at": "2026-10-09",
+  "captured_at": "2026-11-28",
   "format": "html",
   "source": "<blockquote>обычная<cite>Автор</cite></blockquote><blockquote expandable>expandable</blockquote><blockquote collapsed>collapsed</blockquote><aside>акцент<cite>Кто</cite></aside>",
-  "spec": "Bot API 10.3"
+  "spec": "Bot API 10.5"
  },
  "html-refs": {
   "blocks": [
@@ -952,10 +995,10 @@
     "type": "paragraph"
    }
   ],
-  "captured_at": "2026-10-09",
+  "captured_at": "2026-11-28",
   "format": "html",
   "source": "<p>Сноска<a href=\"#n1\"><sup>1</sup></a> и якорь <a href=\"#part\">к якорю</a></p><a name=\"part\"></a><p><tg-reference name=\"n1\">Текст сноски</tg-reference></p>",
-  "spec": "Bot API 10.3"
+  "spec": "Bot API 10.5"
  },
  "html-table-attrs": {
   "blocks": [
@@ -991,10 +1034,10 @@
     "type": "table"
    }
   ],
-  "captured_at": "2026-10-09",
+  "captured_at": "2026-11-28",
   "format": "html",
   "source": "<table bordered striped compact><caption>Подпись</caption><tr><th align=\"right\">A</th><th>B</th></tr><tr><td colspan=\"2\" align=\"center\" valign=\"bottom\">12</td></tr></table>",
-  "spec": "Bot API 10.3"
+  "spec": "Bot API 10.5"
  },
  "html-table-plain": {
   "blocks": [
@@ -1030,10 +1073,10 @@
     "type": "table"
    }
   ],
-  "captured_at": "2026-10-09",
+  "captured_at": "2026-11-28",
   "format": "html",
   "source": "<table><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr></table>",
-  "spec": "Bot API 10.3"
+  "spec": "Bot API 10.5"
  },
  "html-text-outside-p": {
   "blocks": [
@@ -1050,10 +1093,10 @@
     "type": "paragraph"
    }
   ],
-  "captured_at": "2026-10-09",
+  "captured_at": "2026-11-28",
   "format": "html",
   "source": "Текст без абзаца\nвторая строка<br>после br<p>абзац</p>хвост",
-  "spec": "Bot API 10.3"
+  "spec": "Bot API 10.5"
  },
  "html-ton-checksum": {
   "blocks": [
@@ -1106,10 +1149,10 @@
     "type": "paragraph"
    }
   ],
-  "captured_at": "2026-11-16",
+  "captured_at": "2026-11-28",
   "format": "html",
   "source": "<p>Неверная сумма EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9d и EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2X, верная EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2N. Base64 EQAAW7YRbMcifdgzjulEn/pVsAtmwRx30i2I4z6Z9E+qBcnt и base64url EQAAW7YRbMcifdgzjulEn_pVsAtmwRx30i2I4z6Z9E-qBcnt, смесь алфавитов EQAAW7YRbMcifdgzjulEn/pVsAtmwRx30i2I4z6Z9E-qBcnt. Workchain 1 EQEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEKA. Masterchain Ef8AW7YRbMcifdgzjulEn_pVsAtmwRx30i2I4z6Z9E-qBTal, testnet kQAAW7YRbMcifdgzjulEn_pVsAtmwRx30i2I4z6Z9E-qBXJn.</p>",
-  "spec": "Bot API 10.4"
+  "spec": "Bot API 10.5"
  },
  "md-breaks": {
   "blocks": [
@@ -1122,10 +1165,10 @@
     "type": "paragraph"
    }
   ],
-  "captured_at": "2026-10-09",
+  "captured_at": "2026-11-28",
   "format": "markdown",
   "source": "строка один\nстрока два\n\nабзац с двумя пробелами  \nперенос\nи обратный слэш\\\nперенос",
-  "spec": "Bot API 10.3"
+  "spec": "Bot API 10.5"
  },
  "md-code": {
   "blocks": [
@@ -1143,10 +1186,10 @@
     "type": "pre"
    }
   ],
-  "captured_at": "2026-10-09",
+  "captured_at": "2026-11-28",
   "format": "markdown",
   "source": "```python\nprint('hi')\n```\n\n    отступ код\n\n```\nбез языка\n```",
-  "spec": "Bot API 10.3"
+  "spec": "Bot API 10.5"
  },
  "md-entities": {
   "blocks": [
@@ -1163,10 +1206,10 @@
     "type": "paragraph"
    }
   ],
-  "captured_at": "2026-11-15",
+  "captured_at": "2026-11-28",
   "format": "markdown",
   "source": "1&nbsp;2 3&mdash;4 5&laquo;6 7&#X22;8",
-  "spec": "Bot API 10.4"
+  "spec": "Bot API 10.5"
  },
  "md-escape": {
   "blocks": [
@@ -1182,10 +1225,10 @@
     "type": "paragraph"
    }
   ],
-  "captured_at": "2026-10-09",
+  "captured_at": "2026-11-28",
   "format": "markdown",
   "source": "\\*не курсив\\* и \\|\\|не спойлер\\|\\| и 2*3*4",
-  "spec": "Bot API 10.3"
+  "spec": "Bot API 10.5"
  },
  "md-footnote": {
   "blocks": [
@@ -1228,10 +1271,10 @@
     "type": "footer"
    }
   ],
-  "captured_at": "2026-10-09",
+  "captured_at": "2026-11-28",
   "format": "markdown",
   "source": "Текст со сноской[^1].\n\n[^1]: Текст сноски.",
-  "spec": "Bot API 10.3"
+  "spec": "Bot API 10.5"
  },
  "md-heading-indent": {
   "blocks": [
@@ -1261,10 +1304,10 @@
     "type": "pre"
    }
   ],
-  "captured_at": "2026-11-16",
+  "captured_at": "2026-11-28",
   "format": "markdown",
   "source": "# h\n    a&#xD800;b\n\n***\n    a&#xD800;b\n\nh\n===\n    a&#xD800;b",
-  "spec": "Bot API 10.4"
+  "spec": "Bot API 10.5"
  },
  "md-headings": {
   "blocks": [
@@ -1304,10 +1347,10 @@
     "type": "heading"
    }
   ],
-  "captured_at": "2026-10-09",
+  "captured_at": "2026-11-28",
   "format": "markdown",
   "source": "# H1\n## H2\n### H3\n#### H4\n##### H5\n###### H6\n\nSetext\n======",
-  "spec": "Bot API 10.3"
+  "spec": "Bot API 10.5"
  },
  "md-hr": {
   "blocks": [
@@ -1330,10 +1373,10 @@
     "type": "paragraph"
    }
   ],
-  "captured_at": "2026-10-09",
+  "captured_at": "2026-11-28",
   "format": "markdown",
   "source": "до\n\n---\n\nпосле\n\n***\n\nконец",
-  "spec": "Bot API 10.3"
+  "spec": "Bot API 10.5"
  },
  "md-html": {
   "blocks": [
@@ -1375,10 +1418,10 @@
     "type": "paragraph"
    }
   ],
-  "captured_at": "2026-10-09",
+  "captured_at": "2026-11-28",
   "format": "markdown",
   "source": "Текст <tg-spoiler>спойлер</tg-spoiler>\n\n<details><summary>Заголовок</summary>\n\nвнутри **жирный**\n\n</details>\n\n<footer>подвал</footer>\n\n<tg-math>x^2</tg-math>",
-  "spec": "Bot API 10.3"
+  "spec": "Bot API 10.5"
  },
  "md-inline": {
   "blocks": [
@@ -1438,10 +1481,10 @@
     "type": "paragraph"
    }
   ],
-  "captured_at": "2026-10-09",
+  "captured_at": "2026-11-28",
   "format": "markdown",
   "source": "**жирный** *курсив* _курсив2_ __подчёркнутый?__ ~~зачёркнутый~~ `код` ==маркер?== ||спойлер|| и **вложенный ||спойлер||**",
-  "spec": "Bot API 10.3"
+  "spec": "Bot API 10.5"
  },
  "md-links": {
   "blocks": [
@@ -1492,10 +1535,10 @@
     "type": "paragraph"
    }
   ],
-  "captured_at": "2026-10-09",
+  "captured_at": "2026-11-28",
   "format": "markdown",
   "source": "[ссылка](https://example.com) и https://t.me/telegram и <https://core.telegram.org> и @durov и #тег и /start и test@example.com",
-  "spec": "Bot API 10.3"
+  "spec": "Bot API 10.5"
  },
  "md-lists": {
   "blocks": [
@@ -1604,10 +1647,10 @@
     "type": "list"
    }
   ],
-  "captured_at": "2026-10-09",
+  "captured_at": "2026-11-28",
   "format": "markdown",
   "source": "- один\n- два\n  - вложенный\n\n3. три\n4. четыре\n\n- [x] сделано\n- [ ] нет\n\n* звёздочка",
-  "spec": "Bot API 10.3"
+  "spec": "Bot API 10.5"
  },
  "md-math": {
   "blocks": [
@@ -1640,10 +1683,10 @@
     "type": "mathematical_expression"
    }
   ],
-  "captured_at": "2026-10-09",
+  "captured_at": "2026-11-28",
   "format": "markdown",
   "source": "Блок:\n\n$$E=mc^2$$\n\nВ строке $a^2+b^2$ и цены $5 и $10, экранированный \\$ знак.\n\n$$\n\\int_0^1 x\\,dx\n$$",
-  "spec": "Bot API 10.3"
+  "spec": "Bot API 10.5"
  },
  "md-math-edge": {
   "blocks": [
@@ -1668,10 +1711,10 @@
     "type": "mathematical_expression"
    }
   ],
-  "captured_at": "2026-10-09",
+  "captured_at": "2026-11-28",
   "format": "markdown",
   "source": "Текст $$x^2$$ в строке, пробелы $ a $ и $b$, деньги 5$ и 10$.\n\n$$a$$ и $$b$$",
-  "spec": "Bot API 10.3"
+  "spec": "Bot API 10.5"
  },
  "md-nested": {
   "blocks": [
@@ -1718,10 +1761,10 @@
     "type": "paragraph"
    }
   ],
-  "captured_at": "2026-10-09",
+  "captured_at": "2026-11-28",
   "format": "markdown",
   "source": "**жирный _курсив ||спойлер `код`||_** и ~~**зачёркнутый жирный**~~ и [**ссылка**](https://t.me)",
-  "spec": "Bot API 10.3"
+  "spec": "Bot API 10.5"
  },
  "md-numeric-entities": {
   "blocks": [
@@ -1749,10 +1792,10 @@
     "type": "pre"
    }
   ],
-  "captured_at": "2026-11-16",
+  "captured_at": "2026-11-28",
   "format": "markdown",
   "source": "A: &#65; &#0000000000000065; и x&#128;x&#150;x\n\nвторой a&#xD800;b\n\nтретий **жирный&#1114112;** конец\n\n```\nкод &#65; &#xD800;\n```",
-  "spec": "Bot API 10.4"
+  "spec": "Bot API 10.5"
  },
  "md-quote": {
   "blocks": [
@@ -1784,10 +1827,10 @@
     "type": "blockquote"
    }
   ],
-  "captured_at": "2026-10-09",
+  "captured_at": "2026-11-28",
   "format": "markdown",
   "source": "> цитата\n> вторая строка\n>\n> второй абзац\n\n> > вложенная",
-  "spec": "Bot API 10.3"
+  "spec": "Bot API 10.5"
  },
  "md-sub-sup": {
   "blocks": [
@@ -1807,10 +1850,10 @@
     "type": "paragraph"
    }
   ],
-  "captured_at": "2026-10-09",
+  "captured_at": "2026-11-28",
   "format": "markdown",
   "source": "H~2~O и x^2^ и <sub>низ</sub> <sup>верх</sup>",
-  "spec": "Bot API 10.3"
+  "spec": "Bot API 10.5"
  },
  "md-table": {
   "blocks": [
@@ -1878,10 +1921,10 @@
     "type": "table"
    }
   ],
-  "captured_at": "2026-10-09",
+  "captured_at": "2026-11-28",
   "format": "markdown",
   "source": "| Слева | Центр | Справа |\n|:---|:---:|---:|\n| 1 | 2 | 3 |\n| **ж** | ||с|| | `к` |",
-  "spec": "Bot API 10.3"
+  "spec": "Bot API 10.5"
  },
  "md-table-pipes": {
   "blocks": [
@@ -1961,10 +2004,10 @@
     "type": "table"
    }
   ],
-  "captured_at": "2026-10-09",
+  "captured_at": "2026-11-28",
   "format": "markdown",
   "source": "| a | b | c |\n|---|---|---|\n| 1 || 3 |\n| x | ||s|| | y |\n| p | q |",
-  "spec": "Bot API 10.3"
+  "spec": "Bot API 10.5"
  },
  "md-table-plain": {
   "blocks": [
@@ -2002,9 +2045,9 @@
     "type": "table"
    }
   ],
-  "captured_at": "2026-10-09",
+  "captured_at": "2026-11-28",
   "format": "markdown",
   "source": "| a | b |\n|---|---|\n| 1 | 2 |",
-  "spec": "Bot API 10.3"
+  "spec": "Bot API 10.5"
  }
 }
