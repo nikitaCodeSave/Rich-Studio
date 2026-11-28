@@ -65,14 +65,17 @@ interface ChatRule {
   hint: string | null;
 }
 
-/** What labels.js or render.js does not know yet (spec/coverage.py) */
+/** What labels.js, render.js or html-export.js does not know yet (spec/coverage.py) */
 interface SpecGap {
-  part: 'labels' | 'preview';
+  part: 'labels' | 'preview' | 'export' | 'fields';
   file: string;
   where: string;
-  kind: 'block' | 'inline';
+  kind: 'block' | 'inline' | 'object';
   name: string;
   type: string;
+  /** part "fields" only: the field, and whether the spec no longer has it (false: the spec added it) */
+  field?: string;
+  gone?: boolean;
 }
 
 /** GET /api/updates, and `updates` in /api/config */

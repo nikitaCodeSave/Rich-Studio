@@ -1,7 +1,7 @@
 // «В HTML»: the visual post as Telegram's rich HTML, put into the HTML tab only on request (docs/decisions/0018).
 // What every block and text element becomes is written by hand, like the preview in render.js, after
-// core.telegram.org/bots/api#rich-html-style. BLOCK_FIELDS and INLINE_FIELDS are the table: spec/coverage.py
-// (tests/test_spec_coverage.py) lists the spec's types missing there. Nothing is lost quietly: a type or a field not
+// core.telegram.org/bots/api#rich-html-style. BLOCK_FIELDS, INLINE_FIELDS and PARTS are the table: spec/coverage.py
+// (tests/test_spec_coverage.py) lists the spec's types and fields missing there, and the fields the spec no longer has. Nothing is lost quietly: a type or a field not
 // in the table, or a value HTML cannot say, refuses the whole export with the list of what and where, and the HTML
 // tab stays as it was. The result is read back the way the preview reads HTML and must outline the same as the blocks.
 import { openDialog, closeDialog } from './dialogs.js';
@@ -74,6 +74,12 @@ const PARTS = {
   cell: ['text', 'is_header', 'colspan', 'rowspan', 'align', 'valign'],
   caption: ['text', 'credit'],
   location: ['latitude', 'longitude'],
+};
+// spec type → its fields HTML has no way to say: a post with one is refused («поле … не переносится в HTML»).
+// <tg-map> has no size (docs/decisions/0018). spec/coverage.py reads the list: every other field of the spec
+// must be in the tables above
+export const NOT_IN_HTML = {
+  InputRichBlockMap: ['width', 'height'],
 };
 // RichMessageButton: exactly one action, written as <tg-button type="…"> with these attributes
 const ACTIONS = ['url', 'callback_data', 'web_app', 'login_url', 'switch_inline_query', 'switch_inline_query_current_chat', 'switch_inline_query_chosen_chat', 'copy_text', 'disabled'];

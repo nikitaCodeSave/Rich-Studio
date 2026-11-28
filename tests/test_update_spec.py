@@ -54,7 +54,7 @@ def test_newer_version_is_written_as_downloaded(bundled, monkeypatch, capsys):
     assert bundled.read_bytes() == body
     out = capsys.readouterr().out
     assert "Bot API 99.0" in out and "method_added: sendBrandNewThing" in out
-    assert "block hologram (InputRichBlockHologram): BLOCK_LABELS" in out and "renderBlock" in out
+    assert "block hologram (InputRichBlockHologram): добавьте в BLOCK_LABELS" in out and "renderBlock" in out
 
 
 @pytest.mark.parametrize(

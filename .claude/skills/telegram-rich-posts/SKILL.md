@@ -18,7 +18,7 @@ curl -s https://raw.githubusercontent.com/PaulSonOfLars/telegram-bot-api-spec/ma
 ```
 
 - Over MCP: `bot_api_status`; `refresh_bot_api` downloads the newest spec now (by itself the studio checks at startup and every 12 hours). A server studio answers `pinned`: its spec changes only with an image update, so say that instead of retrying.
-- Both report `gaps`: blocks the editor has no Russian label, preview or «В HTML» export for (`part`: `labels`, `preview`, `export`). They send fine; tell the user the preview may show them as a JSON stub and «В HTML» refuses the post.
+- Both report `gaps`: blocks the editor has no Russian label, preview or «В HTML» export for (`part`: `labels`, `preview`, `export`), and fields of a block it does know that the spec added or dropped (`part`: `fields`, with `field` and `gone`). They send fine; tell the user the preview may show such a block as a JSON stub or without the new field, and «В HTML» refuses the post.
 - Newer than 10.5: before writing, read the diff `POST $S/api/spec/refresh` returns (types, fields, methods) and https://core.telegram.org/bots/api-changelog. Use new features when they fit and say which.
 - Exact fields of a type or method: `describe_type`, `curl -s "${A[@]}" $S/api/spec/type/InputRichBlockTable` or `jq '.types.InputRichBlockTable' api.json`. Every field of a post: `curl -s "${A[@]}" $S/api/spec | jq '.post.types | map_values([.fields[].name])'` (`Post`; `PostOptions`, the sendRichMessage parameters of `options`; `PollAfter`, the sendPoll ones of `poll_after`).
 - The HTML/Markdown tag grammar is not in api.json but in https://core.telegram.org/bots/api#rich-message-formatting-options (WebFetch may truncate it): check it for a tag not listed below and after a new version.
