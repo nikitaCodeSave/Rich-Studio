@@ -20,7 +20,7 @@ export const BLOCK_FIELDS = {
   anchor: ['name'],
   list: ['items'],
   blockquote: ['blocks', 'credit'],
-  expandable_blockquote: ['blocks', 'text', 'credit'],
+  expandable_blockquote: ['blocks', 'credit'],
   pullquote: ['text', 'credit'],
   collage: ['blocks', 'caption'],
   slideshow: ['blocks', 'caption'],
@@ -355,10 +355,7 @@ function write(blocks, opts, pretty) {
       case 'thinking': return `<tg-thinking>${text(b.text)}</tg-thinking>`;
       case 'list': return list(b, here, ind);
       case 'blockquote': return `<blockquote>${children(b.blocks, here, inner)}${b.credit !== undefined ? nl(inner) + credit(b, here) : ''}${nl(ind)}</blockquote>`;
-      // since Bot API 10.5 the quote holds blocks; a post saved before that has text
-      case 'expandable_blockquote':
-        if (!Array.isArray(b.blocks)) return `<blockquote expandable>${text(b.text)}${credit(b, here)}</blockquote>`;
-        return `<blockquote expandable>${children(b.blocks, here, inner)}${b.credit !== undefined ? nl(inner) + credit(b, here) : ''}${nl(ind)}</blockquote>`;
+      case 'expandable_blockquote': return `<blockquote expandable>${children(b.blocks, here, inner)}${b.credit !== undefined ? nl(inner) + credit(b, here) : ''}${nl(ind)}</blockquote>`;
       case 'pullquote': return `<aside>${text(b.text)}${credit(b, here)}</aside>`;
       // no line breaks inside: a collage or a slideshow takes whatever is in it as its items
       case 'collage': case 'slideshow':

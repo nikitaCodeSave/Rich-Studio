@@ -260,8 +260,7 @@
         return list;
       }
       case 'blockquote': return el('blockquote', {}, renderBlocks(b.blocks, ctx), b.credit ? el('cite', {}, rt(b.credit)) : null);
-      // since Bot API 10.5 the quote holds blocks; a post saved before that has text
-      case 'expandable_blockquote': return expandable(el('div', {}, Array.isArray(b.blocks) ? renderBlocks(b.blocks, ctx) : rt(b.text)), b.credit ? el('cite', {}, rt(b.credit)) : null);
+      case 'expandable_blockquote': return expandable(el('div', {}, renderBlocks(b.blocks, ctx)), b.credit ? el('cite', {}, rt(b.credit)) : null);
       case 'pullquote': return el('aside', { class: 'tg-pullquote' }, el('div', {}, rt(b.text)), b.credit ? el('cite', {}, rt(b.credit)) : null);
       case 'collage': return el('figure', { class: 'tg-collage' }, el('div', { class: 'tg-collage-grid' }, renderBlocks(b.blocks, ctx)), caption(b.caption, ctx));
       case 'slideshow': return slideshow(renderBlocks(b.blocks, ctx), caption(b.caption, ctx));

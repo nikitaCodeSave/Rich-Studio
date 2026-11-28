@@ -100,6 +100,11 @@
   "source": "<blockquote>обычная<cite>Автор</cite></blockquote><blockquote expandable>expandable</blockquote><blockquote collapsed>collapsed</blockquote><aside>акцент<cite>Кто</cite></aside>"
  },
  {
+  "name": "html-expandable-blocks",
+  "format": "html",
+  "source": "<blockquote expandable><p>абзац</p><ul><li>пункт</li></ul><pre>код</pre><cite>Автор</cite></blockquote>"
+ },
+ {
   "name": "html-blocks",
   "format": "html",
   "source": "<h3>H3</h3><footer>подвал</footer><hr/><details open><summary>Открыто</summary><p>внутри</p></details><pre><code class=\"language-js\">let a = 1;</code></pre><pre>без языка</pre>"

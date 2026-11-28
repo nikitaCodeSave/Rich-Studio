@@ -33,7 +33,7 @@ curl -s https://raw.githubusercontent.com/PaulSonOfLars/telegram-bot-api-spec/ma
 
 ## 3. Cheat sheet
 
-**Blocks** (`type`): `paragraph{text}`, `heading{text,size 1-6}`, `pre{text,language?}`, `footer{text}`, `divider`, `mathematical_expression{expression}` (LaTeX), `anchor{name}`, `list{items[{blocks,has_checkbox?,is_checked?,value?,type?}]}`, `blockquote{blocks,credit?}`, `expandable_blockquote{blocks,credit?}` (blocks since 10.5, text before), `pullquote{text,credit?}`, `collage{blocks,caption?}`, `slideshow{blocks,caption?}`, `table{cells[[{text?,is_header?,colspan?,rowspan?,align,valign}]],is_bordered?,is_striped?,is_compact?,caption?}`, `details{summary,blocks,is_open?}`, `map{location{latitude,longitude},zoom?,width?,height?,caption?}`, `buttons{buttons[1-8],align?}`, `photo|video|animation|audio|document|voice_note{<kind>: InputMedia*, caption?}`, `thinking{text}` (drafts in private chats only).
+**Blocks** (`type`): `paragraph{text}`, `heading{text,size 1-6}`, `pre{text,language?}`, `footer{text}`, `divider`, `mathematical_expression{expression}` (LaTeX), `anchor{name}`, `list{items[{blocks,has_checkbox?,is_checked?,value?,type?}]}`, `blockquote{blocks,credit?}`, `expandable_blockquote{blocks,credit?}`, `pullquote{text,credit?}`, `collage{blocks,caption?}`, `slideshow{blocks,caption?}`, `table{cells[[{text?,is_header?,colspan?,rowspan?,align,valign}]],is_bordered?,is_striped?,is_compact?,caption?}`, `details{summary,blocks,is_open?}`, `map{location{latitude,longitude},zoom?,width?,height?,caption?}`, `buttons{buttons[1-8],align?}`, `photo|video|animation|audio|document|voice_note{<kind>: InputMedia*, caption?}`, `thinking{text}` (drafts in private chats only).
 Block captions are `{text, credit?}`, a table's caption is RichText. The spec marks a cell's `align` (left/center/right) and `valign` (top/middle/bottom) required; Telegram takes a cell without them as left, middle.
 A list item holds blocks: `{"type":"list","items":[{"blocks":[{"type":"paragraph","text":"Пункт"}]}]}`.
 
@@ -162,6 +162,7 @@ Clicks, comments, reactions and poll results need the update loop (`GET $S/api/u
 - A reply that did not go (refused, 429, no answer in those 4 seconds, a forbidden field, a press that waited in the studio over 14 seconds, e.g. queued after downtime) is a `callback.reply_failed` line in `studio_logs` and counts in the post's `reply_errors` (`{callback_data: {n, error, at}}`) next to `clicks`.
 - One button, one fixed reply: callback buttons inside a reply get no answer (no multi-step flows).
 - The preview from `send_preview_to_me` answers its buttons too: the user can try a reply there.
+- Do not change `callback_query_mode` with `setMySettings` (Bot API 10.5): the studio finds the post of a press by the `message` of the callback query, which the modes `inline` and `auto` replace with `inline_message_id`; the button then gets an empty answer and the click is not counted.
 
 ### HTTP API
 
