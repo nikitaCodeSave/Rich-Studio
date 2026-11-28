@@ -777,7 +777,9 @@
         rep = mediaEl(kind, info.media || (info.id ? 'нет в media: ' + info.id : null), ctx);
         if (node.hasAttribute('tg-spoiler')) rep.classList.add('tg-media-spoiler');
       } else if (tag === 'blockquote' && node.hasAttribute('expandable')) {
-        rep = expandable(el('div', {}, kids()), null);
+        // as in a plain quote: its <cite> is the credit line, the rest are its blocks
+        const cites = kids().filter((k) => k.nodeType === 1 && /** @type {Element} */ (k).tagName === 'CITE');
+        rep = expandable(el('div', {}, kids().filter((k) => !cites.includes(k))), cites);
       } else if (tag === 'aside') { node.classList.add('tg-pullquote'); }
       else if (tag === 'table') {
         ['bordered', 'striped', 'compact'].forEach((k) => node.hasAttribute(k) && node.classList.add(k));
@@ -835,7 +837,8 @@
       else if (anchors.has(name) || !name) { a.setAttribute('href', '#anchor-' + name); a.classList.add('tg-link'); } // bare # is the top of the post
     });
     wrapLoose(root);
-    root.querySelectorAll('blockquote').forEach(wrapLoose);
+    // the blocks of an expandable quote are in its first child (expandable())
+    root.querySelectorAll('blockquote').forEach((q) => wrapLoose(q.classList.contains('tg-expandable') ? q.firstElementChild : q));
   }
 
   // Text and inline tags outside any block become a paragraph, as Telegram makes them
