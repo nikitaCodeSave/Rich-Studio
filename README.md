@@ -51,7 +51,7 @@ docker compose up -d --build
 
 HTML-виджеты (`sendWidget`) в каналы не отправляются, поэтому в редакторе их нет ([0024](docs/decisions/0024-no-widgets-in-editor.md)); их методы, как и любые другие, доступны через `/api/raw`.
 
-<img src="docs/images/spec.jpg" alt="Окно спецификации: версия Bot API, источник и кнопка проверки обновлений" width="640">
+<img src="docs/images/spec.jpg" alt="Окно спецификации: версия Bot API, источник, изменения с прошлой версии и кнопка проверки обновлений" width="640">
 
 ### Что обновляется вручную
 
