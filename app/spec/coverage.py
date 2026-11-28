@@ -129,7 +129,7 @@ def gaps(types: dict) -> list[dict]:
     for table, kind, key, type_name, listed, of_spec in _rows(types, export):
         in_spec = of_spec - not_in_html.get(type_name, set())
         for field in in_spec ^ listed:
-            gap = {"part": "fields", "file": EXPORT, "where": table, "kind": kind, "name": key, "type": type_name}
+            gap: dict = {"part": "fields", "file": EXPORT, "where": table, "kind": kind, "name": key, "type": type_name}
             out.append({**gap, "field": field, "gone": field not in in_spec})
     return sorted(out, key=lambda g: (g["part"], g["kind"], g["name"], g.get("field", "")))
 
